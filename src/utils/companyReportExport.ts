@@ -1,5 +1,5 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { jsPDF } from 'jspdf';
+import autoTableModule from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import {
   AlignmentType,
@@ -19,42 +19,28 @@ import {
   VerticalAlign,
   WidthType,
 } from 'docx';
-import { SurveyType } from '../types/survey';
-import { CompanyComposite } from './scoring';
 import { logExport } from './exportHistory';
-import { formatCompositeScore } from '../data/questionWeights';
+import {
+  CompanyReportData,
+  formatCategoryMetricLabel,
+  formatReportNumber,
+  formatReportPercentage,
+  getReportAverageText,
+} from '../features/feedback-hub/reporting';
 
-/** What graph sections the person chose to include, plus the captured chart images (if any). */
-export interface CompanyReportGraphSelection {
-  bar: boolean;
-  radar: boolean;
-  trend: boolean;
-  perQuestion: boolean;
-}
+// jspdf-autotable exposes a direct default function in the browser bundle and
+// a nested default when loaded through Node's ESM-to-CommonJS bridge. Supporting
+// both keeps browser Preview/Print and the deterministic PDF QA runner aligned.
+const autoTable: typeof autoTableModule = typeof autoTableModule === 'function'
+  ? autoTableModule
+  : (autoTableModule as unknown as { default: typeof autoTableModule }).default;
 
-export interface CompanyReportQuestionRow {
-  question: string;
-  average: number;
-  responses: number;
-}
-
-export interface CompanyReportChartImages {
-  bar?: string | null; // PNG data URL
-  radar?: string | null;
-  trend?: string | null;
-}
-
-export interface CompanyReportData {
-  company: string;
-  surveyType: SurveyType;
-  composite: CompanyComposite;
-  generatedOn: string;
-  graphs?: CompanyReportGraphSelection;
-  includeComments: boolean;
-  questionRows: CompanyReportQuestionRow[];
-  chartImages?: CompanyReportChartImages;
-  selectedCommentsList?: { responseId: string; comment: string; respondentType: string; department?: string; submissionDate: string }[];
-}
+export type {
+  CompanyReportChartImages,
+  CompanyReportData,
+  CompanyReportGraphSelection,
+  CompanyReportQuestionRow,
+} from '../features/feedback-hub/reporting';
 
 const BRAND = [0, 99, 169] as const;
 const BRAND_HEX = '0063A9';
@@ -106,6 +92,378 @@ async function fetchLogoDataUrl(): Promise<string | null> {
 /* PDF export                                                          */
 /* ------------------------------------------------------------------ */
 
+function hexToRgb(hex: string): [number, number, number] {
+  const normalized = hex.replace('#', '').padEnd(6, '0').slice(0, 6);
+  const parsed = Number.parseInt(normalized, 16);
+  if (!Number.isFinite(parsed)) return [0, 99, 169];
+  return [(parsed >> 16) & 255, (parsed >> 8) & 255, parsed & 255];
+}
+
+function drawPdfHeader(
+  doc: jsPDF,
+  data: CompanyReportData,
+  logoDataUrl: string | null,
+  marginLeft: number,
+  pageWidth: number,
+) {
+  if (logoDataUrl) {
+    const logoWidth = 86;
+    doc.addImage(logoDataUrl, 'PNG', marginLeft, 22, logoWidth, logoWidth * LOGO_ASPECT);
+  }
+
+  const rightEdge = pageWidth - marginLeft;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 41, 59);
+  const companyLines = doc.splitTextToSize(data.company, 245).slice(0, 2) as string[];
+  doc.text(companyLines, rightEdge, 31, { align: 'right', lineHeightFactor: 1.05 });
+  const titleY = 31 + Math.max(1, companyLines.length) * 10;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.2);
+  doc.setTextColor(100, 116, 139);
+  doc.text(data.template.reportTitle, rightEdge, titleY, { align: 'right' });
+
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.7);
+  doc.line(marginLeft, 74, rightEdge, 74);
+}
+
+function drawCoverPage(
+  doc: jsPDF,
+  data: CompanyReportData,
+  logoDataUrl: string | null,
+  pageWidth: number,
+  pageHeight: number,
+) {
+  if (logoDataUrl) {
+    const coverLogoWidth = 192;
+    doc.addImage(
+      logoDataUrl,
+      'PNG',
+      (pageWidth - coverLogoWidth) / 2,
+      172,
+      coverLogoWidth,
+      coverLogoWidth * LOGO_ASPECT,
+    );
+  }
+
+  doc.setDrawColor(...BRAND);
+  doc.setLineWidth(1.1);
+  doc.line(pageWidth / 2 - 70, 260, pageWidth / 2 + 70, 260);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(23);
+  doc.setTextColor(30, 41, 59);
+  const titleLines = doc.splitTextToSize(data.template.reportTitle, 430) as string[];
+  doc.text(titleLines, pageWidth / 2, 310, { align: 'center', lineHeightFactor: 1.08 });
+
+  const companyY = 310 + titleLines.length * 26 + 6;
+  doc.setFontSize(15.5);
+  doc.setTextColor(...BRAND);
+  const companyLines = doc.splitTextToSize(data.company.toUpperCase(), 455) as string[];
+  doc.text(companyLines, pageWidth / 2, companyY, { align: 'center', lineHeightFactor: 1.08 });
+
+  const dateY = companyY + companyLines.length * 18 + 7;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Report date: ${data.generatedOn}`, pageWidth / 2, dateY, { align: 'center' });
+  const periodLines = doc.splitTextToSize(`Reporting period: ${data.reportingPeriod}`, 410) as string[];
+  doc.text(periodLines, pageWidth / 2, dateY + 15, { align: 'center', lineHeightFactor: 1.1 });
+
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.7);
+  doc.line(pageWidth / 2 - 90, dateY + 44, pageWidth / 2 + 90, dateY + 44);
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Microgenesis | Supplier Management', pageWidth / 2, pageHeight - 54, { align: 'center' });
+}
+
+function getRatingRangeLabel(data: CompanyReportData, index: number): string {
+  const band = data.ratingScale[index];
+  const previous = data.ratingScale[index - 1];
+  const maximum = data.surveyType === 'Subcontractor' ? 2 : 100;
+  const upper = index === 0
+    ? maximum
+    : Math.max(band.displayMinimum, previous.displayMinimum - (data.surveyType === 'Subcontractor' ? 0.01 : 1));
+  const format = (value: number) => data.surveyType === 'Subcontractor' ? value.toFixed(2) : String(Math.round(value));
+  return band.displayMinimum <= 0
+    ? `${format(0)}-${format(upper)}`
+    : `${format(band.displayMinimum)}-${format(upper)}`;
+}
+
+function drawRatingScale(doc: jsPDF, data: CompanyReportData, x: number, y: number, width: number) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('Rating Scale', x, y);
+
+  const columnWidth = width / Math.max(data.ratingScale.length, 1);
+  data.ratingScale.forEach((band, index) => {
+    const cellX = x + index * columnWidth;
+    const [r, g, b] = hexToRgb(band.hex);
+    doc.setFillColor(r, g, b);
+    doc.roundedRect(cellX, y + 10, 8, 8, 1, 1, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.2);
+    doc.setTextColor(30, 41, 59);
+    doc.text(band.label, cellX + 13, y + 17);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.4);
+    doc.setTextColor(100, 116, 139);
+    doc.text(getRatingRangeLabel(data, index), cellX + 13, y + 28);
+  });
+}
+
+function drawCategoryChart(
+  doc: jsPDF,
+  data: CompanyReportData,
+  marginLeft: number,
+  pageWidth: number,
+  startY: number,
+) {
+  const plotX = marginLeft + 18;
+  const plotY = startY + 26;
+  const plotWidth = 330;
+  const plotHeight = 224;
+  const baselineY = plotY + plotHeight;
+  const legendX = plotX + plotWidth + 34;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('Category Performance', marginLeft, startY);
+
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.5);
+  for (let tick = 0; tick <= 100; tick += 20) {
+    const tickY = baselineY - (tick / 100) * plotHeight;
+    doc.line(plotX, tickY, plotX + plotWidth, tickY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    doc.setTextColor(100, 116, 139);
+    doc.text(String(tick), plotX - 7, tickY + 2, { align: 'right' });
+  }
+
+  const slotWidth = plotWidth / Math.max(data.categoryRows.length, 1);
+  const barWidth = Math.min(38, slotWidth * 0.56);
+  data.categoryRows.forEach((category, index) => {
+    const barHeight = (Math.min(100, Math.max(0, category.percentage)) / 100) * plotHeight;
+    const barX = plotX + index * slotWidth + (slotWidth - barWidth) / 2;
+    const barY = baselineY - barHeight;
+    const [r, g, b] = hexToRgb(category.color);
+    doc.setFillColor(r, g, b);
+    if (barHeight > 0) doc.rect(barX, barY, barWidth, barHeight, 'F');
+
+    const labelY = Math.max(plotY + 10, barY - 16);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(r, g, b);
+    doc.text(
+      `${formatReportNumber(category.achieved)} / ${formatReportNumber(category.maximum)}`,
+      barX + barWidth / 2,
+      labelY,
+      { align: 'center' },
+    );
+    doc.text(formatReportPercentage(category.percentage), barX + barWidth / 2, labelY + 9, { align: 'center' });
+  });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('Categories', legendX, plotY + 2);
+  data.categoryRows.forEach((category, index) => {
+    const itemY = plotY + 20 + index * 39;
+    const [r, g, b] = hexToRgb(category.color);
+    doc.setFillColor(r, g, b);
+    doc.rect(legendX, itemY - 7, 9, 9, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.8);
+    doc.setTextColor(30, 41, 59);
+    const nameLines = doc.splitTextToSize(category.category, pageWidth - marginLeft - legendX - 14).slice(0, 2) as string[];
+    doc.text(nameLines, legendX + 14, itemY, { lineHeightFactor: 1.05 });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.1);
+    doc.setTextColor(100, 116, 139);
+    doc.text(formatCategoryMetricLabel(category), legendX + 14, itemY + nameLines.length * 8 + 2);
+  });
+
+  if (!data.composite) {
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(plotX + 69, plotY + 92, 192, 34, 4, 4, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text('No responses available', plotX + plotWidth / 2, plotY + 112, { align: 'center' });
+  }
+}
+
+function drawExecutiveSummaryPage(
+  doc: jsPDF,
+  data: CompanyReportData,
+  logoDataUrl: string | null,
+  marginLeft: number,
+  pageWidth: number,
+) {
+  drawPdfHeader(doc, data, logoDataUrl, marginLeft, pageWidth);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('Executive Summary', marginLeft, 100);
+
+  const contentWidth = pageWidth - marginLeft * 2;
+  const stripY = 114;
+  const cellWidth = contentWidth / 3;
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.7);
+  doc.roundedRect(marginLeft, stripY, contentWidth, 54, 5, 5, 'S');
+  const metrics = [
+    { label: 'AVERAGE SCORE', value: getReportAverageText(data), color: data.composite?.band.hex ?? '#94A3B8' },
+    { label: 'RATING', value: data.composite?.band.label ?? 'No Score Yet', color: data.composite?.band.hex ?? '#94A3B8' },
+    { label: 'RESPONDENTS', value: String(data.composite?.evaluationCount ?? 0), color: '#1E293B' },
+  ];
+  metrics.forEach((metric, index) => {
+    const x = marginLeft + index * cellWidth + 13;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.2);
+    doc.setTextColor(100, 116, 139);
+    doc.text(metric.label, x, stripY + 18);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(index === 1 ? 12 : 14);
+    doc.setTextColor(...hexToRgb(metric.color));
+    const valueLines = doc.splitTextToSize(metric.value, cellWidth - 20).slice(0, 2) as string[];
+    doc.text(valueLines, x, stripY + 38, { lineHeightFactor: 1.0 });
+  });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.2);
+  doc.setTextColor(100, 116, 139);
+  const periodLines = doc.splitTextToSize(`Reporting period: ${data.reportingPeriod}`, contentWidth) as string[];
+  doc.text(periodLines, marginLeft, 184, { lineHeightFactor: 1.1 });
+
+  drawRatingScale(doc, data, marginLeft, 211, contentWidth);
+  drawCategoryChart(doc, data, marginLeft, pageWidth, 272);
+}
+
+async function addSupplementalChartPage(
+  doc: jsPDF,
+  data: CompanyReportData,
+  logoDataUrl: string | null,
+  marginLeft: number,
+  pageWidth: number,
+  pageHeight: number,
+  title: string,
+  dataUrl: string | null | undefined,
+) {
+  if (!dataUrl) return;
+  doc.addPage();
+  drawPdfHeader(doc, data, logoDataUrl, marginLeft, pageWidth);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text(title, marginLeft, 100);
+
+  const dimensions = await dataUrlDimensions(dataUrl);
+  const maxWidth = pageWidth - marginLeft * 2;
+  const maxHeight = pageHeight - 175;
+  const ratio = Math.min(maxWidth / dimensions.width, maxHeight / dimensions.height);
+  const width = dimensions.width * ratio;
+  const height = dimensions.height * ratio;
+  doc.addImage(dataUrl, 'PNG', marginLeft + (maxWidth - width) / 2, 122, width, height);
+}
+
+function addQuestionTablePages(
+  doc: jsPDF,
+  data: CompanyReportData,
+  logoDataUrl: string | null,
+  marginLeft: number,
+  pageWidth: number,
+) {
+  doc.addPage();
+  const body = data.questionRows.length
+    ? data.questionRows.map((row) => [row.question, formatReportPercentage(row.average), String(row.responses)])
+    : [[{ content: 'No responses available', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'italic' as const } }]];
+
+  autoTable(doc, {
+    startY: 116,
+    head: [['Question', 'Average Rating', 'Responses']],
+    body,
+    margin: { left: marginLeft, right: marginLeft, top: 116, bottom: 56 },
+    styles: {
+      font: 'helvetica',
+      fontSize: 8.8,
+      cellPadding: 6,
+      overflow: 'linebreak',
+      valign: 'middle',
+      lineColor: [226, 232, 240],
+      lineWidth: 0.4,
+    },
+    columnStyles: {
+      0: { cellWidth: 'auto' },
+      1: { cellWidth: 88, halign: 'center' },
+      2: { cellWidth: 70, halign: 'center' },
+    },
+    headStyles: { fillColor: BRAND as unknown as [number, number, number], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [247, 249, 252] },
+    showHead: 'everyPage',
+    willDrawPage: (hookData) => {
+      drawPdfHeader(doc, data, logoDataUrl, marginLeft, pageWidth);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(
+        hookData.pageNumber === 1 ? 'Per-Question Average Rating' : 'Per-Question Average Rating (continued)',
+        marginLeft,
+        100,
+      );
+    },
+  });
+}
+
+function addCommentTablePages(
+  doc: jsPDF,
+  data: CompanyReportData,
+  logoDataUrl: string | null,
+  marginLeft: number,
+  pageWidth: number,
+) {
+  doc.addPage();
+  const body = data.selectedCommentsList.length
+    ? data.selectedCommentsList.map((comment, index) => [String(index + 1), comment.comment])
+    : [[{ content: 'No comments submitted', colSpan: 2, styles: { halign: 'center' as const, fontStyle: 'italic' as const } }]];
+
+  autoTable(doc, {
+    startY: 116,
+    head: [['#', 'Feedback / Comments']],
+    body,
+    margin: { left: marginLeft, right: marginLeft, top: 116, bottom: 56 },
+    styles: {
+      font: 'helvetica',
+      fontSize: 8.8,
+      cellPadding: 7,
+      overflow: 'linebreak',
+      valign: 'middle',
+      lineColor: [226, 232, 240],
+      lineWidth: 0.4,
+    },
+    columnStyles: {
+      0: { cellWidth: 30, halign: 'center' },
+      1: { cellWidth: 'auto', fontStyle: 'italic' },
+    },
+    headStyles: { fillColor: BRAND as unknown as [number, number, number], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [247, 249, 252] },
+    showHead: 'everyPage',
+    willDrawPage: (hookData) => {
+      drawPdfHeader(doc, data, logoDataUrl, marginLeft, pageWidth);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(hookData.pageNumber === 1 ? 'Stakeholder Comments' : 'Stakeholder Comments (continued)', marginLeft, 100);
+    },
+  });
+}
+
 export async function exportCompanyReportAsPDF(
   data: CompanyReportData,
   customFilename?: string,
@@ -113,187 +471,47 @@ export async function exportCompanyReportAsPDF(
   asDataUri?: boolean
 ): Promise<string | undefined> {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-  const marginLeft = 48;
+  const marginLeft = 42.5;
   const pageWidth = doc.internal.pageSize.width;
   const pageHeight = doc.internal.pageSize.height;
-  const contentWidth = pageWidth - marginLeft * 2;
-  const logoDataUrl = await fetchLogoDataUrl();
+  const logoDataUrl = data.logoDataUrl || await fetchLogoDataUrl();
 
-  /* ---------------- Cover page ---------------- */
-  if (logoDataUrl) {
-    const coverLogoWidth = 190;
-    const coverLogoHeight = coverLogoWidth * LOGO_ASPECT;
-    doc.addImage(logoDataUrl, 'PNG', (pageWidth - coverLogoWidth) / 2, 168, coverLogoWidth, coverLogoHeight);
-  }
-
-  doc.setDrawColor(...BRAND);
-  doc.setLineWidth(1.1);
-  doc.line(pageWidth / 2 - 70, 258, pageWidth / 2 + 70, 258);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(23);
-  doc.setTextColor(30, 30, 30);
-  doc.text('Company Performance Report', pageWidth / 2, 312, { align: 'center' });
-
-  doc.setFontSize(16);
-  doc.setTextColor(...BRAND);
-  doc.text(data.company, pageWidth / 2, 338, { align: 'center' });
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10.5);
-  doc.setTextColor(100);
-  doc.text(`${data.surveyType} Evaluation  \u00b7  Generated ${data.generatedOn}`, pageWidth / 2, 358, { align: 'center' });
-
-  doc.setDrawColor(226, 232, 240);
-  doc.setLineWidth(0.75);
-  doc.line(pageWidth / 2 - 90, 400, pageWidth / 2 + 90, 400);
-
-  doc.setFontSize(9.5);
-  doc.setTextColor(140);
-  doc.text('Prepared for internal review by the', pageWidth / 2, pageHeight - 96, { align: 'center' });
-  doc.setFont('helvetica', 'bold');
-  doc.text('Microgenesis Supplier Management System', pageWidth / 2, pageHeight - 82, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.text('This document is confidential and intended solely for the named recipient.', pageWidth / 2, pageHeight - 62, {
-    align: 'center',
-  });
+  drawCoverPage(doc, data, logoDataUrl, pageWidth, pageHeight);
 
   doc.addPage();
+  drawExecutiveSummaryPage(doc, data, logoDataUrl, marginLeft, pageWidth);
 
-  const HEADER_BOTTOM = 74;
-  let cursorY = HEADER_BOTTOM + 22;
+  if (data.graphs?.radar) {
+    await addSupplementalChartPage(
+      doc,
+      data,
+      logoDataUrl,
+      marginLeft,
+      pageWidth,
+      pageHeight,
+      'Section Scores - Radar Graph',
+      data.chartImages?.radar,
+    );
+  }
+  if (data.graphs?.trend) {
+    await addSupplementalChartPage(
+      doc,
+      data,
+      logoDataUrl,
+      marginLeft,
+      pageWidth,
+      pageHeight,
+      'Score Trend',
+      data.chartImages?.trend,
+    );
+  }
 
-  const drawHeader = () => {
-    if (logoDataUrl) {
-      const hw = 84;
-      const hh = hw * LOGO_ASPECT;
-      doc.addImage(logoDataUrl, 'PNG', marginLeft, 22, hw, hh);
-    }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(30, 30, 30);
-    doc.text(data.company, pageWidth - marginLeft, 36, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(140);
-    doc.text('Company Performance Report', pageWidth - marginLeft, 48, { align: 'right' });
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.75);
-    doc.line(marginLeft, HEADER_BOTTOM, pageWidth - marginLeft, HEADER_BOTTOM);
-  };
-
-  const ensureSpace = (needed: number) => {
-    if (cursorY + needed > pageHeight - 56) {
-      doc.addPage();
-      drawHeader();
-      cursorY = HEADER_BOTTOM + 22;
-    }
-  };
-
-  drawHeader();
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14.5);
-  doc.setTextColor(20, 20, 20);
-  doc.text('Executive Summary', marginLeft, cursorY);
-  cursorY += 16;
-
-  // Score summary strip
-  doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(marginLeft, cursorY, contentWidth, 48, 5, 5, 'S');
-  doc.setFontSize(8.5);
-  doc.setTextColor(100);
-  doc.text('COMPOSITE SCORE', marginLeft + 12, cursorY + 17);
-  doc.text('RATING BAND', marginLeft + 190, cursorY + 17);
-  doc.text('EVALUATIONS', marginLeft + 340, cursorY + 17);
-  doc.setFontSize(13.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...BRAND);
-  doc.text(formatCompositeScore(data.surveyType, data.composite.compositeScore).text, marginLeft + 12, cursorY + 35);
-  doc.setTextColor(20, 20, 20);
-  doc.text(data.composite.band.label, marginLeft + 190, cursorY + 35);
-  doc.text(String(data.composite.evaluationCount), marginLeft + 340, cursorY + 35);
-  doc.setFont('helvetica', 'normal');
-  cursorY += 72;
-
-  const addImageSection = async (title: string, dataUrl: string | null | undefined, widthScale: number) => {
-    if (!dataUrl) return;
-    const { width, height } = await dataUrlDimensions(dataUrl);
-    const drawWidth = contentWidth * widthScale;
-    const drawHeight = (height / width) * drawWidth;
-    ensureSpace(drawHeight + 30);
-    doc.setFontSize(10.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(20, 20, 20);
-    doc.text(title, marginLeft, cursorY);
-    cursorY += 11;
-    const x = marginLeft + (contentWidth - drawWidth) / 2;
-    doc.addImage(dataUrl, 'PNG', x, cursorY, drawWidth, drawHeight);
-    cursorY += drawHeight + 18;
-  };
-
-  // Bar/radar: compact, roughly half the content width so both sit comfortably on one A4 page.
-  // Trend: wider and shorter, spanning most of the content width so the x-axis has room to breathe.
-  if (data.graphs?.bar) await addImageSection('Section Scores \u2014 Bar Graph', data.chartImages?.bar, 0.9);
-  if (data.graphs?.radar) await addImageSection('Section Scores \u2014 Radar Graph', data.chartImages?.radar, 0.9);
-  if (data.graphs?.trend) await addImageSection('Score Trend', data.chartImages?.trend, 0.9);
-
-  if (data.graphs?.perQuestion) {
-    ensureSpace(180);
-    doc.setFontSize(11.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(20, 20, 20);
-    doc.text('Per-Question Average Rating', marginLeft, cursorY);
-    cursorY += 8;
-    autoTable(doc, {
-      startY: cursorY,
-      head: [['Question', 'Average Rating', 'Responses']],
-      body: data.questionRows.map((row) => [row.question, `${row.average.toFixed(1)}`, String(row.responses)]),
-      margin: { left: marginLeft, right: marginLeft, top: HEADER_BOTTOM + 16 },
-      styles: { fontSize: 9, cellPadding: 6 },
-      headStyles: { fillColor: BRAND as unknown as [number, number, number], textColor: 255, fontStyle: 'bold', fontSize: 9 },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-      theme: 'striped',
-      didDrawPage: () => drawHeader(),
-    });
-    cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 22;
+  if (data.graphs?.perQuestion !== false) {
+    addQuestionTablePages(doc, data, logoDataUrl, marginLeft, pageWidth);
   }
 
   if (data.includeComments) {
-    const comments = data.selectedCommentsList || [];
-    ensureSpace(150);
-    doc.setFontSize(11.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(20, 20, 20);
-    doc.text('Stakeholder Comments', marginLeft, cursorY);
-    cursorY += 8;
-
-    if (comments.length === 0) {
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'italic');
-      doc.setTextColor(120);
-      doc.text('No comments selected for display.', marginLeft, cursorY, {
-        maxWidth: contentWidth,
-      });
-      cursorY += 26;
-    } else {
-      autoTable(doc, {
-        startY: cursorY,
-        head: [['#', 'Feedback / Comments']],
-        body: comments.map((c, idx) => [String(idx + 1), `"${c.comment}"`]),
-        margin: { left: marginLeft, right: marginLeft, top: HEADER_BOTTOM + 16 },
-        styles: { fontSize: 9, cellPadding: 6, fontStyle: 'italic' },
-        columnStyles: {
-          0: { fontStyle: 'normal', width: 25, halign: 'center' as const },
-          1: { fontStyle: 'italic' }
-        },
-        headStyles: { fillColor: BRAND as unknown as [number, number, number], textColor: 255, fontStyle: 'bold', fontSize: 9 },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        theme: 'striped',
-        didDrawPage: () => drawHeader(),
-      });
-      cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 22;
-    }
+    addCommentTablePages(doc, data, logoDataUrl, marginLeft, pageWidth);
   }
 
   // Footer on every content page (cover page excluded)
@@ -303,10 +521,10 @@ export async function exportCompanyReportAsPDF(
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
     doc.line(marginLeft, pageHeight - 34, pageWidth - marginLeft, pageHeight - 34);
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.8);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(150);
-    doc.text('Microgenesis Supplier Management System \u2014 Confidential', marginLeft, pageHeight - 20);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Microgenesis | Supplier Management', marginLeft, pageHeight - 20);
     doc.text(`Page ${i - 1} of ${pageCount - 1}`, pageWidth - marginLeft, pageHeight - 20, { align: 'right' });
   }
 
@@ -393,7 +611,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 160 },
-      children: [new TextRun({ text: 'Company Performance Report', bold: true, size: 40, color: INK_HEX })],
+      children: [new TextRun({ text: data.template.reportTitle, bold: true, size: 40, color: INK_HEX })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -404,7 +622,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
       alignment: AlignmentType.CENTER,
       spacing: { after: 2000 },
       children: [
-        new TextRun({ text: `${data.surveyType} Evaluation  \u00b7  Generated ${data.generatedOn}`, size: 20, color: MUTED_HEX }),
+        new TextRun({ text: `${data.reportingPeriod} | Report date ${data.generatedOn}`, size: 20, color: MUTED_HEX }),
       ],
     }),
     new Paragraph({
@@ -415,7 +633,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 40 },
-      children: [new TextRun({ text: 'Microgenesis Supplier Management System', bold: true, size: 17, color: INK_HEX })],
+      children: [new TextRun({ text: 'Microgenesis | Supplier Management', bold: true, size: 17, color: INK_HEX })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -456,7 +674,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
                 children: [new TextRun({ text: 'COMPOSITE SCORE', bold: true, size: 18, color: MUTED_HEX })],
               }),
               new Paragraph({
-                children: [new TextRun({ text: formatCompositeScore(data.surveyType, data.composite.compositeScore).text, bold: true, size: 56, color: BRAND_HEX })],
+                children: [new TextRun({ text: getReportAverageText(data), bold: true, size: 56, color: BRAND_HEX })],
               }),
             ],
           }),
@@ -470,7 +688,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
                 children: [new TextRun({ text: 'RATING BAND', bold: true, size: 18, color: MUTED_HEX })],
               }),
               new Paragraph({
-                children: [new TextRun({ text: data.composite.band.label, bold: true, size: 36, color: INK_HEX })],
+                children: [new TextRun({ text: data.composite?.band.label ?? 'No Score Yet', bold: true, size: 36, color: INK_HEX })],
               }),
             ],
           }),
@@ -484,7 +702,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
                 children: [new TextRun({ text: 'EVALUATIONS', bold: true, size: 18, color: MUTED_HEX })],
               }),
               new Paragraph({
-                children: [new TextRun({ text: String(data.composite.evaluationCount), bold: true, size: 36, color: INK_HEX })],
+                children: [new TextRun({ text: String(data.composite?.evaluationCount ?? 0), bold: true, size: 36, color: INK_HEX })],
               }),
             ],
           }),
@@ -565,7 +783,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
       })
     );
 
-    const comments = data.selectedCommentsList || [];
+    const comments = data.selectedCommentsList;
     if (comments.length === 0) {
       bodyBlocks.push(
         new Paragraph({
@@ -650,7 +868,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
             : []),
           new TextRun({ text: '\t' }),
           new TextRun({ text: `${data.company}\n`, bold: true, size: 15, color: INK_HEX }),
-          new TextRun({ text: 'Company Performance Report', size: 13, color: MUTED_HEX }),
+          new TextRun({ text: data.template.reportTitle, size: 13, color: MUTED_HEX }),
         ],
       }),
     ],
@@ -662,7 +880,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
         border: { top: { color: RULE_HEX, space: 6, style: BorderStyle.SINGLE, size: 6 } },
         alignment: AlignmentType.CENTER,
         children: [
-          new TextRun({ text: 'Microgenesis Supplier Management System \u2014 Confidential   \u00b7   Page ', size: 14, color: '94A3B8' }),
+          new TextRun({ text: 'Microgenesis | Supplier Management | Page ', size: 14, color: '94A3B8' }),
           new TextRun({ children: [PageNumber.CURRENT], size: 14, color: '94A3B8' }),
           new TextRun({ text: ' of ', size: 14, color: '94A3B8' }),
           new TextRun({ children: [PageNumber.TOTAL_PAGES], size: 14, color: '94A3B8' }),

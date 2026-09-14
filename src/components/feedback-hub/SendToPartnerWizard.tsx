@@ -42,32 +42,28 @@ import {
 } from 'recharts';
 import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../../types/survey';
 import { PartnerContact, QueuedReportEmail } from '../../types/feedbackHub';
-import { surveyTypeDisplayLabel, formatCompositeScore } from '../../data/questionWeights';
+import { formatCompositeScore } from '../../data/questionWeights';
 import {
   captureChartImage,
-  CompanyReportData,
   exportCompanyReportAsPDF,
 } from '../../utils/companyReportExport';
-import { computeCompanyComposite, getCompanyTrend, getSectionPeerAverages } from '../../utils/scoring';
+import {
+  CompanyReportDataError,
+  computeReportComposite,
+  createCompanyReportData,
+  filterResponsesForReport,
+  getOverallFeedbackQuestionId,
+  getReportTemplateConfig,
+  normalizeReportResponsesForCompany,
+} from '../../features/feedback-hub/reporting';
+import { getCompanyTrend, getSectionPeerAverages } from '../../utils/scoring';
 import { formatNumber, getScoreAxisDomain, questionPerformance, submissionScores } from '../../utils/analytics';
 import { radarPointLabel } from '../../utils/radarChartLabels';
-import { BulkHiddenChartCapturer } from './BulkHiddenChartCapturer';
+import { BulkHiddenChartCapturer, BulkReportCaptureItem } from './BulkHiddenChartCapturer';
 
 const PRIMARY_COLOR = '#0063a9';
 const PEER_COLOR = '#b91c1c';
 const PEER_LABEL = 'Peer average';
-
-// Each survey type stores its overall-feedback comment under its own question
-// ID. The wizard's `sType` reflects only the single survey it was opened
-// from, but bulk mode lists companies across ALL survey types at once - so
-// per-item comment lookups must resolve the ID from that item's own survey
-// type, not the wizard-wide one, or companies of the "wrong" type always
-// show 0 comments even when they have some.
-function getOverallFeedbackQuestionId(surveyType: SurveyType): string {
-  return surveyType === 'Courier' ? 'Q-CON-OVERALL-FEEDBACK' :
-         surveyType === 'Supplier' ? 'Q-SUP-OVERALL-FEEDBACK' :
-         'Q-SUB-OVERALL-FEEDBACK';
-}
 
 interface SendToPartnerWizardProps {
   surveys: CustomForm[];
@@ -83,6 +79,7 @@ interface SendToPartnerWizardProps {
   onQueueReport: (payload: {
     surveyId: string;
     surveyTitle: string;
+    companyId: string;
     companyName: string;
     surveyType: SurveyType;
     periodCovered: string;
@@ -135,20 +132,43 @@ export function SendToPartnerWizard({
 
   const sType: SurveyType = currentSurvey?.surveyType || 'Courier';
 
-  // Active target partner company (for single mode)
-  const [selectedCompanyName, setSelectedCompanyName] = useState<string>(() => {
-    if (revisionReport) return revisionReport.companyName;
-    if (initialCompanyId) {
-      const found = partnerCompanies.find((c) => c.id === initialCompanyId);
-      if (found) return found.name;
-    }
-    // Pre-select first company matching current survey type
-    if (currentSurvey) {
-      const match = partnerCompanies.find((c) => c.type === currentSurvey.surveyType && !c.isArchived);
-      if (match) return match.name;
-    }
-    return partnerCompanies[0]?.name || '';
+  // The selected partner is stored by stable ID. Names are display-only and
+  // never select the record used by Preview/Print.
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(() => {
+    if (revisionReport?.companyId) return revisionReport.companyId;
+    if (initialCompanyId) return initialCompanyId;
+    if (!currentSurvey) return '';
+    return partnerCompanies.find(
+      (company) => company.type === currentSurvey.surveyType && !company.isArchived,
+    )?.id ?? '';
   });
+  const selectedCompany = useMemo(
+    () => partnerCompanies.find((company) => company.id === selectedCompanyId && !company.isArchived),
+    [partnerCompanies, selectedCompanyId],
+  );
+  const selectedCompanyName = selectedCompany?.name ?? '';
+  const reportTemplate = getReportTemplateConfig(sType);
+  const [reportGenerationError, setReportGenerationError] = useState<string>('');
+
+  useEffect(() => {
+    if (!currentSurvey) {
+      setSelectedCompanyId('');
+      return;
+    }
+    const selectedStillMatches = partnerCompanies.some(
+      (company) =>
+        company.id === selectedCompanyId &&
+        company.type === currentSurvey.surveyType &&
+        !company.isArchived,
+    );
+    if (!selectedStillMatches) {
+      setSelectedCompanyId(
+        partnerCompanies.find(
+          (company) => company.type === currentSurvey.surveyType && !company.isArchived,
+        )?.id ?? '',
+      );
+    }
+  }, [currentSurvey, partnerCompanies, selectedCompanyId]);
 
   // Recipients
   const [recipientEmail, setRecipientEmail] = useState<string>('');
@@ -170,7 +190,7 @@ export function SendToPartnerWizard({
   const [bulkModificationsModalOpen, setBulkModificationsModalOpen] = useState(false);
   const [bulkCommentsModalCompany, setBulkCommentsModalCompany] = useState<string | null>(null);
   const [tempBulkComments, setTempBulkComments] = useState<Record<string, boolean>>({});
-  const [bulkPreviewItem, setBulkPreviewItem] = useState<any>(null);
+  const [bulkPreviewItem, setBulkPreviewItem] = useState<BulkReportCaptureItem | null>(null);
   const [bulkPreviewWindow, setBulkPreviewWindow] = useState<Window | null>(null);
 
   // Stable identity across re-renders (e.g. the page-level 5s sentReports poll)
@@ -181,26 +201,31 @@ export function SendToPartnerWizard({
   }, []);
 
   const overallFeedbackQuestionId = useMemo(() => {
-    return sType === 'Courier' ? 'Q-CON-OVERALL-FEEDBACK' :
-           sType === 'Supplier' ? 'Q-SUP-OVERALL-FEEDBACK' :
-           'Q-SUB-OVERALL-FEEDBACK';
+    return getOverallFeedbackQuestionId(sType);
   }, [sType]);
 
+  const reportResponses = useMemo(() => {
+    if (!currentSurvey || !selectedCompany) return [];
+    try {
+      return filterResponsesForReport(currentSurvey, selectedCompany, partnerCompanies, responses);
+    } catch (error) {
+      return [];
+    }
+  }, [currentSurvey, selectedCompany, partnerCompanies, responses]);
+
   const respondentComments = useMemo(() => {
-    if (!selectedCompanyName) return [];
-    return responses.filter(
+    return reportResponses.filter(
       (r) =>
-        r.company === selectedCompanyName &&
-        r.surveyType === sType &&
         r.questionId === overallFeedbackQuestionId &&
         r.comment &&
-        r.comment.trim() !== ''
+        r.comment.trim() !== '' &&
+        r.comment.trim() !== 'Submitted successfully.'
     );
-  }, [responses, selectedCompanyName, sType, overallFeedbackQuestionId]);
+  }, [reportResponses, overallFeedbackQuestionId]);
 
   useEffect(() => {
-    if (sType && selectedCompanyName) {
-      const key = `selected_comments_${sType}_${selectedCompanyName}`;
+    if (sType && selectedCompanyId) {
+      const key = `selected_comments_${sType}_${selectedCompanyId}`;
       const saved = localStorage.getItem(key);
       if (saved) {
         try {
@@ -216,7 +241,7 @@ export function SendToPartnerWizard({
         setSelectedComments(defaultSelections);
       }
     }
-  }, [sType, selectedCompanyName, respondentComments]);
+  }, [sType, selectedCompanyId, respondentComments]);
 
   const selectedCommentsList = useMemo(() => {
     return respondentComments.filter((c) => selectedComments[c.responseId]);
@@ -224,10 +249,8 @@ export function SendToPartnerWizard({
 
   // Period Covered
   const periodCovered = useMemo(() => {
-    if (currentSurvey?.periodCovered) return currentSurvey.periodCovered;
-    const year = new Date().getFullYear();
-    return `1st Half ${year}`;
-  }, [currentSurvey]);
+    return revisionReport?.periodCovered || currentSurvey?.title || `${sType} active responses`;
+  }, [revisionReport, currentSurvey, sType]);
 
   // Bulk Mode state: checklist of companies to send
   const bulkCompanies = useMemo(() => {
@@ -236,20 +259,30 @@ export function SendToPartnerWizard({
     return partnerCompanies
       .filter((c) => !c.isArchived)
       .map((c) => {
-        const compSurvey = surveys.find((s) => s.surveyType === c.type);
-        const compComposite = compSurvey ? computeCompanyComposite(c.name, c.type as SurveyType, responses) : null;
+        const compSurvey = surveys.find((s) => s.surveyType === c.type && s.status !== 'Archived');
+        let compComposite = null;
+        if (compSurvey && c.type !== 'Uncategorized') {
+          try {
+            const scopedResponses = filterResponsesForReport(compSurvey, c, partnerCompanies, responses);
+            compComposite = computeReportComposite(c.name, c.type, scopedResponses);
+          } catch {
+            compComposite = null;
+          }
+        }
         const ratingCount = compComposite ? compComposite.evaluationCount : 0;
         const avgScore = compComposite ? compComposite.compositeScore : 0;
 
         const matchingContact = contacts.find(
-          (co) => co.companyName.toLowerCase().includes(c.name.toLowerCase()) || co.partnerType === c.type
+          (contact) =>
+            contact.partnerType === c.type &&
+            contact.companyName.trim().toLowerCase() === c.name.trim().toLowerCase(),
         );
 
         return {
           company: c,
           responseCount: ratingCount,
           overallScore: avgScore,
-          recipientEmail: c.email || matchingContact?.email || 'operations@partnercompany.com',
+          recipientEmail: c.email || matchingContact?.email || '',
           ccEmails: matchingContact?.ccEmails || [],
           survey: compSurvey,
           selected: ratingCount > 0, // checked by default if they have responses
@@ -261,10 +294,10 @@ export function SendToPartnerWizard({
   const [bulkList, setBulkList] = useState(bulkCompanies);
 
   // Toggle single item in bulk list
-  const handleToggleBulkItem = (index: number) => {
-    const updated = [...bulkList];
-    updated[index].selected = !updated[index].selected;
-    setBulkList(updated);
+  const handleToggleBulkItem = (companyId: string) => {
+    setBulkList((current) => current.map((item) =>
+      item.company.id === companyId ? { ...item, selected: !item.selected } : item,
+    ));
   };
 
   // Select all / none bulk list
@@ -284,39 +317,50 @@ export function SendToPartnerWizard({
 
   // Auto-fetch contact person and pre-fill details for SINGLE mode
   const matchingContact = useMemo(() => {
+    if (!selectedCompany) return undefined;
     return contacts.find(
       (c) =>
-        c.companyName.toLowerCase().includes(selectedCompanyName.toLowerCase()) ||
-        c.partnerType === currentSurvey?.surveyType
+        c.partnerType === selectedCompany.type &&
+        c.companyName.trim().toLowerCase() === selectedCompany.name.trim().toLowerCase(),
     );
-  }, [contacts, selectedCompanyName, currentSurvey]);
+  }, [contacts, selectedCompany]);
 
   // Performance calculations for PDF render and preview
   const composite = useMemo(() => {
-    return computeCompanyComposite(selectedCompanyName, sType, responses);
-  }, [selectedCompanyName, sType, responses]);
+    if (!selectedCompany) return null;
+    return computeReportComposite(selectedCompany.name, sType, reportResponses);
+  }, [selectedCompany, sType, reportResponses]);
+
+  const peerResponseScope = useMemo(
+    () => responses.filter(
+      (response) =>
+        !response.archived &&
+        response.surveyType === sType &&
+        (!response.surveyId || response.surveyId === currentSurvey?.id),
+    ),
+    [responses, sType, currentSurvey?.id],
+  );
 
   const peerAverages = useMemo(() => {
-    return getSectionPeerAverages(responses, sType);
-  }, [responses, sType]);
+    return getSectionPeerAverages(peerResponseScope, sType);
+  }, [peerResponseScope, sType]);
 
   const trend = useMemo(() => {
-    return getCompanyTrend(responses, selectedCompanyName, sType);
-  }, [responses, selectedCompanyName, sType]);
+    if (!selectedCompany) return [];
+    return getCompanyTrend(
+      normalizeReportResponsesForCompany(selectedCompany.name, reportResponses),
+      selectedCompany.name,
+      sType,
+    );
+  }, [reportResponses, selectedCompany, sType]);
 
   const qRows = useMemo(() => {
-    const compResponses = responses.filter(
-      (r) => r.company === selectedCompanyName && r.surveyType === sType && !r.archived
-    );
-    return questionPerformance(compResponses);
-  }, [responses, selectedCompanyName, sType]);
+    return questionPerformance(reportResponses);
+  }, [reportResponses]);
 
   const subScores = useMemo(() => {
-    const compResponses = responses.filter(
-      (r) => r.company === selectedCompanyName && r.surveyType === sType && !r.archived
-    );
-    return submissionScores(compResponses);
-  }, [responses, selectedCompanyName, sType]);
+    return submissionScores(reportResponses);
+  }, [reportResponses]);
 
   const responseCount = composite ? composite.evaluationCount : 0;
   const overallScore = composite ? composite.compositeScore : 0;
@@ -381,23 +425,17 @@ export function SendToPartnerWizard({
   // Recipient sync
   useEffect(() => {
     if (!revisionReport && !bulkMode) {
-      const partner = partnerCompanies.find((c) => c.name === selectedCompanyName);
-      if (partner && partner.email) {
-        setRecipientEmail(partner.email);
+      if (selectedCompany?.email) {
+        setRecipientEmail(selectedCompany.email);
       } else {
-        const contact = contacts.find(
-          (c) =>
-            c.companyName.toLowerCase().includes(selectedCompanyName.toLowerCase()) ||
-            c.partnerType === currentSurvey?.surveyType
-        );
-        if (contact && contact.email) {
-          setRecipientEmail(contact.email);
+        if (matchingContact?.email) {
+          setRecipientEmail(matchingContact.email);
         } else {
           setRecipientEmail('');
         }
       }
     }
-  }, [selectedCompanyName, partnerCompanies, currentSurvey, contacts, revisionReport, bulkMode]);
+  }, [selectedCompany, matchingContact, revisionReport, bulkMode]);
 
   const handleAddCc = () => {
     if (ccInput.trim() && !ccEmails.includes(ccInput.trim())) {
@@ -417,44 +455,77 @@ export function SendToPartnerWizard({
 
   // PDF Export trigger using CompanyReportBuilderPage's formatting & capture!
   const handleExportPdfPreview = async (previewOnly = false) => {
+    setReportGenerationError('');
+    if (!currentSurvey) {
+      setReportGenerationError('The selected survey could not be found. Reopen the survey card and try again.');
+      return;
+    }
+    if (!selectedCompanyId || !selectedCompany) {
+      setReportGenerationError('Select a partner company before generating the report.');
+      return;
+    }
+
+    // Open synchronously from the button click so the browser does not block
+    // the tab after the asynchronous chart/PDF generation completes.
+    const previewWindow = previewOnly ? window.open('about:blank', '_blank') : null;
+    if (previewWindow) {
+      previewWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #475569;">Generating PDF preview, please wait...</p>');
+    }
+
     try {
-      // Capture live charts rendered in our preview sandbox/build preview!
+      // Let the current selection finish painting before capturing optional
+      // supplemental charts. The required category chart is drawn directly in
+      // the PDF from categoryRows, so its labels never depend on a screenshot.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
       const chartImages = {
         bar: graphs.bar ? await captureChartImage(barRef.current) : null,
         radar: graphs.radar ? await captureChartImage(radarRef.current) : null,
         trend: graphs.trend ? await captureChartImage(trendRef.current) : null,
       };
 
-      const reportData: CompanyReportData = {
-        company: selectedCompanyName,
-        surveyType: sType,
-        composite,
-        generatedOn: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+      const reportData = createCompanyReportData({
+        survey: currentSurvey,
+        companyId: selectedCompanyId,
+        partnerCompanies,
+        responses,
+        reportingPeriod: periodCovered,
         graphs,
         includeComments,
-        questionRows: qRows,
         chartImages,
-        selectedCommentsList,
-      };
+        selectedCommentIds: new Set(selectedCommentsList.map((comment) => comment.responseId)),
+      });
 
       const dateStr = new Date().toISOString().slice(0, 10);
       const nameClean = selectedCompanyName.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-      const filename = `${nameClean}_Feedback_Report_${dateStr}.pdf`;
+      const filename = `${nameClean}_${reportData.template.id}_performance_report_${dateStr}.pdf`;
 
       if (previewOnly) {
         const url = await exportCompanyReportAsPDF(reportData, filename, true);
         if (url) {
-          window.open(url, '_blank');
+          if (previewWindow) {
+            previewWindow.location.href = url;
+          } else {
+            window.open(url, '_blank');
+          }
         }
       } else {
         await exportCompanyReportAsPDF(reportData, filename);
       }
     } catch (err) {
       console.error('Error generating PDF report preview', err);
+      const message = err instanceof CompanyReportDataError || err instanceof Error
+        ? err.message
+        : 'The report could not be generated from the current data.';
+      setReportGenerationError(message);
+      if (previewWindow) {
+        previewWindow.document.body.innerHTML = `<p style="font-family: sans-serif; margin: 50px; color: #b91c1c;">${message.replace(/[<>&]/g, '')}</p>`;
+      }
     }
   };
 
-  const handlePreviewBulkItem = async (item: any) => {
+  const handlePreviewBulkItem = async (item: BulkReportCaptureItem) => {
     const newWindow = window.open('about:blank', '_blank');
     if (newWindow) {
       newWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #475569;">Generating PDF preview, please wait...</p>');
@@ -475,14 +546,15 @@ export function SendToPartnerWizard({
         const surv = item.survey;
         if (!surv) continue;
 
-        const compComposite = computeCompanyComposite(companyName, surv.surveyType, responses);
+        const scopedResponses = filterResponsesForReport(surv, item.company, partnerCompanies, responses);
+        const compComposite = computeReportComposite(companyName, surv.surveyType, scopedResponses);
         const count = compComposite ? compComposite.evaluationCount : 0;
         const score = compComposite ? compComposite.compositeScore : 0;
 
         const matchingC = contacts.find(
           (c) =>
-            c.companyName.toLowerCase().includes(companyName.toLowerCase()) ||
-            c.partnerType === surv.surveyType
+            c.partnerType === surv.surveyType &&
+            c.companyName.trim().toLowerCase() === companyName.trim().toLowerCase(),
         );
 
         const emailSubj = `[Microgenesis] Performance Evaluation Report - ${companyName} (${periodCovered})`;
@@ -491,9 +563,10 @@ export function SendToPartnerWizard({
         onQueueReport({
           surveyId: surv.id,
           surveyTitle: surv.title,
+          companyId: item.company.id,
           companyName,
           surveyType: surv.surveyType,
-          periodCovered,
+          periodCovered: surv.title,
           recipientEmail: item.recipientEmail,
           ccEmails: item.ccEmails,
           subject: emailSubj,
@@ -505,11 +578,16 @@ export function SendToPartnerWizard({
       }
     } else {
       // Single queue dispatcher
+      if (!currentSurvey || !selectedCompany) {
+        setReportGenerationError('Select a valid survey and partner company before queueing the report.');
+        return;
+      }
       onQueueReport({
-        surveyId: currentSurvey?.id || 'survey-gen-001',
-        surveyTitle: currentSurvey?.title || 'Partner Evaluation Survey',
-        companyName: selectedCompanyName,
-        surveyType: currentSurvey?.surveyType || 'Courier',
+        surveyId: currentSurvey.id,
+        surveyTitle: currentSurvey.title,
+        companyId: selectedCompany.id,
+        companyName: selectedCompany.name,
+        surveyType: currentSurvey.surveyType,
         periodCovered,
         recipientEmail,
         ccEmails,
@@ -705,13 +783,13 @@ export function SendToPartnerWizard({
               </div>
 
               <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                {bulkList.map((item, index) => (
-                  <div key={index} className="flex items-center p-4 bg-white dark:bg-slate-900 text-xs gap-6">
+                {bulkList.map((item) => (
+                  <div key={item.company.id} className="flex items-center p-4 bg-white dark:bg-slate-900 text-xs gap-6">
                     <div className="flex items-center gap-3 w-72 shrink-0">
                       <input
                         type="checkbox"
                         checked={item.selected}
-                        onChange={() => handleToggleBulkItem(index)}
+                        onChange={() => handleToggleBulkItem(item.company.id)}
                         className="h-4.5 w-4.5 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9]"
                       />
                       <div>
@@ -724,7 +802,7 @@ export function SendToPartnerWizard({
 
                     <div className="w-24 shrink-0">
                       <p className="text-[10px] text-slate-500">Overall Score</p>
-                      <p className="font-extrabold text-[#0063a9] text-sm">{formatCompositeScore(item.company.type, item.overallScore).text}</p>
+                      <p className="font-extrabold text-[#0063a9] text-sm">{formatCompositeScore(item.survey?.surveyType ?? sType, item.overallScore).text}</p>
                     </div>
 
                     <div className="flex items-center gap-6 ml-auto">
@@ -741,10 +819,10 @@ export function SendToPartnerWizard({
                              // Initialize temp state from localStorage or default true
                              const surv = item.survey;
                              if (!surv) return;
-                             const compComments = responses.filter(
-                               (r) => r.company === item.company.name && r.surveyType === surv.surveyType && r.questionId === getOverallFeedbackQuestionId(surv.surveyType) && r.comment && r.comment.trim() !== ''
+                             const compComments = filterResponsesForReport(surv, item.company, partnerCompanies, responses).filter(
+                               (r) => r.questionId === getOverallFeedbackQuestionId(surv.surveyType) && r.comment && r.comment.trim() !== '' && r.comment.trim() !== 'Submitted successfully.'
                              );
-                             const key = `selected_comments_${surv.surveyType}_${item.company.name}`;
+                             const key = `selected_comments_${surv.surveyType}_${item.company.id}`;
                              const saved = localStorage.getItem(key);
                              let initial: Record<string, boolean> = {};
                              if (saved) {
@@ -757,7 +835,7 @@ export function SendToPartnerWizard({
                                compComments.forEach(c => initial[c.responseId] = true);
                              }
                              setTempBulkComments(initial);
-                             setBulkCommentsModalCompany(item.company.name);
+                             setBulkCommentsModalCompany(item.company.id);
                           }}
                           className="inline-flex items-center justify-center gap-1.5 rounded border border-[#0063a9]/20 bg-blue-50/50 px-2 py-1.5 text-[10px] font-bold text-[#0063a9] hover:bg-[#0063a9]/10 transition dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300"
                         >
@@ -765,7 +843,15 @@ export function SendToPartnerWizard({
                           Select Feedback
                         </button>
                         <button
-                          onClick={() => handlePreviewBulkItem(item)}
+                          onClick={() => {
+                            if (item.survey) {
+                              handlePreviewBulkItem({
+                                company: item.company,
+                                survey: item.survey,
+                                periodCovered: item.survey.title,
+                              });
+                            }
+                          }}
                           className="inline-flex items-center justify-center gap-1.5 rounded border border-[#0063a9]/20 bg-[#0063a9]/10 px-2 py-1.5 text-[10px] font-bold text-[#0063a9] hover:bg-[#0063a9]/20 transition dark:border-blue-900/40 dark:text-blue-300"
                         >
                           <FileText size={12} />
@@ -831,29 +917,30 @@ export function SendToPartnerWizard({
                         Select Partner Company to Dispatch Report
                       </label>
                       <select
-                        value={selectedCompanyName}
+                        value={selectedCompanyId}
                         onChange={(e) => {
-                          const name = e.target.value;
-                          setSelectedCompanyName(name);
-                          // Sync survey and email fields automatically
-                          const targetComp = partnerCompanies.find((comp) => comp.name === name);
+                          const companyId = e.target.value;
+                          setSelectedCompanyId(companyId);
+                          setReportGenerationError('');
+                          const targetComp = partnerCompanies.find((comp) => comp.id === companyId);
                           if (targetComp) {
-                            const matchingSurvey = surveys.find((s) => s.surveyType === targetComp.type);
-                            if (matchingSurvey) {
-                              setCurrentSurvey(matchingSurvey);
-                            }
-                            const contact = contacts.find((cont) => cont.companyName.toLowerCase().includes(name.toLowerCase()));
-                            setRecipientEmail(targetComp.email || contact?.email || 'operations@partnercompany.com');
+                            const contact = contacts.find(
+                              (candidate) =>
+                                candidate.partnerType === targetComp.type &&
+                                candidate.companyName.trim().toLowerCase() === targetComp.name.trim().toLowerCase(),
+                            );
+                            setRecipientEmail(targetComp.email || contact?.email || '');
                             setCcEmails(contact?.ccEmails || []);
                           }
                         }}
                         className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0063a9]"
                       >
+                        <option value="" disabled>Select a company</option>
                         {partnerCompanies
-                          .filter((comp) => !comp.isArchived)
+                          .filter((comp) => !comp.isArchived && comp.type === currentSurvey?.surveyType)
                           .map((comp) => (
-                            <option key={comp.id} value={comp.name}>
-                              {comp.name} ({comp.type})
+                            <option key={comp.id} value={comp.id}>
+                              {comp.name}
                             </option>
                           ))}
                       </select>
@@ -1089,15 +1176,15 @@ export function SendToPartnerWizard({
                               <div className="flex h-full flex-col items-center justify-center px-6 text-center">
                                 <img src="/microgenesis_logo.png" alt="Microgenesis" className="h-10 w-auto" />
                                 <div className="mt-5 h-px w-14 bg-[#0063a9]" />
-                                <h1 className="mt-5 text-xl font-black text-slate-800 dark:text-slate-100 leading-tight">Company Performance Report</h1>
-                                <p className="mt-1 text-base font-extrabold text-[#0063a9]">{selectedCompanyName}</p>
+                                <h1 className="mt-5 text-xl font-black text-slate-800 dark:text-slate-100 leading-tight">{reportTemplate.reportTitle}</h1>
+                                <p className="mt-1 text-base font-extrabold text-[#0063a9]">{selectedCompanyName || 'Select a company'}</p>
                                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                  {surveyTypeDisplayLabel[sType]} · Generated{' '}
+                                  {periodCovered} · Generated{' '}
                                   {new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
                                 </p>
                                 <div className="mt-12 border-t border-slate-100 pt-3 text-center dark:border-slate-800">
                                   <p className="text-[10px] text-slate-400 dark:text-slate-500">Prepared for internal review by the</p>
-                                  <p className="text-[10px] font-bold text-slate-500 dark:text-slate-300">Microgenesis Supplier Management System</p>
+                                  <p className="text-[10px] font-bold text-slate-500 dark:text-slate-300">PROCUREMENT</p>
                                   <p className="mt-1 text-[9px] italic text-slate-400 dark:text-slate-500">
                                     This document is confidential and intended solely for the named recipient.
                                   </p>
@@ -1107,7 +1194,7 @@ export function SendToPartnerWizard({
 
                             {/* Page 2 — Executive summary, bar graph, radar graph */}
                             <PagedSheet pageLabel="Page 2" footerRight={`Page 1 of ${contentPageCount}`}>
-                          <ReportPageHeader company={selectedCompanyName} />
+                          <ReportPageHeader company={selectedCompanyName} reportTitle={reportTemplate.reportTitle} />
                           <h2 className="mt-4 text-sm font-bold text-slate-800 dark:text-slate-100">Executive Summary</h2>
                           <div className="mt-2 grid grid-cols-3 gap-2">
                             <SummaryStat label="Composite score" value={formatCompositeScore(sType, overallScore).text} />
@@ -1137,10 +1224,10 @@ export function SendToPartnerWizard({
                                       <YAxis domain={sectionAxisDomain} tick={{ fontSize: 8 }} />
                                       <Tooltip />
                                       <Bar dataKey={selectedCompanyName} fill={PRIMARY_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                                        <LabelList dataKey={selectedCompanyName} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 9, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+                                        <LabelList dataKey={selectedCompanyName} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 9, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
                                       </Bar>
                                       <Bar dataKey={PEER_LABEL} fill={PEER_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                                        <LabelList dataKey={PEER_LABEL} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 9, fill: PEER_COLOR, fontWeight: 'bold' }} />
+                                        <LabelList dataKey={PEER_LABEL} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 9, fill: PEER_COLOR, fontWeight: 'bold' }} />
                                       </Bar>
                                     </BarChart>
                                   </ResponsiveContainer>
@@ -1187,7 +1274,7 @@ export function SendToPartnerWizard({
                           if (pageType === 'trend') {
                             return (
                               <PagedSheet key="trend-page" pageLabel={`Page ${displayPageNum}`} footerRight={footerText}>
-                                <ReportPageHeader company={selectedCompanyName} />
+                                <ReportPageHeader company={selectedCompanyName} reportTitle={reportTemplate.reportTitle} />
                                 <div className="mt-4">
                                   <h4 className="mb-1 text-[10px] font-bold text-slate-700 dark:text-slate-200">Score Trend</h4>
                                   <div ref={trendRef} className="h-32 w-full bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg p-2 shadow-xs">
@@ -1198,7 +1285,7 @@ export function SendToPartnerWizard({
                                         <YAxis domain={[0, 100]} tick={{ fontSize: 7.5 }} tickLine={false} width={25} />
                                         <Tooltip />
                                         <Line type="monotone" dataKey="score" name={selectedCompanyName} stroke={PRIMARY_COLOR} strokeWidth={1.5} dot={{ r: 2 }} connectNulls isAnimationActive={false}>
-                                          <LabelList dataKey="score" position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 8.5, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+                                          <LabelList dataKey="score" position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 8.5, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
                                         </Line>
                                       </LineChart>
                                     </ResponsiveContainer>
@@ -1211,7 +1298,7 @@ export function SendToPartnerWizard({
                           if (pageType === 'perQuestion') {
                             return (
                               <PagedSheet key="per-question-page" pageLabel={`Page ${displayPageNum}`} footerRight={footerText}>
-                                <ReportPageHeader company={selectedCompanyName} />
+                                <ReportPageHeader company={selectedCompanyName} reportTitle={reportTemplate.reportTitle} />
                                 <div className="mt-4">
                                   <h4 className="mb-1 text-[10px] font-bold text-slate-700 dark:text-slate-200">Per-Question Average Rating</h4>
                                   <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800 text-[9px]">
@@ -1242,7 +1329,7 @@ export function SendToPartnerWizard({
                           if (pageType === 'comments') {
                             return (
                               <PagedSheet key="comments-page" pageLabel={`Page ${displayPageNum}`} footerRight={footerText}>
-                                <ReportPageHeader company={selectedCompanyName} />
+                                <ReportPageHeader company={selectedCompanyName} reportTitle={reportTemplate.reportTitle} />
                                 <div className="mt-4">
                                   <h4 className="mb-1 text-[10px] font-bold text-slate-700 dark:text-slate-200">Stakeholder Comments</h4>
                                   {selectedCommentsList.length === 0 ? (
@@ -1337,7 +1424,7 @@ export function SendToPartnerWizard({
                         className="inline-flex items-center rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 text-xs font-bold shadow transition"
                       >
                         <FileText size={14} className="mr-1.5" />
-                        Preview PDF
+                        Preview/Print
                       </button>
                     </div>
                   </div>
@@ -1415,10 +1502,10 @@ export function SendToPartnerWizard({
                     <YAxis domain={sectionAxisDomain} tick={{ fontSize: 10 }} />
                     <Tooltip />
                     <Bar dataKey={composite.company} fill={PRIMARY_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                      <LabelList dataKey={composite.company} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+                      <LabelList dataKey={composite.company} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
                     </Bar>
                     <Bar dataKey={PEER_LABEL} fill={PEER_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                      <LabelList dataKey={PEER_LABEL} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
+                      <LabelList dataKey={PEER_LABEL} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
                     </Bar>
                   </BarChart>
                 </div>
@@ -1451,7 +1538,7 @@ export function SendToPartnerWizard({
                       <Tooltip />
                       <Legend verticalAlign="top" align="left" layout="horizontal" iconSize={10} wrapperStyle={{ fontSize: 10, paddingBottom: 10, left: 0 }} />
                       <Line type="monotone" dataKey="score" name={composite.company} stroke={PRIMARY_COLOR} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false}>
-                        <LabelList dataKey="score" position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+                        <LabelList dataKey="score" position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
                       </Line>
                     </LineChart>
                 </div>
@@ -1460,6 +1547,12 @@ export function SendToPartnerWizard({
           </div>
         )}
       </div>
+
+      {reportGenerationError && !bulkMode && (
+        <div className="mx-6 mb-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-semibold text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">
+          {reportGenerationError}
+        </div>
+      )}
 
       {/* Dispatch Controls Footer */}
       <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
@@ -1496,7 +1589,7 @@ export function SendToPartnerWizard({
                 className="inline-flex items-center rounded-lg bg-[#0063a9]/10 hover:bg-[#0063a9]/20 text-[#0063a9] px-4 py-2 text-xs font-bold transition border border-[#0063a9]/20"
               >
                 <FileText size={14} className="mr-1.5" />
-                Preview PDF
+                Preview/Print
               </button>
             )}
             <button
@@ -1558,8 +1651,8 @@ export function SendToPartnerWizard({
               <button
                 onClick={() => {
                   setSelectedComments(tempSelectedComments);
-                  if (sType && selectedCompanyName) {
-                    localStorage.setItem(`selected_comments_${sType}_${selectedCompanyName}`, JSON.stringify(tempSelectedComments));
+                  if (sType && selectedCompanyId) {
+                    localStorage.setItem(`selected_comments_${sType}_${selectedCompanyId}`, JSON.stringify(tempSelectedComments));
                   }
                   setIsCommentsModalOpen(false);
                 }}
@@ -1579,7 +1672,7 @@ export function SendToPartnerWizard({
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
               <div>
                 <h3 className="font-bold text-slate-800 dark:text-slate-100">Review Stakeholder Remarks</h3>
-                <p className="text-xs text-slate-500">{bulkCommentsModalCompany} - Select comments to include</p>
+                <p className="text-xs text-slate-500">{bulkList.find((item) => item.company.id === bulkCommentsModalCompany)?.company.name} - Select comments to include</p>
               </div>
               <button onClick={() => setBulkCommentsModalCompany(null)} className="text-slate-400 hover:text-slate-600">
                 <X size={20} />
@@ -1587,9 +1680,11 @@ export function SendToPartnerWizard({
             </div>
             <div className="p-5 overflow-y-auto space-y-3 flex-1 bg-slate-50/50 dark:bg-slate-900">
               {(() => {
-                 const modalSurveyType = bulkList.find((i) => i.company.name === bulkCommentsModalCompany)?.survey?.surveyType ?? sType;
-                 const compComments = responses.filter(
-                   (r) => r.company === bulkCommentsModalCompany && r.questionId === getOverallFeedbackQuestionId(modalSurveyType) && r.comment && r.comment.trim() !== ''
+                 const modalItem = bulkList.find((item) => item.company.id === bulkCommentsModalCompany);
+                 if (!modalItem?.survey) return <p className="text-sm text-center text-rose-600">The selected company record could not be found.</p>;
+                 const modalSurveyType = modalItem.survey.surveyType;
+                 const compComments = filterResponsesForReport(modalItem.survey, modalItem.company, partnerCompanies, responses).filter(
+                   (r) => r.questionId === getOverallFeedbackQuestionId(modalSurveyType) && r.comment && r.comment.trim() !== '' && r.comment.trim() !== 'Submitted successfully.'
                  );
                  if (compComments.length === 0) return <p className="text-sm text-center text-slate-500">No stakeholder comments found.</p>;
                  return compComments.map((c) => (
@@ -1612,9 +1707,9 @@ export function SendToPartnerWizard({
               <button onClick={() => setBulkCommentsModalCompany(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
               <button
                 onClick={() => {
-                  const item = bulkList.find(i => i.company.name === bulkCommentsModalCompany);
+                  const item = bulkList.find(i => i.company.id === bulkCommentsModalCompany);
                   if (item?.survey) {
-                    localStorage.setItem(`selected_comments_${item.survey.surveyType}_${bulkCommentsModalCompany}`, JSON.stringify(tempBulkComments));
+                    localStorage.setItem(`selected_comments_${item.survey.surveyType}_${item.company.id}`, JSON.stringify(tempBulkComments));
                   }
                   setBulkCommentsModalCompany(null);
                 }}
@@ -1671,6 +1766,7 @@ export function SendToPartnerWizard({
         <BulkHiddenChartCapturer
           item={bulkPreviewItem}
           responses={responses}
+          partnerCompanies={partnerCompanies}
           graphs={graphs}
           includeComments={includeComments}
           previewWindow={bulkPreviewWindow}
@@ -1712,7 +1808,7 @@ function PagedSheet({
           <div className="flex-1">{children}</div>
           {footerRight && (
             <div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-3 text-[10px] text-slate-400 dark:border-slate-800 dark:text-slate-500">
-              <span>Microgenesis Supplier Management System — Confidential</span>
+              <span>Microgenesis | Supplier Management</span>
               <span>{footerRight}</span>
             </div>
           )}
@@ -1724,13 +1820,13 @@ function PagedSheet({
 }
 
 /** The small running header (logo + company name) repeated at the top of each content page, mirroring the export. */
-function ReportPageHeader({ company }: { company: string }) {
+function ReportPageHeader({ company, reportTitle }: { company: string; reportTitle: string }) {
   return (
     <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
       <img src="/microgenesis_logo.png" alt="Microgenesis" className="h-6 w-auto animate-none" />
       <div className="text-right">
         <p className="text-xs font-bold text-slate-700 dark:text-slate-200">{company}</p>
-        <p className="text-[10px] text-slate-400 dark:text-slate-500">Company Performance Report</p>
+        <p className="text-[10px] text-slate-400 dark:text-slate-500">{reportTitle}</p>
       </div>
     </div>
   );

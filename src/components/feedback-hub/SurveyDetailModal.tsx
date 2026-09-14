@@ -17,7 +17,6 @@ interface SurveyDetailModalProps {
 export function SurveyDetailModal({
   survey,
   responses,
-  partnerCompanies,
   onClose,
   onSendToPartner,
   reportSentStatus,
@@ -75,9 +74,6 @@ export function SurveyDetailModal({
     }
   });
   const respondentsList = Array.from(uniqueRespondentsMap.values());
-
-  // Find matching partner company
-  const matchingPartner = partnerCompanies.find((c) => c.type === survey.surveyType);
 
   // PDF Export trigger
   const handleExportPdf = () => {
@@ -221,7 +217,9 @@ export function SurveyDetailModal({
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                onSendToPartner(survey, matchingPartner);
+                // Preserve the selected survey/card. Company selection happens
+                // in the wizard and is stored by PartnerCompany.id.
+                onSendToPartner(survey);
                 onClose();
               }}
               className="primary-button text-xs gap-1.5 bg-[#0063a9] hover:bg-blue-800 text-white"

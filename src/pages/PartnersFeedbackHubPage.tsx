@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CustomForm, PartnerCompany, SurveyResponse, UserAccount } from '../types/survey';
+import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import {
   PartnerContact,
   QueuedReportEmail,
@@ -18,7 +18,7 @@ import { CurrentFormsTab } from '../components/feedback-hub/CurrentFormsTab';
 import { PastResultsTab } from '../components/feedback-hub/PastResultsTab';
 import { SentReportsTab } from '../components/feedback-hub/SentReportsTab';
 import { SendToPartnerWizard } from '../components/feedback-hub/SendToPartnerWizard';
-import { BulkHiddenChartCapturer } from '../components/feedback-hub/BulkHiddenChartCapturer';
+import { BulkHiddenChartCapturer, BulkReportCaptureItem } from '../components/feedback-hub/BulkHiddenChartCapturer';
 import { isMsalConfigured } from '../services/msalAuth';
 import { getSurveyCompletionSummary } from '../utils/surveyCompletion';
 import { SimulatableAccount } from '../hooks/useSurveyData';
@@ -32,7 +32,7 @@ interface PartnersFeedbackHubPageProps {
   partnerCompanies: PartnerCompany[];
   accounts?: SimulatableAccount[];
   simClock?: SimClock | null;
-  currentUser: UserAccount | null;
+  currentUser: { email: string; role: string } | null;
   onNavigatePage?: (page: string) => void;
   onMarkSurveyComplete?: (surveyId: string) => void;
 }
@@ -97,6 +97,18 @@ export function PartnersFeedbackHubPage({
     saveFeedbackHubSettings(newSettings);
   };
 
+  const resolveQueuedReportCaptureItem = (report: QueuedReportEmail): BulkReportCaptureItem | null => {
+    if (!report.companyId) return null;
+    const company = partnerCompanies.find(
+      (candidate) => candidate.id === report.companyId && !candidate.isArchived,
+    );
+    const survey = surveys.find(
+      (candidate) => candidate.id === report.surveyId && candidate.surveyType === report.surveyType,
+    );
+    if (!company || !survey || company.type !== survey.surveyType) return null;
+    return { company, survey, periodCovered: report.periodCovered };
+  };
+
   // Open Send Wizard for survey (single mode)
   const handleOpenSendToPartner = (survey?: CustomForm, company?: PartnerCompany) => {
     setSendInitialSurveyId(survey?.id);
@@ -110,6 +122,7 @@ export function PartnersFeedbackHubPage({
   const handleOpenRevisionOrResend = (report: QueuedReportEmail) => {
     setRevisionReport(report);
     setSendInitialSurveyId(report.surveyId);
+    setSendInitialCompanyId(report.companyId);
     setDispatchWizardBulkMode(false);
     setIsDispatchWizardOpen(true);
   };
@@ -118,8 +131,9 @@ export function PartnersFeedbackHubPage({
   const handleQueueReport = (payload: {
     surveyId: string;
     surveyTitle: string;
+    companyId: string;
     companyName: string;
-    surveyType: any;
+    surveyType: SurveyType;
     periodCovered: string;
     recipientEmail: string;
     ccEmails: string[];
@@ -141,6 +155,12 @@ export function PartnersFeedbackHubPage({
         if (item.id === payload.existingId) {
           return {
             ...item,
+            surveyId: payload.surveyId,
+            surveyTitle: payload.surveyTitle,
+            companyId: payload.companyId,
+            companyName: payload.companyName,
+            surveyType: payload.surveyType,
+            periodCovered: payload.periodCovered,
             recipientEmail: payload.recipientEmail,
             ccEmails: payload.ccEmails,
             subject: payload.subject,
@@ -149,6 +169,8 @@ export function PartnersFeedbackHubPage({
             queuedAt: now.toISOString(),
             timerDurationMinutes: payload.timerDurationMinutes,
             expiresAt,
+            responseCount: payload.responseCount,
+            overallScore: payload.overallScore,
             history: [
               ...item.history,
               {
@@ -169,6 +191,7 @@ export function PartnersFeedbackHubPage({
         id: `rpt-q-${Date.now()}`,
         surveyId: payload.surveyId,
         surveyTitle: payload.surveyTitle,
+        companyId: payload.companyId,
         companyName: payload.companyName,
         surveyType: payload.surveyType,
         periodCovered: payload.periodCovered,
@@ -207,7 +230,14 @@ export function PartnersFeedbackHubPage({
   const handleConfirmNow = (reportId: string) => {
     if (isMsalConfigured()) {
       const report = sentReports.find((r) => r.id === reportId);
-      if (report) setRealSendReport(report);
+      if (report && resolveQueuedReportCaptureItem(report)) {
+        setRealSendReport(report);
+      } else if (report) {
+        handleRealSendResult(report.id, {
+          success: false,
+          error: 'The queued report has no valid company ID or survey record. Revise and re-queue it before sending.',
+        });
+      }
       return;
     }
 
@@ -284,6 +314,12 @@ export function PartnersFeedbackHubPage({
   // report and redirect that tab to the generated PDF once ready.
   const handlePreviewDocument = (report: QueuedReportEmail) => {
     const newWindow = window.open('about:blank', '_blank');
+    if (!resolveQueuedReportCaptureItem(report)) {
+      if (newWindow) {
+        newWindow.document.write('<p style="font-family: sans-serif; margin: 50px; color: #b91c1c;">The queued report has no valid company ID or survey record. Revise and re-queue it before previewing.</p>');
+      }
+      return;
+    }
     if (newWindow) {
       newWindow.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #475569;">Generating PDF preview, please wait...</p>');
     }
@@ -344,6 +380,8 @@ export function PartnersFeedbackHubPage({
   };
 
   const queuedCount = sentReports.filter((r) => r.status === 'Queued').length;
+  const realSendCaptureItem = realSendReport ? resolveQueuedReportCaptureItem(realSendReport) : null;
+  const previewCaptureItem = previewDocReport ? resolveQueuedReportCaptureItem(previewDocReport) : null;
 
   // Check if all active surveys are completed to enable Bulk Sending.
   // "Completed" here means: an admin manually marked it complete, its
@@ -512,10 +550,11 @@ export function PartnersFeedbackHubPage({
           mode: it emails the PDF instead of opening a preview window. Report-
           level graph selections aren't persisted on QueuedReportEmail, so this
           always attaches the full report (all graphs + comments). */}
-      {realSendReport && (
+      {realSendReport && realSendCaptureItem && (
         <BulkHiddenChartCapturer
-          item={{ company: { name: realSendReport.companyName }, survey: { surveyType: realSendReport.surveyType } }}
+          item={realSendCaptureItem}
           responses={responses}
+          partnerCompanies={partnerCompanies}
           graphs={{ bar: true, radar: true, trend: true, perQuestion: true }}
           includeComments
           previewWindow={null}
@@ -533,10 +572,11 @@ export function PartnersFeedbackHubPage({
       {/* Document preview in flight (see handlePreviewDocument). Same
           all-graphs-and-comments config as the real send above, so the PDF
           the admin reviews here matches what actually gets attached. */}
-      {previewDocReport && (
+      {previewDocReport && previewCaptureItem && (
         <BulkHiddenChartCapturer
-          item={{ company: { name: previewDocReport.companyName }, survey: { surveyType: previewDocReport.surveyType } }}
+          item={previewCaptureItem}
           responses={responses}
+          partnerCompanies={partnerCompanies}
           graphs={{ bar: true, radar: true, trend: true, perQuestion: true }}
           includeComments
           previewWindow={previewDocWindow}

@@ -1,28 +1,24 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, LineChart, Line, Legend } from 'recharts';
-import { captureChartImage, exportCompanyReportAsPDF, CompanyReportData } from '../../utils/companyReportExport';
-import { computeCompanyComposite, getCompanyTrend, getSectionPeerAverages } from '../../utils/scoring';
-import { getScoreAxisDomain, questionPerformance } from '../../utils/analytics';
+import { captureChartImage, exportCompanyReportAsPDF } from '../../utils/companyReportExport';
+import { getCompanyTrend, getSectionPeerAverages } from '../../utils/scoring';
+import { getScoreAxisDomain } from '../../utils/analytics';
 import { radarPointLabel } from '../../utils/radarChartLabels';
-import { SurveyResponse } from '../../types/survey';
+import { CustomForm, PartnerCompany, SurveyResponse } from '../../types/survey';
 import { getGraphAccessToken } from '../../services/msalAuth';
 import { sendGraphMail, dataUrlToBase64 } from '../../services/graphMailService';
+import {
+  CompanyReportDataError,
+  computeReportComposite,
+  createCompanyReportData,
+  filterResponsesForReport,
+  getOverallFeedbackQuestionId,
+  normalizeReportResponsesForCompany,
+} from '../../features/feedback-hub/reporting';
 
 const PRIMARY_COLOR = '#0063a9';
 const PEER_COLOR = '#b91c1c';
 const PEER_LABEL = 'Peer average';
-
-// Each survey type stores its overall-feedback comment under its own question
-// ID (Courier/Supplier/Subcontractor each differ). This must be derived from
-// THIS item's own survey type, not passed in from the wizard, since the
-// wizard's own ID reflects only whichever single survey it happened to be
-// opened from - using that here caused every item of a different survey type
-// to always show 0 comments in the generated PDF, even when comments existed.
-function getOverallFeedbackQuestionId(surveyType: string): string {
-  return surveyType === 'Courier' ? 'Q-CON-OVERALL-FEEDBACK' :
-         surveyType === 'Supplier' ? 'Q-SUP-OVERALL-FEEDBACK' :
-         'Q-SUB-OVERALL-FEEDBACK';
-}
 
 const formatMonthLabel = (mStr: string) => {
   const parts = mStr.split('-');
@@ -39,9 +35,16 @@ export interface SendViaGraphConfig {
   htmlBody: string;
 }
 
+export interface BulkReportCaptureItem {
+  company: Pick<PartnerCompany, 'id' | 'name' | 'type'>;
+  survey: Pick<CustomForm, 'id' | 'title' | 'surveyType'>;
+  periodCovered?: string;
+}
+
 interface BulkHiddenChartCapturerProps {
-  item: any;
+  item: BulkReportCaptureItem;
   responses: SurveyResponse[];
+  partnerCompanies: PartnerCompany[];
   graphs: { bar: boolean; radar: boolean; trend: boolean; perQuestion: boolean };
   includeComments: boolean;
   previewWindow: Window | null;
@@ -53,6 +56,7 @@ interface BulkHiddenChartCapturerProps {
 export function BulkHiddenChartCapturer({
   item,
   responses,
+  partnerCompanies,
   graphs,
   includeComments,
   previewWindow,
@@ -65,12 +69,46 @@ export function BulkHiddenChartCapturer({
   const trendRef = useRef<HTMLDivElement>(null);
 
   const companyName = item.company.name;
+  const companyId = item.company.id;
   const sType = item.survey.surveyType;
   const overallFeedbackQuestionId = getOverallFeedbackQuestionId(sType);
 
-  const composite = useMemo(() => computeCompanyComposite(companyName, sType, responses), [companyName, sType, responses]);
-  const peerAverages = useMemo(() => getSectionPeerAverages(responses, sType), [responses, sType]);
-  const trend = useMemo(() => getCompanyTrend(responses, companyName, sType), [responses, companyName, sType]);
+  const reportResponseResult = useMemo(() => {
+    try {
+      return {
+        data: filterResponsesForReport(item.survey, item.company, partnerCompanies, responses),
+        error: null as Error | null,
+      };
+    } catch (error) {
+      return {
+        data: [] as SurveyResponse[],
+        error: error instanceof Error ? error : new Error('Unable to select report responses.'),
+      };
+    }
+  }, [item, partnerCompanies, responses]);
+  const companyResponses = reportResponseResult.data;
+  const peerResponses = useMemo(
+    () => responses.filter(
+      (response) =>
+        !response.archived &&
+        response.surveyType === sType &&
+        (!response.surveyId || response.surveyId === item.survey.id),
+    ),
+    [responses, sType, item.survey.id],
+  );
+  const normalizedCompanyResponses = useMemo(
+    () => normalizeReportResponsesForCompany(companyName, companyResponses),
+    [companyName, companyResponses],
+  );
+  const composite = useMemo(
+    () => computeReportComposite(companyName, sType, companyResponses),
+    [companyName, sType, companyResponses],
+  );
+  const peerAverages = useMemo(() => getSectionPeerAverages(peerResponses, sType), [peerResponses, sType]);
+  const trend = useMemo(
+    () => getCompanyTrend(normalizedCompanyResponses, companyName, sType),
+    [normalizedCompanyResponses, companyName, sType],
+  );
 
   const sectionChartData = useMemo(() => {
     if (!composite) return [];
@@ -85,7 +123,9 @@ export function BulkHiddenChartCapturer({
   }, [composite, peerAverages, companyName]);
 
   const sectionAxisDomain = useMemo(() => {
-    const scores = sectionChartData.flatMap((d) => [d[companyName], d[PEER_LABEL]]);
+    const scores = sectionChartData
+      .flatMap((d) => [d[companyName], d[PEER_LABEL]])
+      .filter((value): value is number => typeof value === 'number');
     return getScoreAxisDomain(scores);
   }, [sectionChartData, companyName]);
 
@@ -115,6 +155,7 @@ export function BulkHiddenChartCapturer({
     let isMounted = true;
     const run = async () => {
       try {
+        if (reportResponseResult.error) throw reportResponseResult.error;
         await new Promise((resolve) => setTimeout(resolve, 800)); // wait for recharts to render
 
         const chartImages = {
@@ -123,15 +164,16 @@ export function BulkHiddenChartCapturer({
           trend: graphs.trend ? await captureChartImage(trendRef.current) : null,
         };
 
-        const companyResponses = responses.filter(r => r.company === companyName && r.surveyType === sType && !r.archived);
-        const companyQRows = questionPerformance(companyResponses);
-
         const compComments = companyResponses.filter(
-          (r) => r.questionId === overallFeedbackQuestionId && r.comment && r.comment.trim() !== ''
+          (r) =>
+            r.questionId === overallFeedbackQuestionId &&
+            r.comment &&
+            r.comment.trim() !== '' &&
+            r.comment.trim() !== 'Submitted successfully.'
         );
 
         const compSelectedComments = compComments.filter((c) => {
-          const key = `selected_comments_${sType}_${companyName}`;
+          const key = `selected_comments_${sType}_${companyId}`;
           const saved = localStorage.getItem(key);
           if (saved) {
             try {
@@ -144,21 +186,21 @@ export function BulkHiddenChartCapturer({
           return true; // default true
         });
 
-        const reportData: CompanyReportData = {
-          company: companyName,
-          surveyType: sType,
-          composite,
-          generatedOn: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        const reportData = createCompanyReportData({
+          survey: item.survey,
+          companyId,
+          partnerCompanies,
+          responses,
+          reportingPeriod: item.periodCovered || item.survey.title,
           graphs,
           includeComments,
-          questionRows: companyQRows,
           chartImages,
-          selectedCommentsList: compSelectedComments,
-        };
+          selectedCommentIds: new Set(compSelectedComments.map((comment) => comment.responseId)),
+        });
 
         const dateStr = new Date().toISOString().slice(0, 10);
         const nameClean = companyName.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-        const filename = `${nameClean}_Feedback_Report_${dateStr}.pdf`;
+        const filename = `${nameClean}_${reportData.template.id}_performance_report_${dateStr}.pdf`;
 
         if (sendVia) {
           // Real send: build the PDF as base64 and email it via Microsoft
@@ -192,7 +234,10 @@ export function BulkHiddenChartCapturer({
       } catch (err) {
         console.error('Error generating/sending report', err);
         if (previewWindow) {
-          previewWindow.close();
+          const message = err instanceof CompanyReportDataError || err instanceof Error
+            ? err.message
+            : 'The report could not be generated from the current data.';
+          previewWindow.document.body.innerHTML = `<p style="font-family: sans-serif; margin: 50px; color: #b91c1c;">${message.replace(/[<>&]/g, '')}</p>`;
         }
         if (sendVia && isMounted) {
           onSendResult?.({ success: false, error: err instanceof Error ? err.message : 'Unknown error' });
@@ -201,7 +246,10 @@ export function BulkHiddenChartCapturer({
         if (isMounted) onComplete();
       }
     };
-    if (composite) run();
+    // A completed survey may legitimately have no responses yet. The PDF
+    // exporter renders that state as a valid no-data report instead of
+    // leaving the preview popup stuck on its loading message.
+    run();
     return () => { isMounted = false; };
     // Intentionally run once on mount only. This component is mounted fresh for
     // each preview request and unmounted when done (see SendToPartnerWizard),
@@ -213,8 +261,6 @@ export function BulkHiddenChartCapturer({
     // "Generating PDF preview..." indefinitely.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  if (!composite) return null;
 
   return (
     <div className="absolute top-0 left-0 -z-50 opacity-0 pointer-events-none w-[900px] h-[900px] overflow-hidden">
@@ -241,10 +287,10 @@ export function BulkHiddenChartCapturer({
           <YAxis domain={sectionAxisDomain} tick={{ fontSize: 10 }} />
           <Tooltip />
           <Bar dataKey={companyName} fill={PRIMARY_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-            <LabelList dataKey={companyName} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+            <LabelList dataKey={companyName} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
           </Bar>
           <Bar dataKey={PEER_LABEL} fill={PEER_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-            <LabelList dataKey={PEER_LABEL} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
+            <LabelList dataKey={PEER_LABEL} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
           </Bar>
         </BarChart>
       </div>
@@ -277,7 +323,7 @@ export function BulkHiddenChartCapturer({
           <Tooltip />
           <Legend verticalAlign="top" align="left" layout="horizontal" iconSize={10} wrapperStyle={{ fontSize: 10, paddingBottom: 10, left: 0 }} />
           <Line type="monotone" dataKey="score" name={companyName} stroke={PRIMARY_COLOR} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false}>
-            <LabelList dataKey="score" position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+            <LabelList dataKey="score" position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
           </Line>
         </LineChart>
       </div>

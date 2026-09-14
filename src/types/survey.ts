@@ -86,6 +86,10 @@ export interface PartnerCompany {
 
 export interface SurveyResponse {
   responseId: string;
+  // Stable source identifiers used by report generation. Optional for rows
+  // saved by older builds, which predate these fields.
+  surveyId?: string;
+  companyId?: string;
   surveyType: SurveyType;
   respondentType: string;
   // When the respondent began answering (opened the Questions Form step, or

@@ -230,6 +230,8 @@ export interface SimulatableAccount {
 
 interface CompressedSubmission {
   i: string; // responseId
+  ui?: string; // surveyId
+  ci?: string; // companyId
   t: SurveyType; // surveyType
   r: string; // respondentType
   st?: string; // startTime
@@ -277,6 +279,8 @@ function compressResponses(responses: SurveyResponse[]): CompressedSubmission[] 
         c: resp.company,
         a: []
       };
+      if (resp.surveyId !== undefined) comp.ui = resp.surveyId;
+      if (resp.companyId !== undefined) comp.ci = resp.companyId;
       if (resp.startTime !== undefined) comp.st = resp.startTime;
       if (resp.department !== undefined) comp.d = resp.department;
       if (resp.address !== undefined) comp.ad = resp.address;
@@ -327,6 +331,8 @@ function decompressResponses(compressed: any[]): SurveyResponse[] {
         rating: ans.v,
         comment: ans.m
       };
+      if (item.ui !== undefined) resp.surveyId = item.ui;
+      if (item.ci !== undefined) resp.companyId = item.ci;
       if (item.st !== undefined) resp.startTime = item.st;
       if (item.d !== undefined) resp.department = item.d;
       if (item.ad !== undefined) resp.address = item.ad;
@@ -1386,9 +1392,21 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
 
     const responseId = `RESP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const submissionDate = new Date().toISOString();
+    const matchingCompanies = partnerCompanies.filter(
+      (candidate) =>
+        !candidate.isArchived &&
+        candidate.type === targetSurvey.surveyType &&
+        candidate.name === company,
+    );
+    // The current survey form submits the display name. Persist an ID only
+    // when that legacy input resolves unambiguously; report generation will
+    // reject ambiguous legacy rows rather than attach them to the wrong record.
+    const companyId = matchingCompanies.length === 1 ? matchingCompanies[0].id : undefined;
 
     const newResponses: SurveyResponse[] = answers.map((ans) => ({
       responseId,
+      surveyId: targetSurvey.id,
+      companyId,
       surveyType: targetSurvey.surveyType,
       respondentType,
       startTime,
@@ -1401,7 +1419,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
       question: ans.question,
       questionCategory: ans.questionCategory,
       rating: ans.rating,
-      comment: ans.comment || 'Submitted successfully.',
+      comment: ans.comment || '',
       respondentEmail,
     }));
 

@@ -23,6 +23,9 @@ export interface QueuedReportEmail {
   id: string;
   surveyId: string;
   surveyTitle: string;
+  // Required for newly queued reports. Optional only so previously persisted
+  // name-only queue entries can be detected and rejected safely at runtime.
+  companyId?: string;
   companyName: string;
   surveyType: SurveyType;
   periodCovered: string;
