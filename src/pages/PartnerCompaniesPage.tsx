@@ -119,10 +119,9 @@ const BRANCH_STATUS_SEVERITY: Record<BranchStatus, number> = {
   Inactive: -1,
 };
 
-// Registries can hold 1000+ companies (the full Master List) - rendering
-// every row at once tanks scroll/interaction performance, so the list/table
-// is paginated client-side on top of the already-filtered result.
-const COMPANIES_PAGE_SIZE = 60;
+// Keep both the General cards and Simplified table manageable to scan. The
+// shared client-side pagination applies after filtering and sorting.
+const COMPANIES_PAGE_SIZE = 10;
 
 const DOCUMENT_STATUS_STYLES: Record<DocumentStatus, string> = {
   Current: 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/40',

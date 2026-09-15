@@ -18,6 +18,8 @@ import {
   getReadIds,
   getDeletedIds,
   markNotificationRead,
+  markNotificationUnread,
+  markNotificationsRead,
   deleteNotifications,
   subscribeNotificationState,
 } from '../utils/employeeNotificationState';
@@ -143,9 +145,19 @@ export function EmployeeNotificationLogsPage({
               <p className="text-xs text-slate-500 dark:text-slate-400">Reminders for surveys you still need to complete.</p>
             </div>
           </div>
-          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black text-red-600 dark:bg-red-950/50 dark:text-red-400">
-            {unreadCount} unread
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black text-red-600 dark:bg-red-950/50 dark:text-red-400">
+              {unreadCount} unread
+            </span>
+            <button
+              type="button"
+              onClick={() => markNotificationsRead(userEmail, notifications.map((notification) => notification.id))}
+              disabled={unreadCount === 0}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0063a9] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-blue-300 dark:hover:bg-blue-950/30"
+            >
+              Mark all as read
+            </button>
+          </div>
         </div>
 
         {checkedIds.size > 0 ? (
@@ -238,6 +250,17 @@ export function EmployeeNotificationLogsPage({
                         {item.pendingCompanies.length} partner {item.pendingCompanies.length === 1 ? 'company' : 'companies'} still awaiting your evaluation &middot; Due {item.deadlineDate}
                       </p>
                     </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isRead) markNotificationUnread(userEmail, item.id);
+                      else markNotificationRead(userEmail, item.id);
+                    }}
+                    className="shrink-0 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0063a9] transition hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                    aria-label={`${isRead ? 'Mark as unread' : 'Mark as read'}: ${item.surveyTitle}`}
+                  >
+                    {isRead ? 'Mark as unread' : 'Mark as read'}
                   </button>
                 </li>
               );

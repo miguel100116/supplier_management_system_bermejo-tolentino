@@ -358,7 +358,8 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<ResponseNotification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadNotificationIds, setUnreadNotificationIds] = useState<Set<string>>(() => new Set());
+  const knownSystemNotificationIdsRef = useRef<Set<string>>(new Set());
 
   const [archiveSeries, setArchiveSeries] = useState<ArchiveSeries[]>(() => {
     try {
@@ -1436,7 +1437,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     const notification = toNotification(newResponses);
     if (notification) {
       setNotifications((current) => [notification, ...current].slice(0, NOTIFICATION_HISTORY_LIMIT));
-      setUnreadCount((count) => count + 1);
+      setUnreadNotificationIds((current) => new Set(current).add(notification.id));
     }
 
     return responseId;
@@ -1589,7 +1590,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
 
       const groupedNotifs = groupResponsesToNotifications(fullRows);
       setNotifications(groupedNotifs.slice(0, NOTIFICATION_HISTORY_LIMIT));
-      setUnreadCount(0);
+      setUnreadNotificationIds(new Set());
       setIsFullDatasetActive(true);
       safeSetItem('survey_analytics_full_dataset_active', 'true');
       return;
@@ -1611,14 +1612,18 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     const newNotifications = groupResponsesToNotifications(newRows);
     if (newNotifications.length > 0) {
       setNotifications((current) => [...newNotifications, ...current].slice(0, NOTIFICATION_HISTORY_LIMIT));
-      setUnreadCount((count) => count + newNotifications.length);
+      setUnreadNotificationIds((current) => {
+        const next = new Set(current);
+        newNotifications.forEach((notification) => next.add(notification.id));
+        return next;
+      });
     }
   };
 
   const clearResponses = () => {
     setResponses([]);
     setNotifications([]);
-    setUnreadCount(0);
+    setUnreadNotificationIds(new Set());
     safeSetItem('survey_analytics_responses_v6', JSON.stringify([]));
     setIsFullDatasetActive(false);
     safeSetItem('survey_analytics_full_dataset_active', 'false');
@@ -1640,11 +1645,24 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     const remainingSimulated = filtered.filter(r => isSimulated(r.responseId));
     const groupedNotifs = groupResponsesToNotifications(filtered);
     setNotifications(groupedNotifs.slice(0, NOTIFICATION_HISTORY_LIMIT));
-    setUnreadCount(0);
+    setUnreadNotificationIds(new Set());
   };
 
   const markNotificationsRead = () => {
-    setUnreadCount(0);
+    setUnreadNotificationIds(new Set());
+  };
+
+  const markNotificationRead = (id: string) => {
+    setUnreadNotificationIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const markNotificationUnread = (id: string) => {
+    setUnreadNotificationIds((current) => new Set(current).add(id));
   };
 
   // Split active and archived responses so the active dashboard is unaffected
@@ -1953,9 +1971,25 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     return list.sort((a, b) => b.submissionDate.localeCompare(a.submissionDate));
   }, [documentNotifications, earlyMilestoneNotifications, notifications]);
 
-  const combinedUnreadCount = useMemo(() => {
-    return unreadCount + documentNotifications.length;
-  }, [unreadCount, documentNotifications]);
+  useEffect(() => {
+    const systemNotifications = [...documentNotifications, ...earlyMilestoneNotifications];
+    const newSystemIds = systemNotifications
+      .map((notification) => notification.id)
+      .filter((id) => !knownSystemNotificationIdsRef.current.has(id));
+    systemNotifications.forEach((notification) => knownSystemNotificationIdsRef.current.add(notification.id));
+    if (newSystemIds.length === 0) return;
+
+    setUnreadNotificationIds((current) => {
+      const next = new Set(current);
+      newSystemIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [documentNotifications, earlyMilestoneNotifications]);
+
+  const combinedUnreadNotificationIds = useMemo(
+    () => new Set(combinedNotifications.filter((notification) => unreadNotificationIds.has(notification.id)).map((notification) => notification.id)),
+    [combinedNotifications, unreadNotificationIds],
+  );
 
   return {
     responses: activeResponses,
@@ -1984,8 +2018,11 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     isLoading,
     error,
     notifications: combinedNotifications,
-    unreadCount: combinedUnreadCount,
+    unreadCount: combinedUnreadNotificationIds.size,
+    unreadNotificationIds: combinedUnreadNotificationIds,
     markNotificationsRead,
+    markNotificationRead,
+    markNotificationUnread,
     createSurvey,
     updateSurvey,
     updateSurveysBulk,

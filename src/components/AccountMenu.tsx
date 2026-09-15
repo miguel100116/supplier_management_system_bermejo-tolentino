@@ -1,15 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { LogOut, User, ChevronDown, Award, MapPin } from 'lucide-react';
+import { LogOut, User, ChevronDown, Award, MapPin, Settings } from 'lucide-react';
 
 interface AccountMenuProps {
   email: string;
   designation?: string;
   department?: string;
   role?: string;
+  onOpenSettings: () => void;
   onLogout: () => void;
 }
 
-export function AccountMenu({ email, designation, department, role, onLogout }: AccountMenuProps) {
+export function AccountMenu({ email, designation, department, role, onOpenSettings, onLogout }: AccountMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +86,18 @@ export function AccountMenu({ email, designation, department, role, onLogout }: 
             </div>
             
             <div className="pt-1.5 pb-0.5">
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  onOpenSettings();
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900 cursor-pointer"
+                type="button"
+                id="settings-button"
+              >
+                <Settings size={15} />
+                <span>Settings</span>
+              </button>
               <button
                 onClick={() => {
                   setIsOpen(false);

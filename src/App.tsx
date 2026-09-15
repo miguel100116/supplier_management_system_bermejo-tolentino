@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
-import { BarChart3, Bell, FileText, LayoutDashboard, Moon, Search, Sun, FilePlus, ClipboardCheck, ArrowLeft, LogOut, ShieldAlert, Users, UserCog, ClipboardList, CircleUserRound, Settings as SettingsIcon } from 'lucide-react';
+import { BarChart3, FileText, LayoutDashboard, Moon, Search, Sun, FilePlus, ClipboardCheck, ArrowLeft, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
 import { AccountMenu } from './components/AccountMenu';
 import { NotificationBell } from './components/NotificationBell';
 import { EmployeeNotificationBell } from './components/EmployeeNotificationBell';
@@ -279,11 +279,6 @@ const adminNavItems: NavItem<PageKey>[] = [
     ],
   },
   { key: 'account-management', label: 'Employees / Users', icon: UserCog },
-  // General admin notification log (document expiry alerts, survey
-  // submissions) - already existed as a page, only reachable before now
-  // via the bell's "View all" link.
-  { key: 'notifications', label: 'Notifications', icon: Bell },
-  { key: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 const allSurveyTypes: SurveyType[] = ['Courier', 'Supplier', 'Subcontractor'];
@@ -371,6 +366,14 @@ export default function App() {
         department: 'Business Solutions Manager',
       };
     }
+    if (isDemoModeEnabled() && normalized === 'admin@mgenesis.com') {
+      return {
+        email: normalized,
+        role: 'Admin',
+        designation: 'Executive',
+        department: 'Business Solutions Manager',
+      };
+    }
     return {
       email: normalized,
       role: 'Employee',
@@ -443,7 +446,10 @@ export default function App() {
     error,
     notifications,
     unreadCount,
+    unreadNotificationIds,
     markNotificationsRead,
+    markNotificationRead,
+    markNotificationUnread,
     createSurvey,
     updateSurvey,
     updateSurveysBulk,
@@ -460,6 +466,27 @@ export default function App() {
   } = useSurveyData(accounts, account, isAdmin, simClock);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isNotificationModalOpen && !isSettingsModalOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsNotificationModalOpen(false);
+        setIsSettingsModalOpen(false);
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isNotificationModalOpen, isSettingsModalOpen]);
 
   const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(null);
   const surveyFillerRef = useRef<SurveyFillerHandle>(null);
@@ -631,8 +658,6 @@ export default function App() {
       { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { key: 'fill-form', label: 'New Evaluation', icon: FilePlus },
       { key: 'my-submissions', label: 'My Submissions', icon: ClipboardList },
-      { key: 'notifications', label: 'Notifications', icon: Bell },
-      { key: 'profile-settings', label: 'Profile / Settings', icon: CircleUserRound },
     ],
     []
   );
@@ -832,7 +857,10 @@ export default function App() {
         simClock={simClock}
         currentUser={profile}
         onNavigatePage={(p) => setActivePage(p as PageKey)}
-        onMarkSurveyComplete={(id) => updateSurvey(id, { status: 'Completed' })}
+        onMarkSurveyComplete={(id) => {
+          const survey = surveys.find((candidate) => candidate.id === id);
+          if (survey) updateSurvey({ ...survey, status: 'Completed' });
+        }}
       />
     ),
     'account-management': (
@@ -937,7 +965,14 @@ export default function App() {
       />
     ),
     notifications: isAdmin ? (
-      <NotificationLogsPage notifications={notifications} unreadCount={unreadCount} />
+      <NotificationLogsPage
+        notifications={notifications}
+        unreadCount={unreadCount}
+        unreadNotificationIds={unreadNotificationIds}
+        onMarkRead={markNotificationRead}
+        onMarkUnread={markNotificationUnread}
+        onMarkAllRead={markNotificationsRead}
+      />
     ) : (
       profile && (
         <EmployeeNotificationLogsPage
@@ -1087,8 +1122,8 @@ export default function App() {
                 <NotificationBell
                   notifications={notifications}
                   unreadCount={unreadCount}
-                  onOpen={markNotificationsRead}
-                  onViewAll={() => setActivePage('notifications')}
+                  onOpen={() => undefined}
+                  onViewAll={() => setIsNotificationModalOpen(true)}
                 />
               </div>
             ) : (
@@ -1102,7 +1137,7 @@ export default function App() {
                     setSelectedSurveyId(id);
                     setActivePage('fill-form');
                   }}
-                  onViewAll={() => setActivePage('notifications')}
+                  onViewAll={() => setIsNotificationModalOpen(true)}
                   variant="header"
                 />
               </div>
@@ -1125,6 +1160,7 @@ export default function App() {
                 designation={profile?.designation}
                 department={profile?.department}
                 role={profile?.role}
+                onOpenSettings={() => setIsSettingsModalOpen(true)}
                 onLogout={handleLogout}
               />
             </div>
@@ -1155,6 +1191,143 @@ export default function App() {
           )}
         </div>
       </Shell>
+
+      {isNotificationModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="notification-center-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsNotificationModalOpen(false);
+          }}
+        >
+          <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
+              <div>
+                <h2 id="notification-center-title" className="text-lg font-bold text-slate-900 dark:text-white">
+                  {isAdmin ? 'All Notifications' : 'All Reminders'}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {isAdmin ? 'Survey submissions and document alerts.' : 'Your pending survey evaluation reminders.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNotificationModalOpen(false)}
+                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                aria-label="Close notifications"
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              {isAdmin ? (
+                <NotificationLogsPage
+                  notifications={notifications}
+                  unreadCount={unreadCount}
+                  unreadNotificationIds={unreadNotificationIds}
+                  onMarkRead={markNotificationRead}
+                  onMarkUnread={markNotificationUnread}
+                  onMarkAllRead={markNotificationsRead}
+                />
+              ) : (
+                profile && (
+                  <EmployeeNotificationLogsPage
+                    userEmail={account || ''}
+                    profile={profile}
+                    surveys={surveys}
+                    partnerCompanies={partnerCompanies}
+                    responses={responses}
+                    onFillForm={(id) => {
+                      setIsNotificationModalOpen(false);
+                      setSelectedSurveyId(id);
+                      setActivePage('fill-form');
+                    }}
+                  />
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSettingsModalOpen && profile && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60 p-2 backdrop-blur-sm sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-modal-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsSettingsModalOpen(false);
+          }}
+        >
+          <div className="flex max-h-[95vh] w-[96vw] max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
+              <div>
+                <h2 id="settings-modal-title" className="text-xl font-bold text-slate-900 dark:text-white">
+                  {isAdmin ? 'Settings' : 'Profile & Settings'}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {isAdmin
+                    ? 'Manage your account, appearance, session, and available system tools.'
+                    : 'View your profile, evaluation activity, preferences, and session.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSettingsModalOpen(false)}
+                className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                aria-label="Close settings"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              {isAdmin ? (
+                <SettingsPage
+                  email={account || ''}
+                  role={profile.role}
+                  designation={profile.designation}
+                  department={profile.department}
+                  darkMode={darkMode}
+                  onToggleDarkMode={() => setDarkMode((value) => !value)}
+                  onOpenSimulator={() => {
+                    setIsSettingsModalOpen(false);
+                    setActivePage('simulator');
+                  }}
+                  onOpenImportEvaluations={() => {
+                    setIsSettingsModalOpen(false);
+                    setActivePage('import-evaluations');
+                  }}
+                  onResetSystemData={handleResetAllData}
+                  onLogout={handleLogout}
+                  accountsCount={accounts.length}
+                  activePartnerCompaniesCount={partnerCompanies.filter((company) => !company.isArchived).length}
+                  totalResponsesCount={responses.length}
+                />
+              ) : (
+                <ProfilePage
+                  email={account || ''}
+                  role={profile.role}
+                  designation={profile.designation}
+                  department={profile.department}
+                  darkMode={darkMode}
+                  onToggleDarkMode={() => setDarkMode((value) => !value)}
+                  onLogout={handleLogout}
+                  responses={userAccessibleAllTimeResponses}
+                  onViewAllSubmissions={() => {
+                    setIsSettingsModalOpen(false);
+                    setActivePage('my-submissions');
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

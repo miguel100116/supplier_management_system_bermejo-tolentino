@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { CalendarClock, ChevronDown, ChevronUp, ClipboardList, FilePlus, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarClock, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ClipboardList, FilePlus, Search } from 'lucide-react';
 import { SurveyResponse } from '../types/survey';
 import { isScoredQuestion } from '../data/questionWeights';
 
@@ -9,9 +9,12 @@ interface MySubmissionsPageProps {
   onFillForm?: () => void;
 }
 
+const SUBMISSIONS_PAGE_SIZE = 10;
+
 export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmissionsPageProps) {
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const mySubmissions = useMemo(() => {
     const mine = responses.filter((r) => r.respondentEmail?.trim().toLowerCase() === userEmail.trim().toLowerCase());
@@ -30,6 +33,21 @@ export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmis
       group[0].company.toLowerCase().includes(query) || group[0].surveyType.toLowerCase().includes(query)
     );
   }, [mySubmissions, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSubmissions.length / SUBMISSIONS_PAGE_SIZE));
+  const paginatedSubmissions = useMemo(() => {
+    const start = (currentPage - 1) * SUBMISSIONS_PAGE_SIZE;
+    return filteredSubmissions.slice(start, start + SUBMISSIONS_PAGE_SIZE);
+  }, [filteredSubmissions, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  const changePage = (page: number) => {
+    setCurrentPage(page);
+    setExpandedId(null);
+  };
 
   return (
     <div className="space-y-5">
@@ -58,7 +76,11 @@ export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmis
             type="text"
             placeholder="Search by company or type..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setCurrentPage(1);
+              setExpandedId(null);
+            }}
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#0063a9] dark:focus:ring-blue-600"
           />
         </div>
@@ -74,7 +96,7 @@ export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmis
         <div className="panel text-center py-10 text-slate-500">No submissions match "{search}".</div>
       ) : (
         <div className="space-y-3">
-          {filteredSubmissions.map((group) => {
+          {paginatedSubmissions.map((group) => {
             const head = group[0];
             const isExpanded = expandedId === head.responseId;
             return (
@@ -121,6 +143,39 @@ export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmis
               </div>
             );
           })}
+          {filteredSubmissions.length > SUBMISSIONS_PAGE_SIZE && (
+            <nav
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950"
+              aria-label="Submission history pagination"
+            >
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Showing {(currentPage - 1) * SUBMISSIONS_PAGE_SIZE + 1}–{Math.min(currentPage * SUBMISSIONS_PAGE_SIZE, filteredSubmissions.length)} of {filteredSubmissions.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => changePage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  <ChevronLeft size={15} />
+                  Previous
+                </button>
+                <span className="min-w-20 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => changePage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  Next
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+            </nav>
+          )}
         </div>
       )}
     </div>

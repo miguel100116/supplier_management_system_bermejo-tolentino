@@ -36,6 +36,24 @@ export function markNotificationRead(userEmail: string, id: string) {
   }
 }
 
+export function markNotificationUnread(userEmail: string, id: string) {
+  const ids = loadIds(userEmail, 'read');
+  if (ids.delete(id)) saveIds(userEmail, 'read', ids);
+}
+
+export function markNotificationsRead(userEmail: string, notificationIds: string[]) {
+  if (notificationIds.length === 0) return;
+  const ids = loadIds(userEmail, 'read');
+  let changed = false;
+  notificationIds.forEach((id) => {
+    if (!ids.has(id)) {
+      ids.add(id);
+      changed = true;
+    }
+  });
+  if (changed) saveIds(userEmail, 'read', ids);
+}
+
 export function deleteNotifications(userEmail: string, idsToDelete: string[]) {
   if (idsToDelete.length === 0) return;
   const ids = loadIds(userEmail, 'deleted');

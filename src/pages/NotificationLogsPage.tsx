@@ -7,6 +7,10 @@ import { StateMessage } from '../components/StateMessage';
 interface NotificationLogsPageProps {
   notifications: ResponseNotification[];
   unreadCount: number;
+  unreadNotificationIds: ReadonlySet<string>;
+  onMarkRead: (id: string) => void;
+  onMarkUnread: (id: string) => void;
+  onMarkAllRead: () => void;
 }
 
 const surveyTypeOptions: Array<'All' | SurveyType> = ['All', 'Courier', 'Supplier', 'Subcontractor'];
@@ -17,7 +21,14 @@ const surveyTypeColors: Record<SurveyType, string> = {
   Subcontractor: '#7c3aed',
 };
 
-export function NotificationLogsPage({ notifications, unreadCount }: NotificationLogsPageProps) {
+export function NotificationLogsPage({
+  notifications,
+  unreadCount,
+  unreadNotificationIds,
+  onMarkRead,
+  onMarkUnread,
+  onMarkAllRead,
+}: NotificationLogsPageProps) {
   const [surveyType, setSurveyType] = useState<'All' | SurveyType>('All');
   const [search, setSearch] = useState('');
 
@@ -27,11 +38,9 @@ export function NotificationLogsPage({ notifications, unreadCount }: Notificatio
   const [sortField, setSortField] = useState<SortField>('submissionDate');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
-  // The bell keeps unread items at the front of the list, so the first `unreadCount`
-  // entries are the ones the user hasn't seen in the panel yet.
   const enriched = useMemo(
-    () => notifications.map((item, index) => ({ ...item, isNew: index < unreadCount })),
-    [notifications, unreadCount],
+    () => notifications.map((item) => ({ ...item, isNew: unreadNotificationIds.has(item.id) })),
+    [notifications, unreadNotificationIds],
   );
 
   const filtered = useMemo(() => {
@@ -110,17 +119,27 @@ export function NotificationLogsPage({ notifications, unreadCount }: Notificatio
               Every survey submission received, with details of each response.
             </p>
           </div>
-          <div className="segmented-control">
-            {surveyTypeOptions.map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={surveyType === option ? 'segmented-active' : ''}
-                onClick={() => setSurveyType(option)}
-              >
-                {option}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="segmented-control">
+              {surveyTypeOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={surveyType === option ? 'segmented-active' : ''}
+                  onClick={() => setSurveyType(option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={onMarkAllRead}
+              disabled={unreadCount === 0}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#0063a9] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-blue-300 dark:hover:bg-blue-950/30"
+            >
+              Mark all as read
+            </button>
           </div>
         </div>
 
@@ -151,7 +170,7 @@ export function NotificationLogsPage({ notifications, unreadCount }: Notificatio
           />
         ) : (
           <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[850px] border-collapse text-sm">
+            <table className="w-full min-w-[980px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
                   <th className="px-4 py-3 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition" onClick={() => handleSort('submissionDate')}>
@@ -214,6 +233,7 @@ export function NotificationLogsPage({ notifications, unreadCount }: Notificatio
                       )}
                     </div>
                   </th>
+                  <th className="px-4 py-3 text-right">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -262,6 +282,16 @@ export function NotificationLogsPage({ notifications, unreadCount }: Notificatio
                       }`}>
                         {item.designation}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => (item.isNew ? onMarkRead(item.id) : onMarkUnread(item.id))}
+                        className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0063a9] transition hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                        aria-label={`${item.isNew ? 'Mark as read' : 'Mark as unread'}: ${item.company}`}
+                      >
+                        {item.isNew ? 'Mark as read' : 'Mark as unread'}
+                      </button>
                     </td>
                   </tr>
                 ))}

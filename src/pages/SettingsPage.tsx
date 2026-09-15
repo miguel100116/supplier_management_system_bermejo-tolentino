@@ -144,8 +144,7 @@ export function SettingsPage({
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 items-start">
-      <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
       <section className="panel">
         <h3 className="text-base font-semibold mb-1">Account</h3>
         <div className="mt-3 flex items-center gap-4">
@@ -198,10 +197,8 @@ export function SettingsPage({
           </button>
         </div>
       </section>
-      </div>
 
-      <div className="space-y-5">
-      <section className="panel">
+      <section className="panel xl:col-span-2">
         <h3 className="text-base font-semibold mb-1">System Tools</h3>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Advanced tools for testing and data management.</p>
 
@@ -252,7 +249,7 @@ export function SettingsPage({
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel xl:col-span-2">
         <h3 className="text-base font-semibold mb-1">Session</h3>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Sign out of the Supplier Management System on this device.</p>
         <button
@@ -264,7 +261,6 @@ export function SettingsPage({
           Sign out
         </button>
       </section>
-      </div>
       </div>
 
       <section className="panel">

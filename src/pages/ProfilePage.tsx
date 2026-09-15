@@ -54,9 +54,8 @@ export function ProfilePage({
   const recentSubmissions = mySubmissions.slice(0, 4);
 
   return (
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 items-start">
-      <div className="space-y-5 lg:col-span-2">
-      <section className="panel">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <section className="panel lg:col-span-2">
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#0063a9]/10 text-[#0063a9] dark:bg-blue-950/40 dark:text-blue-300 font-bold text-lg">
             {initials}
@@ -105,7 +104,7 @@ export function ProfilePage({
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel lg:col-span-2">
         <h3 className="text-base font-semibold mb-1">My Impact</h3>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Your evaluation activity, at a glance.</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -126,7 +125,7 @@ export function ProfilePage({
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel lg:col-span-2">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="text-base font-semibold">Recent Submissions</h3>
           {onViewAllSubmissions && mySubmissions.length > 0 && (
@@ -169,9 +168,7 @@ export function ProfilePage({
           </div>
         )}
       </section>
-      </div>
 
-      <div className="space-y-5 lg:col-span-1">
       <section className="panel">
         <h3 className="text-base font-semibold mb-1">Preferences</h3>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Personal display settings for this device.</p>
@@ -208,7 +205,6 @@ export function ProfilePage({
           Sign out
         </button>
       </section>
-      </div>
     </div>
   );
 }
