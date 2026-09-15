@@ -1169,10 +1169,10 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
                             <Tooltip contentStyle={{ fontSize: '11px', borderRadius: 10, border: '1px solid #e2e8f0' }} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
                             <Legend wrapperStyle={{ fontSize: '11px' }} iconType="circle" iconSize={8} />
                             <Bar dataKey="Expiring Soon" stackId="a" fill={CHART_WARNING} radius={[0, 0, 0, 0]} maxBarSize={20} isAnimationActive={false}>
-                              <LabelList dataKey="Expiring Soon" position="right" formatter={(v: number) => (v > 0 ? v : '')} style={{ fontSize: 12, fill: CHART_INK, fontWeight: 700 }} />
+                              <LabelList dataKey="Expiring Soon" position="right" formatter={(v) => (typeof v === 'number' && v > 0 ? v : '')} style={{ fontSize: 12, fill: CHART_INK, fontWeight: 700 }} />
                             </Bar>
                             <Bar dataKey="Expired" stackId="a" fill={CHART_CRITICAL} radius={[0, 4, 4, 0]} maxBarSize={20} isAnimationActive={false}>
-                              <LabelList dataKey="Expired" position="right" formatter={(v: number) => (v > 0 ? v : '')} style={{ fontSize: 12, fill: CHART_INK, fontWeight: 700 }} />
+                              <LabelList dataKey="Expired" position="right" formatter={(v) => (typeof v === 'number' && v > 0 ? v : '')} style={{ fontSize: 12, fill: CHART_INK, fontWeight: 700 }} />
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
@@ -1208,10 +1208,10 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
                         <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-slate-100 dark:stroke-slate-800" />
                         <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} tickFormatter={(d: string) => formatDate(d)} />
                         <YAxis domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} />
-                        <Tooltip contentStyle={{ fontSize: '11px', borderRadius: 10, border: '1px solid #e2e8f0' }} labelFormatter={(d: string) => formatDate(d)} formatter={(v: number) => [`${v}%`, 'Compliance Rate']} />
+                        <Tooltip contentStyle={{ fontSize: '11px', borderRadius: 10, border: '1px solid #e2e8f0' }} labelFormatter={(d) => formatDate(String(d ?? ''))} formatter={(v) => [`${typeof v === 'number' ? v : 0}%`, 'Compliance Rate']} />
                         <Area type="monotone" dataKey="rate" stroke="none" fill="url(#trendFill)" isAnimationActive={false} />
                         <Line type="monotone" dataKey="rate" stroke="#0063a9" strokeWidth={2} dot={{ r: 4, fill: '#0063a9', strokeWidth: 0 }} activeDot={{ r: 6 }} isAnimationActive={false}>
-                          <LabelList dataKey="rate" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 11, fontWeight: 700, fill: CHART_INK }} />
+                          <LabelList dataKey="rate" position="top" formatter={(v) => `${typeof v === 'number' ? v : 0}%`} style={{ fontSize: 11, fontWeight: 700, fill: CHART_INK }} />
                         </Line>
                       </ComposedChart>
                     </ResponsiveContainer>

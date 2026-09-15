@@ -1,14 +1,10 @@
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
 
   // Simple API route example / health-check
   app.get('/api/health', (req, res) => {
@@ -18,8 +14,20 @@ async function startServer() {
     });
   });
 
+  // Azure's client and tenant IDs are public SPA configuration. Returning
+  // them at runtime lets deployments inject env values without rebuilding the
+  // static frontend bundle.
+  app.get('/api/config', (req, res) => {
+    res.json({
+      azureClientId: process.env.VITE_AZURE_CLIENT_ID || '',
+      azureTenantId: process.env.VITE_AZURE_TENANT_ID || '',
+      azureRedirectUri: process.env.VITE_AZURE_REDIRECT_URI || '',
+    });
+  });
+
   // Check if we are running in production
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction =
+    process.env.NODE_ENV === 'production' || path.basename(process.argv[1] || '') === 'server.cjs';
 
   if (isProduction) {
     // Serve static assets from dist

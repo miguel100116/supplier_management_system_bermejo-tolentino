@@ -220,7 +220,7 @@ function renderSlide(pres: PptxGenJS, slide: Slide, pdfMaxRating: number) {
           valAxisLabelColor: MUTED,
           showLegend: false,
           barGapWidthPct: 40,
-          gridLineColor: BORDER,
+          valGridLine: { color: BORDER },
         },
       );
       break;
@@ -243,7 +243,6 @@ function renderSlide(pres: PptxGenJS, slide: Slide, pdfMaxRating: number) {
         {
           x: MARGIN, y: contentTop, w: CONTENT_W, h: chartH,
           barDir: 'bar',
-          invertedColors: false,
           chartColors: sorted.map((d, i) => (i === 0 ? '10B981' : i === sorted.length - 1 ? 'EF4444' : BRAND)),
           valAxisMinVal: 0,
           valAxisMaxVal: Number(maxAvg.toFixed(2)),
@@ -257,7 +256,7 @@ function renderSlide(pres: PptxGenJS, slide: Slide, pdfMaxRating: number) {
           valAxisLabelColor: MUTED,
           showLegend: false,
           barGapWidthPct: 30,
-          gridLineColor: BORDER,
+          valGridLine: { color: BORDER },
         },
       );
       break;
@@ -328,7 +327,7 @@ function renderSlide(pres: PptxGenJS, slide: Slide, pdfMaxRating: number) {
           valAxisLabelFontSize: 8.5,
           valAxisLabelColor: MUTED,
           showLegend: false,
-          gridLineColor: BORDER,
+          valGridLine: { color: BORDER },
           showValue: true,
           dataLabelFontSize: 8.5,
           dataLabelColor: MUTED,

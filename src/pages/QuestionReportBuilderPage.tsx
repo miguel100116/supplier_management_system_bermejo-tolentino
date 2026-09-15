@@ -380,7 +380,7 @@ export function QuestionReportBuilderPage({ responses, partnerCompanies, canExpo
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(9.5);
           doc.setTextColor(70);
-          const labelLines = doc.splitTextToSize(companiesLabel, contentWidth - 24);
+          const labelLines: string[] = doc.splitTextToSize(companiesLabel, contentWidth - 24);
           
           // Divide companies into 2 columns for the PDF export
           const half = Math.ceil(companiesList.length / 2);
@@ -473,7 +473,7 @@ export function QuestionReportBuilderPage({ responses, partnerCompanies, canExpo
         });
 
         // Draw headers and footers for all pages
-        const pageCount = doc.internal.getNumberOfPages();
+        const pageCount = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
         for (let i = 2; i <= pageCount; i++) {
           drawHeaderAndFooter(doc, i, pageCount);
         }

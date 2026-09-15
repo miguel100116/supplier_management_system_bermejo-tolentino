@@ -980,7 +980,7 @@ export function ExecutiveSummaryReportBuilderPage({
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(9.5);
             doc.setTextColor(70);
-            const labelLines = doc.splitTextToSize(companiesLabel, contentWidth - 24);
+            const labelLines: string[] = doc.splitTextToSize(companiesLabel, contentWidth - 24);
             
             // Divide companies into 2 columns for the PDF export
             const half = Math.ceil(companiesList.length / 2);

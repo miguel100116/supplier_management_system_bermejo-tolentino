@@ -33,8 +33,9 @@ import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import { surveyTypeDisplayLabel, formatCompositeScore } from '../data/questionWeights';
 import { formatNumber, getScoreAxisDomain, questionPerformance } from '../utils/analytics';
 import { computeCompanyComposite, getCompanyTrend, getLeaderboard, getSectionPeerAverages } from '../utils/scoring';
-import { captureChartImage, CompanyReportData, exportCompanyReportAsDocx, exportCompanyReportAsPDF } from '../utils/companyReportExport';
+import { captureChartImage, exportCompanyReportAsDocx, exportCompanyReportAsPDF } from '../utils/companyReportExport';
 import { radarPointLabel } from '../utils/radarChartLabels';
+import { createCompanyReportData } from '../features/feedback-hub/reporting';
 
 interface CompanyReportBuilderPageProps {
   responses: SurveyResponse[];
@@ -187,6 +188,10 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
 
   const handleExport = async (format: 'pdf' | 'docx') => {
     if (!composite || !selectedCompany) return;
+    const selectedCompanyRecord = partnerCompanies.find(
+      (company) => !company.isArchived && company.type === category && company.name === selectedCompany,
+    );
+    if (!selectedCompanyRecord) return;
     setIsExporting(format);
     setExportMenuOpen(false);
     try {
@@ -195,17 +200,21 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
         radar: graphs.radar ? await captureChartImage(radarRef.current) : null,
         trend: graphs.trend ? await captureChartImage(trendRef.current) : null,
       };
-      const data: CompanyReportData = {
-        company: selectedCompany,
-        surveyType: category,
-        composite,
-        generatedOn: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+      const data = createCompanyReportData({
+        survey: {
+          id: `company-report-${category.toLowerCase()}`,
+          title: `Current ${category} responses`,
+          surveyType: category,
+        },
+        companyId: selectedCompanyRecord.id,
+        partnerCompanies,
+        responses,
+        scopeToSurveyId: false,
         graphs,
         includeComments,
-        questionRows,
         chartImages,
-        selectedCommentsList,
-      };
+        selectedCommentIds: new Set(selectedCommentsList.map((comment) => comment.responseId)),
+      });
       if (format === 'pdf') await exportCompanyReportAsPDF(data);
       else await exportCompanyReportAsDocx(data);
     } finally {
@@ -415,10 +424,10 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                               <YAxis domain={sectionAxisDomain} tick={{ fontSize: 10 }} />
                               <Tooltip />
                               <Bar dataKey={composite.company} fill={PRIMARY_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                                <LabelList dataKey={composite.company} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+                                <LabelList dataKey={composite.company} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
                               </Bar>
                               <Bar dataKey={PEER_LABEL} fill={PEER_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                                <LabelList dataKey={PEER_LABEL} position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
+                                <LabelList dataKey={PEER_LABEL} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
                               </Bar>
                             </BarChart>
                           </ResponsiveContainer>
@@ -485,7 +494,7 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                             <Tooltip />
                             <Legend verticalAlign="top" align="left" layout="horizontal" iconSize={10} wrapperStyle={{ fontSize: 10, paddingBottom: 10, left: 0 }} />
                             <Line type="monotone" dataKey="score" name={composite.company} stroke={PRIMARY_COLOR} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false}>
-                              <LabelList dataKey="score" position="top" formatter={(val: number) => typeof val === 'number' ? val.toFixed(1) : val} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
+                              <LabelList dataKey="score" position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
                             </Line>
                           </LineChart>
                         </ResponsiveContainer>

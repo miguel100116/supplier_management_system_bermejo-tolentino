@@ -181,13 +181,7 @@ export function averageRating(responses: SurveyResponse[]) {
 }
 
 function getSubmissionKey(response: SurveyResponse) {
-  return [
-    response.responseId,
-    response.company,
-    response.surveyType,
-    response.respondentEmail ?? response.respondentType,
-    response.submissionDate,
-  ].join('|');
+  return response.responseId;
 }
 
 /**

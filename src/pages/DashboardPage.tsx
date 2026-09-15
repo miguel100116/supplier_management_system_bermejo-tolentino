@@ -23,7 +23,7 @@ import {
   LayoutGrid
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { PartnerCompany, SurveyResponse, SurveyType, Survey } from '../types/survey';
+import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import {
   submissionCount,
   averageRating,
@@ -670,7 +670,7 @@ export function DashboardPage({
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.25 }}
                   draggable={isCustomizing}
-                  onDragStart={(e: React.DragEvent) => handleDragStart(e, widget.id)}
+                  onDragStartCapture={(e: React.DragEvent) => handleDragStart(e, widget.id)}
                   onDragOver={handleDragOver}
                   onDrop={(e: React.DragEvent) => handleDrop(e, widget.id)}
                   className={`${spanClass} flex flex-col bg-white dark:bg-slate-950 rounded-2xl border ${isCustomizing ? 'border-blue-300 dark:border-blue-700/50 cursor-grab hover:border-blue-400 dark:hover:border-blue-500 shadow-md ring-2 ring-blue-500/20' : 'border-slate-200/90 dark:border-slate-800 shadow-sm'} relative group overflow-visible transition-all`}

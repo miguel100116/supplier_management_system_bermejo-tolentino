@@ -144,12 +144,12 @@ A **Data Scope** toggle (shared across Dashboard and Analytics) further switches
 | **Supplier Ranking** | Curate and reorder the Top 20 suppliers evaluable by default in Supplier surveys. |
 | **Partners Feedback Hub** | Send report cards to partner companies (single or bulk email via Microsoft Graph). |
 | **Account Management** | Configure roles, ranks, departments, and per-user/per-department permissions. |
-| **Notifications** | Audit trail of incoming survey responses and document-expiry alerts (with a header bell). |
+| **Notifications** | Audit trail of incoming survey responses and document-expiry alerts, opened as a modal from the header bell rather than a separate sidebar destination. |
 | **Archive Center** | Browse and restore archived feedback submissions and series. |
 | **Import Evaluation Responses** | Bulk-import external evaluation data (Excel/CSV) into the system. |
 | **Categories Manager** | Rename the display labels of scoring categories per survey type. |
 | **Database Simulator** | Demo/testing tooling: generate submissions and "time-travel" the system clock (disabled when demo mode is off). |
-| **Settings / Profile** | Light/dark mode, sign out, and (for Admins) admin activity log, export history, and imports. |
+| **Settings / Profile** | A large modal opened from the account-session dropdown. Employees retain their full profile, impact, recent-submission, preference, and session view; Admins retain the complete Settings view with activity, import, simulator, and reset tools. |
 
 ---
 

@@ -47,7 +47,8 @@ export function radarPointLabel({
   radialInset = 14,
   lane = 0,
 }: RadarLabelOptions) {
-  return function RadarPointLabel({ viewBox, value, index }: RadarPointLabelProps) {
+  return function RadarPointLabel(props: unknown) {
+    const { viewBox, value, index } = (props && typeof props === 'object' ? props : {}) as RadarPointLabelProps;
     const x = viewBox?.x;
     const y = viewBox?.y;
     const numeric = typeof value === 'number' ? value : parseFloat(String(value));

@@ -1,19 +1,30 @@
 import { PublicClientApplication, type AccountInfo, InteractionRequiredAuthError } from '@azure/msal-browser';
 
-// Filled in from your Azure AD (Entra ID) App Registration. Until these are
-// set, isMsalConfigured() returns false and the app falls back to the demo
-// email/password login - nothing else needs to change for that to work.
-const CLIENT_ID = import.meta.env.VITE_AZURE_CLIENT_ID as string | undefined;
-const TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID as string | undefined;
+// Build-time values support static hosting; configureMsal() can replace them
+// with values supplied by the server at runtime before App is imported.
+let CLIENT_ID = import.meta.env.VITE_AZURE_CLIENT_ID as string | undefined;
+let TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID as string | undefined;
 // Dedicated redirect/callback URL that Microsoft returns the sign-in response
 // to. It resolves to /public/auth/callback/index.html - a tiny same-origin
 // landing page the sign-in popup briefly lands on before MSAL reads the
 // response and closes it. Register this exact URL (per environment) as a
 // Single-page application (SPA) redirect URI in the Entra app registration.
 // Override with VITE_AZURE_REDIRECT_URI only if a different path is required.
-const REDIRECT_URI =
+let REDIRECT_URI =
   (import.meta.env.VITE_AZURE_REDIRECT_URI as string | undefined) ||
   `${window.location.origin}/auth/callback`;
+
+export interface RuntimeMsalConfig {
+  azureClientId?: string;
+  azureTenantId?: string;
+  azureRedirectUri?: string;
+}
+
+export function configureMsal(config: RuntimeMsalConfig): void {
+  if (config.azureClientId?.trim()) CLIENT_ID = config.azureClientId.trim();
+  if (config.azureTenantId?.trim()) TENANT_ID = config.azureTenantId.trim();
+  if (config.azureRedirectUri?.trim()) REDIRECT_URI = config.azureRedirectUri.trim();
+}
 
 // Delegated scopes: User.Read to read the signed-in profile, Mail.Send to
 // send partner reports as that same signed-in mailbox. Both require only
