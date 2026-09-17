@@ -1,4 +1,10 @@
 import { PartnerContact, QueuedReportEmail, FeedbackHubSettings } from '../types/feedbackHub';
+import {
+  loadApplicationRecords,
+  persistApplicationRecordsInBackground,
+  replaceApplicationRecords,
+  upsertApplicationRecords,
+} from '../services/applicationRepository';
 
 const CONTACTS_STORAGE_KEY = 'partner_feedback_contacts_v2';
 const REPORTS_STORAGE_KEY = 'partner_feedback_sent_reports_v2';
@@ -65,6 +71,9 @@ export function getPartnerContacts(): PartnerContact[] {
 export function savePartnerContacts(contacts: PartnerContact[]): void {
   try {
     localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(contacts));
+    persistApplicationRecordsInBackground(
+      replaceApplicationRecords('feedback_contact', contacts, (contact) => contact.id),
+    );
   } catch (e) {
     console.error('Error saving partner contacts', e);
   }
@@ -91,6 +100,9 @@ export function getSentReports(): QueuedReportEmail[] {
 export function saveSentReports(reports: QueuedReportEmail[]): void {
   try {
     localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(reports));
+    persistApplicationRecordsInBackground(
+      replaceApplicationRecords('feedback_report', reports, (report) => report.id),
+    );
   } catch (e) {
     console.error('Error saving sent reports', e);
   }
@@ -111,6 +123,9 @@ export function getFeedbackHubSettings(): FeedbackHubSettings {
 export function saveFeedbackHubSettings(settings: FeedbackHubSettings): void {
   try {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    persistApplicationRecordsInBackground(
+      upsertApplicationRecords('feedback_settings', [settings], () => 'global'),
+    );
   } catch (e) {
     console.error('Error saving feedback settings', e);
   }
@@ -148,11 +163,22 @@ export function autoCheckAndSendExpired(reports: QueuedReportEmail[]): QueuedRep
 
   if (changed) {
     try {
-      localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updated));
+      saveSentReports(updated);
     } catch (e) {
       // Ignore
     }
   }
 
   return updated;
+}
+
+export async function hydrateFeedbackHubFromSupabase(): Promise<void> {
+  const [contacts, reports, settings] = await Promise.all([
+    loadApplicationRecords<PartnerContact>('feedback_contact'),
+    loadApplicationRecords<QueuedReportEmail>('feedback_report'),
+    loadApplicationRecords<FeedbackHubSettings>('feedback_settings'),
+  ]);
+  if (contacts.length > 0) localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(contacts));
+  if (reports.length > 0) localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(autoCheckAndSendExpired(reports)));
+  if (settings[0]) localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings[0]));
 }

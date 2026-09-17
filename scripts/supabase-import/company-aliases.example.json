@@ -1,0 +1,17 @@
+[
+  {
+    "surveyType": "Supplier",
+    "sourceName": "exact observed evaluation company name",
+    "resolution": "existing",
+    "targetBpCode": "reviewed Master List BP Code",
+    "reviewedBy": "reviewer identifier",
+    "reviewedAt": "2026-09-16T09:30:00+08:00"
+  },
+  {
+    "surveyType": "Supplier",
+    "sourceName": "exact observed evaluation-only company name",
+    "resolution": "distinct",
+    "reviewedBy": "reviewer identifier",
+    "reviewedAt": "2026-09-16T09:30:00+08:00"
+  }
+]

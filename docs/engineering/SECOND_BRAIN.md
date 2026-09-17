@@ -1,6 +1,6 @@
 # Supplier Management System — Engineering Second Brain
 
-Last verified: 2026-09-11
+Last verified: 2026-09-17
 
 This document preserves durable engineering context for maintainers and coding agents. It is a map, not a substitute for reading the relevant code. Verify details before making consequential changes.
 
@@ -26,31 +26,33 @@ Canonical product documentation:
 
 ### External boundaries
 
-- Microsoft Entra ID authentication through MSAL.
+- Supabase email/password authentication is active for staging. Microsoft Entra ID code remains present but is unavailable without Azure tenant access.
 - Microsoft Graph delegated email sending.
 - Supabase client, response mirror, SQL schema, seed administration, and row-level-security policies.
+- Supabase CLI local configuration is initialized in `supabase/config.toml` and linked to the dedicated `supplier-management-staging` project (`adxwaxhnqxpmgjvsxgug`). The additive normalized migration and reviewed data import were applied there on 2026-09-16. Remote lint passed; repeat import and reconciliation preserved the expected counts with zero duplicates and zero broken relationships. Production remains untouched.
 - CSV/XLSX imports and PDF, PPTX, Word, CSV, and spreadsheet exports.
 
 ### Current persistence model
 
-- Much of the application state is stored in browser `localStorage`.
-- Survey response writes can be mirrored to Supabase, but comments in `src/hooks/useSurveyData.ts` and `src/services/supabaseResponses.ts` identify browser storage as the current source of truth.
+- Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub contacts/reports/settings, and document-notification rules through Supabase.
+- Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the canonical editable frontend store.
+- Browser `localStorage` remains a startup/demo cache and stores device-specific drafts/preferences plus lightweight audit/export logs that have not yet been approved for cross-device sharing.
 - This is unsuitable as the long-term multi-user system of record because clients can diverge and browser data lacks centralized durability and auditing.
 - Any migration away from browser storage must define one canonical backend source, compatibility behavior, validation, rollout, and recovery.
 
 ### Authorization
 
 - UI access is derived from role, designation, department, and overrides.
-- Microsoft identity and Supabase sessions are integrated in the frontend.
-- The database schema enables RLS and defines scoped policies.
+- Supabase password identity and session restoration are integrated in the frontend; localStorage is not trusted as identity when Supabase is configured.
+- The applied database schema enables RLS. Shared reference records are readable by confirmed `@mgenesis.com` users; application configuration/registry writes are Admin-only; employees may insert only their own evaluation rows; response reads are scoped by role, department, or ownership.
 - `supabase/schema.sql` currently contains clearly labeled temporary anonymous response policies. They are a production blocker if enabled.
 
 ## Current repository health
 
-Verified on 2026-09-11:
+Verified on 2026-09-16:
 
-- `npm run lint` succeeds, but the script is only `tsc --noEmit`; ESLint is not configured.
-- A focused Node test harness (`npm test`) covers the Feedback Hub company-report domain; broader unit, component, integration, and end-to-end coverage is not yet established.
+- `npm run lint` succeeds and runs TypeScript checks for both application and import scripts; ESLint is not configured.
+- `npm test` passes 28 focused tests covering Feedback Hub report data, application persistence identifiers, normalized Partner Company mapping, and the Supabase import pipeline; broader component, integration, and end-to-end coverage is not yet established.
 - No repository CI workflow is present.
 - The TypeScript source under `src/` is roughly 65,000 lines across about 100 files.
 - Major concentration points include `src/hooks/useSurveyData.ts`, `src/App.tsx`, several page components above 1,000 lines, and a very large generated/static partner seed file.
@@ -143,13 +145,49 @@ Consequences: Preview, print, queue, revision, and bulk generation share one rep
 
 Evidence: `src/features/feedback-hub/reporting/`, `src/utils/companyReportExport.ts`, `src/features/feedback-hub/reporting/companyReportData.test.ts`
 
+### 2026-09-15 - Additive normalized CSV import boundary
+
+Status: accepted for local preparation; not applied to Supabase
+
+Context: The four production CSV files and the accessible live PostgREST schema do not fit the legacy one-table response mirror or the stale draft schema without losing Master List document fields and canonical question relationships.
+
+Decision: Keep the live `suppliers` and `survey_responses` tables untouched. Prepare additive normalized company, branch, document, form, question, submission, and answer tables in `supabase/migrations/202609150001_normalized_business_data.sql`. Import through deterministic IDs and UPSERTs, with a mandatory dry run and human-reviewed resolutions for unresolved company names. A reviewed resolution may target an existing Master List BP Code or preserve a genuinely distinct evaluation-only company without inventing a BP Code.
+
+Consequences: The import is repeatable and preserves raw source values alongside parsed fields. The reviewed local resolution file is ignored by Git and produces a zero-blocker dry run. The normalized schema is present only in the dedicated staging project; no production database or UI source-of-truth change occurs until staging import and reconciliation are completed and followed by authenticated RLS policies and application service cutover.
+
+Evidence: `scripts/supabase-import/`, `supabase/verification/normalized_import_checks.sql`, `docs/engineering/SUPABASE_NORMALIZED_IMPORT.md`
+
+### 2026-09-16 - Supabase password-auth staging connection
+
+Status: accepted for staging
+
+Context: The team cannot access the Microsoft Azure tenant, so Entra authentication cannot be completed. The application also contained a local environment configuration that pointed to production and placed a service-role credential in a browser-facing variable.
+
+Decision: Use Supabase email/password authentication for staging, restricted to `@mgenesis.com`. Point the local browser build to the dedicated staging project through an ignored `.env.local` containing only the staging publishable key. Grant authenticated read-only RLS access to normalized company/form reference tables and load Partner Companies through a typed adapter. Keep raw evaluators, submissions, answers, and all backend write paths locked pending role and write-policy design.
+
+Consequences: Staging login and Partner Company reads no longer depend on Azure. Demo login has no remote access. Most feature state and writes remain local-only, and Microsoft Graph mail remains unavailable. The production service-role credential found in `.env` must be rotated; it is not present in the generated staging build.
+
+Evidence: `src/services/supabasePasswordAuth.ts`, `src/services/normalizedPartnerCompanies.ts`, `supabase/migrations/202609160001_staging_email_auth_read_access.sql`
+
+### 2026-09-16 - Canonical editable application records in staging
+
+Status: accepted for staging
+
+Context: Partner edits, evaluation submissions, surveys, profiles, permissions, archives, and category changes were still browser-local after the initial read-only connection.
+
+Decision: Keep normalized import tables immutable and seed a per-entity `application_records` store for the frontend contract. Store account authorization in `app_profiles`. Use Supabase as the authenticated source of truth with local storage only as a cache/demo fallback. Enforce profile-scoped response reads, own-submission inserts, and Admin-only shared registry/configuration writes through RLS.
+
+Consequences: The main shared business modules, Feedback Hub records, and document-notification rules now persist across devices in staging. Device drafts/preferences and lightweight audit/export logs remain local. A confirmed user must exist before authenticated writes can be tested, and an approved profile must be promoted to Admin before shared registry/configuration edits can succeed.
+
+Evidence: `src/services/applicationRepository.ts`, `src/hooks/useSurveyData.ts`, `src/App.tsx`, `src/utils/feedbackHubStore.ts`, `src/utils/documentNotificationSettings.ts`, `supabase/migrations/202609160002_application_persistence.sql`, `supabase/migrations/202609160003_secondary_shared_modules.sql`, `supabase/verification/application_persistence_checks.sql`
+
 ## Active modernization state
 
 - Agent governance: established by `AGENTS.md`.
 - Automated test harness: focused Feedback Hub company-report tests established; repository-wide coverage remains incomplete.
 - CI/CD workflow: not established.
 - Feature-module refactor: not started by this governance change.
-- Backend source-of-truth migration: not started by this governance change.
+- Backend source-of-truth migration: core shared business modules, Feedback Hub data, and document-notification rules use the staging application store with RLS; audit/export logs remain local pending an explicit sharing requirement.
 - Repository artifact cleanup: not started by this governance change.
 
 ## Handoff template

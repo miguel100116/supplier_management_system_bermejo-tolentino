@@ -8,8 +8,12 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
-    "lint": "tsc --noEmit",
-    "test": "tsx --test src/features/feedback-hub/reporting/companyReportData.test.ts"
+    "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "test": "tsx --test src/features/feedback-hub/reporting/companyReportData.test.ts src/services/applicationRepository.test.ts src/services/normalizedPartnerCompanies.test.ts scripts/supabase-import/cliOptions.test.ts scripts/supabase-import/importPlan.test.ts scripts/supabase-import/sqlImport.test.ts scripts/supabase-import/writer.test.ts",
+    "test:import": "tsx --test scripts/supabase-import/cliOptions.test.ts scripts/supabase-import/importPlan.test.ts scripts/supabase-import/sqlImport.test.ts scripts/supabase-import/writer.test.ts",
+    "import:supabase": "tsx scripts/supabase-import/cli.ts",
+    "import:staging": "tsx scripts/supabase-import/stagingImport.ts",
+    "generate:staging-import-sql": "tsx scripts/supabase-import/generateSqlImport.ts"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.17.1",

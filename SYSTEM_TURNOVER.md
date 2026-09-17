@@ -8,9 +8,9 @@
 This system is in active pre-production development, not a fully deployed production system.
 
 - The project's first commit was on July 18, 2026 — roughly three weeks of history as of this document.
-- The app currently runs against each browser's local storage. There is no shared, organization-wide backend live yet.
-- A Supabase (PostgreSQL) backend schema has been drafted (`supabase/schema.sql`) but has not been applied or fully wired up.
-- Real "Sign in with Microsoft" (Azure AD / Entra ID) login is built into the code but requires an Azure app registration to be completed before it is usable.
+- The dedicated staging project uses Supabase email/password authentication and normalized company/form reference data.
+- Authenticated `@mgenesis.com` users load and save profiles, permissions, surveys, Partner Companies/documents, evaluations, archives, categories, Feedback Hub records, and document-notification settings through staging Supabase with RLS.
+- Device-specific drafts/preferences and lightweight audit/export logs remain local. Microsoft login and Graph email remain unavailable without Azure access.
 
 Every section below reflects the system's actual current state, verified directly against the source code as of this handoff — not aspirational or planned behavior. Where something is not yet in place, that is stated explicitly rather than assumed.
 
@@ -240,15 +240,14 @@ Every item below was verified directly against the current source code, not infe
 
 | # | Issue | Impact | Workaround / Recommendation |
 |---|---|---|---|
-| 1 | Sign-in does not yet authenticate against Microsoft Entra ID by default — a fallback local check currently accepts a shared placeholder password for any @mgenesis.com address until the Azure AD app registration is completed. | Until that registration is finished, sign-in does not yet verify a person's real mgenesis.com identity. | Complete the Azure AD (Entra ID) app registration in `.env` so "Sign in with Microsoft" becomes the only active login path (see Section 1.4). |
-| 2 | The "Forgot password?" link on the login page is not wired to any action. | Not an issue once Microsoft sign-in is the only login path (Entra ID handles password reset externally), but it is currently a dead link. | Remove the link once "Sign in with Microsoft" is finalized as the sole login path (see Section 1.4). |
-| 3 | Accounts, department permissions, surveys, responses, and partner companies are currently stored in each browser's localStorage, not a shared backend. | Data added on one device/browser is invisible to everyone else; clearing browser storage deletes it permanently. | A Supabase schema is drafted (`supabase/schema.sql`) but not yet applied, and the app has not been switched over to read/write it (only a partial, one-way write for survey responses exists). Completing this migration is required before real multi-user use. |
-| 4 | The draft Supabase schema includes temporary, fully-open Row Level Security policies used only for pre-launch testing (`TEMP_responses_select_anon` / `TEMP_responses_insert_anon`). | If applied as-is, survey response rows would be readable/writable by anyone, even unauthenticated. | Drop these two policies once Microsoft Entra ID sign-in is finalized as the login path (already flagged in the schema file's own comments). |
-| 5 | The draft schema assumes the Azure ID token exposes the user's email as `auth.jwt()->>'email'`. | Role/permission lookups in the database could silently return nothing once wired up, if the claim name differs. | Confirm the actual claim name against a real Azure ID token before relying on it in production; check `preferred_username` as a fallback. |
+| 1 | Supabase email/password is the staging login because Azure access is unavailable. | Microsoft login and Graph email cannot be used. | Keep Azure features disabled unless an approved Entra registration becomes available. |
+| 2 | Password-reset UI is not implemented. | A staging user cannot self-recover from the application. | Use Supabase Dashboard authentication tools until a reset flow is added. |
+| 3 | Core shared business records and Feedback Hub configuration are Supabase-backed, but audit/export logs remain localStorage-based. | Those lightweight history records are not shared across devices. | Migrate them only if cross-device auditing becomes an approved requirement. |
+| 4 | New confirmed users default to Employee; Admin edits require an approved `app_profiles` promotion. | A first-time user can submit evaluations but cannot edit shared registry/configuration data. | Promote an approved user in the Supabase dashboard after account confirmation. |
+| 5 | The old `supabase/schema.sql` draft contains anonymous test policies and is not applied. | Applying it as-is would weaken access controls. | Use only reviewed versioned migrations. |
 | 6 | A live-chat feature (Admin Chat Widget, Live Chat page, Employee Notifications Hub, chat service) was built across several commits and is now deleted in the working tree, but the deletion is not yet committed. | Whoever continues this project should confirm the removal is intentional before it is committed, since it removes real functionality. | Confirm with the project owner, then commit the removal explicitly (or restore the feature) rather than leaving it as an uncommitted change. |
 | 7 | `EFAS_Project_Charter.docx` (in the project root, tracked since the initial commit) is a corrupted Word file — its ZIP central directory offset is invalid. | It cannot be opened by Word, pandoc, or standard ZIP tooling; whatever project-charter content it held is currently inaccessible. | Locate a valid backup copy if one exists, or treat the content as lost and re-document the project charter separately. |
 | 8 | No User Manual, Quick Reference Guide, Known Issues log, or Release Notes existed in the repository before this handoff. | New team members previously had no onboarding documentation. | This document is the first pass at all four — keep it updated as the system changes. |
-| 9 | If the local fallback login is disabled before the Azure AD app registration is completed, there is no working login path. | Could lock every user, including Admins, out of the system entirely. | Only remove the fallback login after confirming Microsoft sign-in works end-to-end for at least one real Admin account. |
 
 ### 2.5 Release Notes
 

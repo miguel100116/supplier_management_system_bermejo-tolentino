@@ -1,6 +1,11 @@
 import { type FormEvent, useState } from 'react';
 import { motion } from 'motion/react';
 import { isMsalConfigured, loginWithMicrosoft } from '../services/msalAuth';
+import { isSupabaseConfigured } from '../services/supabaseClient';
+import {
+  signInWithSupabasePassword,
+  signUpWithSupabasePassword,
+} from '../services/supabasePasswordAuth';
 import { isDemoModeEnabled } from '../utils/demoMode';
 
 // Passed up to App so it can establish the Supabase session (RLS) from the
@@ -123,6 +128,11 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [demoError, setDemoError] = useState('');
   const [isMsSigningIn, setIsMsSigningIn] = useState(false);
   const [msError, setMsError] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordMessage, setPasswordMessage] = useState('');
+  const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
 
   function handleDemoLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -152,6 +162,39 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       setMsError(err instanceof Error ? err.message : 'Microsoft sign-in failed. Please try again.');
     } finally {
       setIsMsSigningIn(false);
+    }
+  }
+
+  async function handlePasswordSignIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordError('');
+    setPasswordMessage('');
+    setIsPasswordSubmitting(true);
+    try {
+      const authenticatedEmail = await signInWithSupabasePassword(email, password);
+      onLogin(authenticatedEmail);
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : 'Unable to sign in.');
+    } finally {
+      setIsPasswordSubmitting(false);
+    }
+  }
+
+  async function handleCreateAccount() {
+    setPasswordError('');
+    setPasswordMessage('');
+    setIsPasswordSubmitting(true);
+    try {
+      const result = await signUpWithSupabasePassword(email, password);
+      if (result.signedIn) {
+        onLogin(result.email);
+      } else {
+        setPasswordMessage('Check your company email, confirm the account, then return here to sign in.');
+      }
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : 'Unable to create the account.');
+    } finally {
+      setIsPasswordSubmitting(false);
     }
   }
 
@@ -221,7 +264,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           </div>
         </div>
 
-        {/* Sign-in panel — Microsoft SSO only */}
+        {/* Sign-in panel */}
         <div className="relative z-10 -mt-8 flex flex-col justify-center rounded-t-3xl bg-white px-6 py-10 shadow-[0_-12px_40px_rgba(15,23,42,0.12)] sm:px-10 md:mt-0 md:w-[380px] md:shrink-0 md:rounded-none md:px-10 md:py-12 md:shadow-none lg:w-1/3 lg:min-w-[380px] lg:px-14">
           <div className="mx-auto w-full max-w-sm">
             <img
@@ -234,17 +277,70 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <p className="text-[10px] font-semibold uppercase tracking-widest text-[#0063a9]">SMPESA</p>
               <h1 className="mt-1.5 text-2xl font-medium text-slate-900">Welcome back</h1>
               <p className="mt-1.5 text-sm font-light text-slate-500">
-                Sign in with your Microgenesis Microsoft account to continue.
+                {isSupabaseConfigured
+                  ? 'Sign in with your verified Microgenesis company email.'
+                  : 'Sign in with your Microgenesis Microsoft account to continue.'}
               </p>
             </div>
 
-            {msError && (
+            {(msError || passwordError) && (
               <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose">
-                {msError}
+                {msError || passwordError}
               </p>
             )}
 
+            {passwordMessage && (
+              <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {passwordMessage}
+              </p>
+            )}
+
+            {isSupabaseConfigured && (
+              <form onSubmit={handlePasswordSignIn} className="space-y-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-600">Company email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    autoComplete="email"
+                    required
+                    placeholder="name@mgenesis.com"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#0063a9] focus:ring-2 focus:ring-[#0063a9]/15"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-600">Password</span>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete="current-password"
+                    minLength={8}
+                    required
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#0063a9] focus:ring-2 focus:ring-[#0063a9]/15"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={isPasswordSubmitting}
+                  className="w-full rounded-lg bg-[#0063a9] py-2.5 text-sm font-semibold text-white transition hover:bg-[#00558f] disabled:opacity-70"
+                >
+                  {isPasswordSubmitting ? 'Please wait…' : 'Sign in'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateAccount}
+                  disabled={isPasswordSubmitting || !email || password.length < 8}
+                  className="w-full rounded-lg border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Create staging account
+                </button>
+              </form>
+            )}
+
             {msalReady ? (
+              <div className={isSupabaseConfigured ? 'mt-6 border-t border-slate-200 pt-6' : ''}>
               <button
                 type="button"
                 onClick={handleMicrosoftSignIn}
@@ -259,8 +355,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 </svg>
                 {isMsSigningIn ? 'Signing in…' : 'Sign in with Microsoft'}
               </button>
+              </div>
             ) : (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-700">
+              !isSupabaseConfigured && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-700">
                 Microsoft sign-in is not configured. Use Demo mode below, or set{' '}
                 <span className="font-semibold">VITE_AZURE_CLIENT_ID</span> and{' '}
                 <span className="font-semibold">VITE_AZURE_TENANT_ID</span> for Microsoft sign-in.

@@ -2,9 +2,45 @@
 
 ## Purpose and precedence
 
-This file is the repository-wide operating agreement for coding agents. Follow the user's current request first, then this file. Keep changes inside the requested scope. Do not implement adjacent features merely because they appear useful.
+This file is the authoritative repository-wide operating agreement for every AI coding agent working in this project. Follow the user's current request first, then this file, then narrower instructions located closer to the files being changed. Keep changes inside the requested scope. Do not implement adjacent features merely because they appear useful.
 
 Before substantial work, read `README.md`, `SYSTEM_TURNOVER.md`, and `docs/engineering/SECOND_BRAIN.md`. Treat the second brain as navigation and project memory, then verify relevant statements against the code because it can become stale.
+
+## Source-of-truth hierarchy
+
+Do not treat chat history, filenames, comments, screenshots, or planning documents as proof that the implementation behaves a certain way. Resolve conflicts using this order:
+
+1. The user's current request and explicitly approved product decisions.
+2. Executable evidence: current source code, versioned database migrations, automated tests, package scripts, and configuration contracts such as `.env.example`.
+3. Read-only verification of the actual target environment when the task requires it and access is authorized. Keep staging and production evidence clearly separated.
+4. `docs/engineering/SECOND_BRAIN.md` for durable project memory and navigation.
+5. `README.md`, `SYSTEM_TURNOVER.md`, manuals, and other documentation.
+6. Historical notes, comments, generated artifacts, and assumptions.
+
+When sources disagree, do not silently choose one. Verify the behavior, follow the higher-quality evidence, correct stale documentation within scope, and name any unresolved contradiction in the handoff. A successful build proves that the code compiles; it does not prove the feature, authorization boundary, migration, or user journey works.
+
+## Mandatory context-first preflight
+
+Do not write implementation code until the task's relevant context has been inspected. Scale the inspection to the task, but complete this preflight for every code change:
+
+1. Read this file and the relevant portions of `README.md`, `SYSTEM_TURNOVER.md`, and `docs/engineering/SECOND_BRAIN.md`.
+2. Run `git status --short`. Inspect existing diffs for every file likely to be edited so user changes are not overwritten.
+3. Locate the feature with `rg`/`rg --files`; identify its entry point, callers, types, persistence boundary, authorization boundary, tests, and public contract.
+4. Read the smallest complete set of relevant files. Do not read the whole repository when targeted searches and focused ranges provide the necessary context.
+5. Verify documentation claims against code and, for database work, against versioned migrations. Use read-only staging checks when remote facts matter; never infer production state from staging.
+6. State the intended outcome, affected boundary, acceptance criteria, verification commands, and rollback approach for risky changes before editing.
+
+If the request is documentation-only or trivially local, the preflight may be brief, but Git status and the directly affected files must still be inspected. Do not ask the user for facts that can be discovered safely from the repository or an authorized read-only check.
+
+## Efficient task execution
+
+- Start narrow: search for symbols, routes, storage keys, table names, and tests before opening large files.
+- Read related files and run independent read-only checks in parallel when that reduces delay without creating overlapping edits.
+- Reuse the repository's existing types, services, domain rules, scripts, fixtures, and test patterns before introducing new abstractions.
+- Make one small vertical slice complete before broadening scope. Prefer a working, tested boundary over scattered partial edits.
+- Run the narrowest relevant test during iteration; run the required repository gates once the slice is coherent.
+- Stop investigating when the acceptance criteria are supported by enough evidence. Do not perform unrelated audits or cleanup.
+- Keep progress updates concise: finding, decision, change, verification, blocker. Do not narrate routine commands.
 
 ## Core working agreements
 
@@ -105,11 +141,12 @@ Use a risk-based test pyramid:
 
 Test observable behavior rather than private implementation. Include negative cases, malformed external data, authorization boundaries, time zones/date edges, partial failures, and regression cases for bugs.
 
-Current repository reality: there is no established automated test runner, and `npm run lint` currently performs TypeScript checking only. Do not claim that tests or linting passed when only type checking ran. When a code task needs coverage, establish or extend the appropriate test harness as part of the scoped change and document the choice.
+Current repository reality: `npm test` uses Node's test runner through `tsx` for focused domain, import, and mapping tests. Coverage is not repository-wide. `npm run lint` performs TypeScript checks for the application and import scripts; ESLint is not configured. Report these checks by their real names instead of describing TypeScript checking as stylistic linting or claiming broader test coverage than exists.
 
 Current verification commands:
 
 ```powershell
+npm test
 npm run lint
 npm run build
 ```

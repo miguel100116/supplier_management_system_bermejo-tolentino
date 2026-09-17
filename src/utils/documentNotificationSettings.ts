@@ -6,6 +6,11 @@
 // - so changing a rule can never silently change what a document's status
 // badge/cell color means elsewhere in the app, only whether an extra advance
 // notification fires for it.
+import {
+  loadApplicationRecords,
+  persistApplicationRecordsInBackground,
+  replaceApplicationRecords,
+} from '../services/applicationRepository';
 //
 // Defaults encode the client's per-document requirements as given:
 //   - AFS: fiscal-year based (see computeAfsFiscalYearStatus in compliance.ts)
@@ -108,6 +113,9 @@ export function getNotificationSettings(): DocNotificationRule[] {
 export function saveNotificationSettings(rules: DocNotificationRule[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
+    persistApplicationRecordsInBackground(
+      replaceApplicationRecords('document_notification_rule', rules, (rule) => rule.docName),
+    );
     window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
   } catch {
     // Best-effort only.
@@ -116,12 +124,23 @@ export function saveNotificationSettings(rules: DocNotificationRule[]) {
 
 export function restoreDefaultNotificationSettings(): DocNotificationRule[] {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_NOTIFICATION_RULES));
+    persistApplicationRecordsInBackground(
+      replaceApplicationRecords('document_notification_rule', DEFAULT_NOTIFICATION_RULES, (rule) => rule.docName),
+    );
     window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
   } catch {
     // Best-effort only.
   }
   return DEFAULT_NOTIFICATION_RULES;
+}
+
+export async function hydrateNotificationSettingsFromSupabase(): Promise<void> {
+  const rules = await loadApplicationRecords<DocNotificationRule>('document_notification_rule');
+  if (rules.length > 0) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
+    window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
+  }
 }
 
 export { SETTINGS_CHANGED_EVENT as NOTIFICATION_SETTINGS_CHANGED_EVENT };

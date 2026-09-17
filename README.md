@@ -42,7 +42,7 @@ At its heart, the system replaces scattered paper evaluation forms and standalon
 
 It is a role-aware platform: what each employee sees — which modules, which data — is computed automatically from their organizational rank and department, and can be fine-tuned by an administrator.
 
-> **Status note:** This system is in **active pre-production development**. It currently runs against each browser's local storage (no shared backend live yet), and real "Sign in with Microsoft" login is coded but pending an Azure app registration. See [Section 15](#15-current-status--known-issues) and [`SYSTEM_TURNOVER.md`](SYSTEM_TURNOVER.md) for the full, verified status.
+> **Status note:** This system is in **active pre-production development**. Staging uses Supabase email/password authentication and shared persistence for profiles, permissions, surveys, Partner Companies, evaluation responses, archives, category labels, Feedback Hub records, and document-notification settings. Device-specific drafts and display preferences remain local. Microsoft login and Graph email remain unavailable without Azure access.
 
 ---
 
@@ -165,8 +165,8 @@ The application is a **single-page React app** with a thin Express server used o
 | **Charts** | Recharts |
 | **Icons / animation** | lucide-react, motion |
 | **Server** | Express (dev middleware via Vite; static host in production) |
-| **Auth (planned/coded)** | Microsoft Entra ID via `@azure/msal-browser` |
-| **Backend (drafted)** | Supabase (PostgreSQL) — schema drafted, not yet applied |
+| **Auth** | Supabase email/password in staging; optional Microsoft Entra ID code remains unavailable without Azure configuration |
+| **Backend** | Supabase normalized import/audit tables plus an RLS-protected editable application store in staging |
 | **Email** | Microsoft Graph (`Mail.Send`, delegated) |
 | **Exports** | jsPDF + jspdf-autotable (PDF), xlsx (Excel), papaparse (CSV), pptxgenjs (PPTX), docx |
 
@@ -205,23 +205,23 @@ Supplier_Management_System/
 
 ## 7. Data Storage & Persistence
 
-**Current state:** All application data — accounts, department permissions, surveys, responses, partner companies, and category labels — is stored in **each browser's `localStorage`** (keyed with `_v1` suffixes), managed centrally by `src/hooks/useSurveyData.ts`.
+**Current state:** Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub contacts/queue/settings, and document-notification rules through Supabase. `localStorage` is retained as a startup/demo cache and for intentionally device-specific state such as in-progress survey drafts and layout preferences.
 
-> **Implication:** Data added on one device/browser is not visible to others, and clearing browser storage deletes it permanently. This is expected for the current pre-production phase.
+> **Implication:** Authenticated shared business data is available across devices through staging Supabase. Clearing browser storage removes only the local cache and device-specific drafts/preferences; it does not delete the shared backend records.
 
-**Planned backend:** A Supabase (PostgreSQL) schema is **drafted** in [`supabase/schema.sql`](supabase/schema.sql). It mirrors the existing localStorage keys 1:1, so migration is largely a matter of swapping each `localStorage.getItem/setItem` for a `supabase.from(...).select()/.upsert()`. A partial, one-way write for survey responses already exists (`src/services/supabaseResponses.ts`). The schema is **not yet applied** and includes temporary open Row-Level-Security policies that must be removed before launch — see [Section 15](#15-current-status--known-issues).
+**Staging backend:** The normalized migrations under [`supabase/migrations`](supabase/migrations) are applied to the dedicated staging project. Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the editable frontend store. RLS scopes evaluation rows by profile and permits employees to insert only their own submissions; shared configuration and registry writes are Admin-only. The older [`supabase/schema.sql`](supabase/schema.sql) remains an unapplied draft.
 
 ---
 
 ## 8. Authentication
 
-Sign-in is designed around **Microsoft Entra ID (Azure AD)**. Every user signs in with **"Sign in with Microsoft"** using their existing `@mgenesis.com` Microsoft 365 identity — the system holds **no passwords of its own**.
+Staging signs users in with **Supabase email and password** because the team does not have access to the Microsoft Entra tenant. Only `@mgenesis.com` addresses are accepted, and email confirmation is enabled in the staging Supabase project.
 
 - **Email domain is enforced:** only `@mgenesis.com` addresses are accepted.
-- **Password reset & recovery** are handled entirely by Entra ID / Microsoft 365 (self-service password reset or the IT helpdesk) — nothing to reset inside this system.
-- **Report emails** to partner companies are sent through Microsoft Graph as the signed-in Admin's own account (delegated `Mail.Send`).
+- **Password management:** staging passwords belong to Supabase Auth. A reset UI is still pending.
+- **Microsoft features:** Microsoft login and Graph report-email delivery remain unavailable until Azure access is provided.
 
-> **Current gap:** Until the Azure app registration is completed, a **fallback local login** accepts a shared placeholder password for any `@mgenesis.com` address so the app remains usable during development. This must be replaced by real Microsoft sign-in before production. See [`.env.example`](.env.example) for the full Azure setup steps.
+> **Security boundary:** browser access uses the publishable key plus authenticated RLS. Secret/service-role keys must never be placed in `VITE_*` variables.
 
 **Bootstrap admin:** A single seed account, `admin@mgenesis.com`, ships so a fresh deployment has a way to sign in and start adding real employees via Account Management. Admin rights are simply an authorization record — set any real employee's System Role to `Admin` to grant them.
 
@@ -241,9 +241,9 @@ npm install
 npm run dev
 ```
 
-The app starts on **http://localhost:3000**. Because the current build runs entirely against local storage with seeded demo data, no backend or environment configuration is required to run it locally.
+The app starts on **http://localhost:3000**. With Supabase variables configured, the login page uses email/password authentication and loads the staging Partner Companies registry after sign-in.
 
-To sign in during development, use an `@mgenesis.com` email (e.g. `admin@mgenesis.com`) with the placeholder login. When **demo mode** is enabled (the default), the login page also offers quick-login accounts spanning every department and rank for testing the RBAC model.
+Create a staging account with an `@mgenesis.com` email, confirm it from the received email, then sign in. When demo mode is enabled, quick-login accounts remain available for isolated UI testing but do not receive remote database access.
 
 ---
 
@@ -287,9 +287,9 @@ NODE_ENV=production npm run start
 The app has previously been deployed to **Vercel**. Before deploying to the real company environment:
 
 1. Set `VITE_ENABLE_DEMO_MODE=false` to strip demo/testing scaffolding.
-2. Complete the Azure app registration and set the `VITE_AZURE_*` variables so Microsoft sign-in becomes the sole login path.
-3. Apply the Supabase schema and switch the client over to it for shared, multi-user data.
-4. Remove the temporary open RLS policies and the login fallback (only after confirming Microsoft sign-in works end-to-end for at least one Admin).
+2. Configure the approved Supabase URL and publishable key; never put a secret/service-role key in a `VITE_*` variable.
+3. Decide whether audit/export history must be shared across devices; it remains local because it is currently lightweight client-side telemetry.
+4. Configure Azure only if Microsoft login or Graph email is restored as a requirement.
 
 ---
 
@@ -336,13 +336,12 @@ This system is **pre-production**. The most important open items (verified again
 
 | # | Issue | Recommendation |
 |---|---|---|
-| 1 | Microsoft Entra ID sign-in not yet active; a local fallback accepts a placeholder password. | Complete the Azure app registration so Microsoft sign-in is the sole login path. |
-| 2 | "Forgot password?" link is a dead link. | Remove it once Microsoft sign-in is finalized (Entra handles resets). |
-| 3 | Data lives in per-browser `localStorage`, not a shared backend. | Apply the drafted Supabase schema and switch the client to it before real multi-user use. |
-| 4 | Draft schema ships temporary fully-open RLS test policies. | Drop `TEMP_*` policies once Entra sign-in is finalized. |
-| 5 | Draft schema assumes the Azure token exposes email as `auth.jwt()->>'email'`. | Verify the real claim name (check `preferred_username`) before relying on it. |
+| 1 | Supabase email/password is active in staging, but password-reset UI is not implemented. | Use the Supabase dashboard for staging recovery until a reset flow is added. |
+| 2 | Core business modules and Feedback Hub configuration are Supabase-backed, but audit/export logs remain local. | Migrate those logs only if cross-device auditing becomes an approved requirement. |
+| 3 | The first confirmed account defaults to Employee unless it uses the bootstrap `admin@mgenesis.com` identity. | Promote an approved user in `app_profiles` from the Supabase dashboard before testing Admin edits. |
+| 4 | The old draft `supabase/schema.sql` contains temporary anonymous policies and is not the applied staging schema. | Use versioned migrations only; never apply the draft file as-is. |
+| 5 | Microsoft login and Graph email are unavailable without Azure access. | Keep them disabled or obtain an approved Entra app registration later. |
 | 6 | `EFAS_Project_Charter.docx` in the project root is a corrupted Word file. | Restore from backup or re-document the charter separately. |
-| 7 | Removing the local fallback login before Azure is ready would lock everyone out. | Only remove it after confirming Microsoft sign-in works for at least one Admin. |
 
 ---
 

@@ -9,6 +9,14 @@ import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage, MicrosoftAuth } from './pages/LoginPage';
 import { restoreMicrosoftAccount, logoutMicrosoft, isMsalConfigured } from './services/msalAuth';
 import { signIntoSupabaseWithMicrosoft, signOutSupabase } from './services/authBridge';
+import { isSupabaseConfigured, supabase } from './services/supabaseClient';
+import { getSupabaseSessionEmail } from './services/supabasePasswordAuth';
+import {
+  loadApplicationRecords,
+  loadProfiles,
+  replaceApplicationRecords,
+  replaceProfiles,
+} from './services/applicationRepository';
 import { NotificationLogsPage } from './pages/NotificationLogsPage';
 import { EmployeeNotificationLogsPage } from './pages/EmployeeNotificationLogsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -40,6 +48,8 @@ import { PageModuleKey, getDefaultPermissions, hasPageAccess, getDepartmentDefau
 import { SimClock, loadSimClock, saveSimClock } from './utils/simClock';
 import { SimulatedClockIndicator } from './components/SimulatedClockIndicator';
 import { isDemoModeEnabled } from './utils/demoMode';
+import { hydrateFeedbackHubFromSupabase } from './utils/feedbackHubStore';
+import { hydrateNotificationSettingsFromSupabase } from './utils/documentNotificationSettings';
 
 // Shared by userAccessibleResponses/userAccessibleAllTimeResponses below - the
 // same role/department/survey-type scoping rule applied to either the
@@ -80,6 +90,12 @@ export interface AccountProfile {
     pages: PageModuleKey[];
     surveyTypes: SurveyType[];
   };
+}
+
+interface PersistedDepartmentPermission {
+  department: string;
+  pages: PageModuleKey[];
+  surveyTypes: SurveyType[];
 }
 
 // Kept even with demo mode off - this is the one bootstrap account needed to
@@ -284,17 +300,18 @@ const adminNavItems: NavItem<PageKey>[] = [
 const allSurveyTypes: SurveyType[] = ['Courier', 'Supplier', 'Subcontractor'];
 
 export default function App() {
+  const [accountPersistenceError, setAccountPersistenceError] = useState<string | null>(null);
   const [account, setAccount] = useState<string | null>(() => {
     // When Microsoft SSO is configured it is the source of truth: identity is
     // restored from the MSAL cache in the effect below, and a bare
     // localStorage string can no longer grant access (that was the old
     // bypass). Only trust localStorage in dev when SSO is unconfigured.
-    if (isMsalConfigured()) return null;
+    if (isSupabaseConfigured || isMsalConfigured()) return null;
     return localStorage.getItem('user_account') || null;
   });
   // Gates the first paint until we've asked MSAL whether a real signed-in
   // account exists, so we never flash the app before auth is verified.
-  const [authChecked, setAuthChecked] = useState(() => !isMsalConfigured());
+  const [authChecked, setAuthChecked] = useState(() => !isSupabaseConfigured && !isMsalConfigured());
 
   // 'current' = active period only (today's default, unchanged behavior).
   // 'all-time' = active + every archived period combined, so multi-year
@@ -331,6 +348,12 @@ export default function App() {
   const saveAccounts = (newAccounts: AccountProfile[]) => {
     setAccounts(newAccounts);
     localStorage.setItem('survey_accounts_v1', JSON.stringify(newAccounts));
+    if (isSupabaseConfigured) {
+      setAccountPersistenceError(null);
+      void replaceProfiles(newAccounts).catch((saveError) => {
+        setAccountPersistenceError(saveError instanceof Error ? saveError.message : 'Unable to save accounts to Supabase.');
+      });
+    }
     logAdminActivity('Updated employee accounts', `${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'} on file`);
   };
 
@@ -349,6 +372,13 @@ export default function App() {
   const saveDepartmentPermissions = (newPerms: Record<string, { pages: PageModuleKey[]; surveyTypes: SurveyType[] }>) => {
     setDepartmentPermissions(newPerms);
     localStorage.setItem('survey_department_permissions_v1', JSON.stringify(newPerms));
+    if (isSupabaseConfigured) {
+      const records = Object.entries(newPerms).map(([department, permissions]) => ({ department, ...permissions }));
+      setAccountPersistenceError(null);
+      void replaceApplicationRecords('department_permission', records, (record) => record.department).catch((saveError) => {
+        setAccountPersistenceError(saveError instanceof Error ? saveError.message : 'Unable to save department permissions to Supabase.');
+      });
+    }
     logAdminActivity('Updated department permissions');
   };
 
@@ -716,10 +746,38 @@ export default function App() {
     }
   }, [activePage, userPermissions.pages, flatNavLeaves, account, isAdmin]);
 
-  // On load, restore identity from the MSAL cache (a real prior Microsoft
-  // sign-in) rather than trusting a localStorage string. If there's no cached
-  // Microsoft account, the user is treated as signed out.
+  // Supabase Auth is the source of truth whenever the backend is configured.
+  // This prevents a manually edited localStorage value from bypassing the
+  // login gate. Microsoft restoration remains available for deployments that
+  // have MSAL configured but do not yet use Supabase Auth directly.
   useEffect(() => {
+    if (isSupabaseConfigured) {
+      let cancelled = false;
+      const applyEmail = (email: string | null) => {
+        if (cancelled) return;
+        setAccount(email);
+        if (email) localStorage.setItem('user_account', email);
+        else localStorage.removeItem('user_account');
+      };
+
+      getSupabaseSessionEmail()
+        .then(applyEmail)
+        .catch(() => applyEmail(null))
+        .finally(() => {
+          if (!cancelled) setAuthChecked(true);
+        });
+
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        const email = session?.user.email?.trim().toLowerCase() ?? null;
+        applyEmail(email?.endsWith('@mgenesis.com') ? email : null);
+      });
+
+      return () => {
+        cancelled = true;
+        data.subscription.unsubscribe();
+      };
+    }
+
     if (!isMsalConfigured()) return;
     let cancelled = false;
     (async () => {
@@ -742,6 +800,66 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !account) return;
+    let cancelled = false;
+    setAccountPersistenceError(null);
+    Promise.all([
+      loadProfiles(),
+      loadApplicationRecords<PersistedDepartmentPermission>('department_permission'),
+    ])
+      .then(([remoteProfiles, remoteDepartmentPermissions]) => {
+        if (cancelled) return;
+        if (remoteProfiles.length > 0) {
+          setAccounts(remoteProfiles);
+          localStorage.setItem('survey_accounts_v1', JSON.stringify(remoteProfiles));
+        }
+        const permissionMap = Object.fromEntries(
+          remoteDepartmentPermissions.map((record) => [
+            record.department,
+            { pages: record.pages, surveyTypes: record.surveyTypes },
+          ]),
+        );
+        if (remoteDepartmentPermissions.length > 0) {
+          setDepartmentPermissions(permissionMap);
+          localStorage.setItem('survey_department_permissions_v1', JSON.stringify(permissionMap));
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to load access settings.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account]);
+
+  useEffect(() => {
+    const handlePersistenceError = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      setAccountPersistenceError(detail || 'Unable to save shared data to Supabase.');
+    };
+    window.addEventListener('supabase-persistence-error', handlePersistenceError);
+    return () => window.removeEventListener('supabase-persistence-error', handlePersistenceError);
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !account) return;
+    void hydrateNotificationSettingsFromSupabase().catch((loadError) => {
+      setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to load document settings.');
+    });
+  }, [account]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !account || !profile) return;
+    const canUseFeedbackHub = profile.role === 'Admin' || profile.designation !== 'Rank & File';
+    if (!canUseFeedbackHub) return;
+    void hydrateFeedbackHubFromSupabase().catch((loadError) => {
+      setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to load Feedback Hub data.');
+    });
+  }, [account, profile]);
 
   const handleLogin = (email: string, auth?: MicrosoftAuth) => {
     setAccount(email);
@@ -1168,6 +1286,16 @@ export default function App() {
         }
       >
         <div className="space-y-5">
+          {accountPersistenceError && (
+            <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              Supabase operation failed: {accountPersistenceError}
+            </div>
+          )}
+          {error && activePage !== 'dashboard' && (
+            <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              Supabase operation failed: {error}
+            </div>
+          )}
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
             <div className="min-w-0 flex-1">{pageContent}</div>
           </div>
@@ -1177,7 +1305,7 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <Search size={16} className="text-[#0063a9] dark:text-blue-400 shrink-0" />
                 <span>
-                  Data Engine: Local Microsoft Forms creation model. Submissions immediately refresh visual analytics in real-time.
+                  Data Engine: Supabase shared business data with local device-only drafts and display preferences.
                 </span>
               </div>
               <button
