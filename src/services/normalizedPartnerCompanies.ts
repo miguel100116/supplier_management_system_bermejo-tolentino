@@ -1,5 +1,70 @@
-import { type BranchRecord, type BranchStatus, type DocumentStatus, type PartnerCompany, type PartnerCompanyType, type SupplierOrigin } from '../types/survey';
+import { type BranchRecord, type BranchStatus, type ComplianceDocument, type DocumentStatus, type PartnerCompany, type PartnerCompanyType, type SupplierOrigin } from '../types/survey';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+
+export const DATABASE_DOCUMENT_KEY_LABELS: Readonly<Record<string, string>> = {
+  'common.confidentiality_nda': 'Confidentiality and Non-Disclosure Agreement',
+  'common.letter_of_accreditation': 'Letter of Accreditation',
+  'common.supplier_code_of_conduct': 'Supplier Code of Business Conduct and Ethics',
+  'local.sif': 'SIF',
+  'local.bir_2303': 'BIR2303',
+  'local.sec_corporation': 'SEC (Corp)',
+  'local.articles_of_incorporation': 'Articles of Incorporation',
+  'local.afs': 'AFS',
+  'local.gis_corporation': 'GIS (Corp)',
+  'local.dti_sole': 'DTI (Sole)',
+  'local.business_permit': 'Business Permit',
+  'local.import_permit': 'Import Permit',
+  'local.product_profile': 'Product Profile',
+  'local.proof_of_present_address': 'Proof of Present Address',
+  'local.owners_id': "Sole Proprietorship (Owner's ID)",
+  'local.other_documents': 'Other Documents',
+  'foreign.sif': 'SIF',
+  'foreign.articles_of_incorporation': 'Articles of Incorporation',
+  'foreign.certificate_of_incorporation': 'Certificate of Incorporation',
+  'foreign.afs': 'AFS',
+  'foreign.business_permit_license': 'Business Permit/License',
+  'foreign.owners_id': "Owner's ID",
+  'foreign.product_profile': 'Product Profile',
+  'foreign.other_documents': 'Other Documents',
+};
+
+export function normalizeDatabaseDocumentKeys(
+  documents: Record<string, ComplianceDocument> | undefined,
+  type: PartnerCompanyType,
+  origin: SupplierOrigin | undefined,
+): Record<string, ComplianceDocument> {
+  const source = documents ?? {};
+  const normalized: Record<string, ComplianceDocument> = {};
+  const usesForeignBlock = type === 'Supplier' && origin === 'Foreign';
+  const isApplicableDatabaseKey = (key: string) => {
+    if (key.startsWith('common.')) return true;
+    if (key.startsWith('foreign.')) return usesForeignBlock;
+    if (key.startsWith('local.')) return type !== 'Uncategorized' && !usesForeignBlock;
+    return true;
+  };
+
+  // Map imported database keys first, then let an already-canonical key win.
+  // This preserves any later Document Tracker edit if a legacy key and its
+  // display-label replacement temporarily coexist in the same branch.
+  for (const [key, document] of Object.entries(source)) {
+    const label = DATABASE_DOCUMENT_KEY_LABELS[key];
+    if (label && isApplicableDatabaseKey(key) && normalized[label] === undefined) normalized[label] = document;
+  }
+  for (const [key, document] of Object.entries(source)) {
+    if (!DATABASE_DOCUMENT_KEY_LABELS[key]) normalized[key] = document;
+  }
+  return normalized;
+}
+
+export function normalizeDatabasePartnerCompany(company: PartnerCompany): PartnerCompany {
+  return {
+    ...company,
+    branches: (company.branches ?? []).map((branch) => ({
+      ...branch,
+      documents: normalizeDatabaseDocumentKeys(branch.documents, company.type, company.supplierOrigin),
+    })),
+  };
+}
 
 interface CompanyDocumentRow {
   document_key: string;
@@ -62,7 +127,9 @@ function toDocumentStatus(value: string | null): DocumentStatus | undefined {
 }
 
 function mapBranch(row: CompanyBranchRow): BranchRecord {
-  const documents = Object.fromEntries(
+  const type = toPartnerType(row.partner_type);
+  const origin = toSupplierOrigin(row.supplier_origin);
+  const documents = normalizeDatabaseDocumentKeys(Object.fromEntries(
     (row.company_documents ?? []).map((document) => [
       document.document_key,
       {
@@ -72,7 +139,7 @@ function mapBranch(row: CompanyBranchRow): BranchRecord {
         ...(document.days_left !== null ? { daysLeft: document.days_left } : {}),
       },
     ]),
-  );
+  ), type, origin);
 
   return {
     id: row.id,

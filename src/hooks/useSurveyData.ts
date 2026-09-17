@@ -18,7 +18,7 @@ import { logAdminActivity } from '../utils/adminActivityLog';
 import { computeCompanyDocumentSummary, computeDocumentStatus, EXPIRING_SOON_DAYS } from '../utils/compliance';
 import { getRequiredDocumentKeys } from '../utils/documentRequirements';
 import { getNotificationSettings, NOTIFICATION_SETTINGS_CHANGED_EVENT } from '../utils/documentNotificationSettings';
-import { loadNormalizedPartnerCompanies } from '../services/normalizedPartnerCompanies';
+import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from '../services/normalizedPartnerCompanies';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { getSupabaseSessionEmail } from '../services/supabasePasswordAuth';
 import {
@@ -1323,7 +1323,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
         : await loadNormalizedPartnerCompanies();
       if (cancelled) return;
 
-      const normalizedCompanies = companies.map(normalizePartnerCompany);
+      const normalizedCompanies = companies.map(normalizeDatabasePartnerCompany).map(normalizePartnerCompany);
       const normalizedSurveys = storedSurveys.map(normalizeCustomForm);
       const normalizedResponses = storedResponses.map(normalizeSurveyResponse);
       setPartnerCompanies(normalizedCompanies);

@@ -49,10 +49,10 @@ Canonical product documentation:
 
 ## Current repository health
 
-Verified on 2026-09-16:
+Verified on 2026-09-17:
 
 - `npm run lint` succeeds and runs TypeScript checks for both application and import scripts; ESLint is not configured.
-- `npm test` passes 28 focused tests covering Feedback Hub report data, application persistence identifiers, normalized Partner Company mapping, and the Supabase import pipeline; broader component, integration, and end-to-end coverage is not yet established.
+- `npm test` passes 30 focused tests covering Feedback Hub report data, application persistence identifiers, normalized Partner Company/document mapping, and the Supabase import pipeline; broader component, integration, and end-to-end coverage is not yet established.
 - No repository CI workflow is present.
 - The TypeScript source under `src/` is roughly 65,000 lines across about 100 files.
 - Major concentration points include `src/hooks/useSurveyData.ts`, `src/App.tsx`, several page components above 1,000 lines, and a very large generated/static partner seed file.
@@ -180,6 +180,18 @@ Decision: Keep normalized import tables immutable and seed a per-entity `applica
 Consequences: The main shared business modules, Feedback Hub records, and document-notification rules now persist across devices in staging. Device drafts/preferences and lightweight audit/export logs remain local. A confirmed user must exist before authenticated writes can be tested, and an approved profile must be promoted to Admin before shared registry/configuration edits can succeed.
 
 Evidence: `src/services/applicationRepository.ts`, `src/hooks/useSurveyData.ts`, `src/App.tsx`, `src/utils/feedbackHubStore.ts`, `src/utils/documentNotificationSettings.ts`, `supabase/migrations/202609160002_application_persistence.sql`, `supabase/migrations/202609160003_secondary_shared_modules.sql`, `supabase/verification/application_persistence_checks.sql`
+
+### 2026-09-17 - Canonical Document Tracker labels at the application boundary
+
+Status: accepted for staging
+
+Context: The normalized import intentionally stores stable source keys such as `local.business_permit`, while Document Tracker reads human-readable labels such as `Business Permit`. The editable application seed copied source keys verbatim, so populated database documents rendered as missing without producing an error. Local and Foreign source blocks also share labels such as `AFS` and must be resolved by branch category.
+
+Decision: Keep stable dotted keys in the immutable normalized tables. Map them to Document Tracker labels in `normalizedPartnerCompanies.ts`, select only the category-applicable Local or Foreign block, and store canonical labels in editable `partner_company` application records. The staging migrations preserve later canonical edits and correct only values proven to match the non-applicable source block.
+
+Consequences: Authenticated Document Tracker views now resolve imported document values and expiry dates. Future normalized adapters must use the same mapping boundary; new source document keys require a mapping entry and a regression test.
+
+Evidence: `src/services/normalizedPartnerCompanies.ts`, `src/services/normalizedPartnerCompanies.test.ts`, `supabase/migrations/202609170001_document_tracker_key_mapping.sql`, `supabase/migrations/202609170002_document_tracker_category_collision_fix.sql`
 
 ## Active modernization state
 
