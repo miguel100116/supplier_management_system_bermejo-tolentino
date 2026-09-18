@@ -493,11 +493,11 @@ export function AnalyticsPage({
     <div className="space-y-5">
       {scopeToolbar}
       {/* Prominent KPI Section: Overall Satisfaction */}
-      <div className={`panel flex flex-col md:flex-row items-center justify-between p-6 md:p-8 border-2 border-slate-100 dark:border-slate-800/40 shadow-lg relative overflow-hidden bg-gradient-to-r from-white to-slate-50/50 dark:from-slate-950 dark:to-slate-900/40 gap-6 md:gap-10`}>
+      <div className="panel relative flex flex-col items-center justify-between gap-6 overflow-hidden border-2 border-slate-100 bg-gradient-to-r from-white to-slate-50/50 p-4 shadow-lg dark:border-slate-800/40 dark:from-slate-950 dark:to-slate-900/40 min-[420px]:p-6 md:flex-row md:gap-10 md:p-8">
         
         {/* Left Side: Circular Gauge */}
-        <div className="relative flex items-center justify-center w-48 h-48 shrink-0">
-          <svg className="w-full h-full transform -rotate-90">
+        <div className="relative flex h-36 w-36 shrink-0 items-center justify-center min-[420px]:h-48 min-[420px]:w-48">
+          <svg viewBox="0 0 192 192" className="h-full w-full -rotate-90 transform">
             {/* Underlay Track */}
             <circle
               cx="96"
@@ -525,7 +525,7 @@ export function AnalyticsPage({
           {/* Centered Number Overlay */}
           <div className="absolute flex flex-col items-center justify-center text-center px-4">
             <motion.span
-              className={`text-4xl font-light tracking-tight ${activeColor.text}`}
+              className={`text-3xl font-light tracking-tight min-[420px]:text-4xl ${activeColor.text}`}
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               key={displayedCompany.name}
@@ -551,7 +551,7 @@ export function AnalyticsPage({
           </div>
 
           <div className="space-y-2">
-            <h3 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">
+            <h3 className="break-words text-2xl font-semibold tracking-tight text-slate-900 dark:text-white sm:text-3xl">
               {displayedCompany.name}
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
@@ -784,13 +784,19 @@ export function AnalyticsPage({
                   tickFormatter={(v) => truncateCompanyName(v, isMobile ? 8 : 12)}
                   tick={{ fontSize: 10, fill: '#64748b' }}
                 />
-                <YAxis domain={topCompaniesAxisDomain} tick={{ fontSize: 10, fill: '#64748b' }} />
-                <Tooltip />
+                <YAxis
+                  domain={topCompaniesAxisDomain}
+                  width={isMobile ? 34 : 42}
+                  tickFormatter={(value: number) => `${value}%`}
+                  tick={{ fontSize: isMobile ? 9 : 10, fill: '#64748b' }}
+                />
+                <Tooltip formatter={(value) => [`${typeof value === 'number' ? formatNumber(value, 1) : value}%`, 'Score']} />
                 <Bar dataKey="score" radius={[6, 6, 0, 0]} barSize={isMobile ? 24 : 40}>
                   <LabelList
                     dataKey="score"
                     position="top"
-                    style={{ fill: '#475569', fontSize: 10, fontWeight: 'bold' }}
+                    formatter={(value) => `${typeof value === 'number' ? Math.round(value) : value}%`}
+                    style={{ fill: '#475569', fontSize: isMobile ? 9 : 10, fontWeight: 'bold' }}
                   />
                   {topCompaniesData.map((entry, idx) => (
                     <Cell key={`cell-${idx}`} fill={surveyTypeColors[entry.surveyType]} />
@@ -806,10 +812,17 @@ export function AnalyticsPage({
         </ChartCard>
         <ChartCard title="Response Volume" subtitle="Filtered response counts by survey">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={responseVolume(comparableResponses, activeSurveyTypes)}>
+            <BarChart data={responseVolume(comparableResponses, activeSurveyTypes)} margin={{ top: 8, right: 6, left: isMobile ? -24 : 0, bottom: isMobile ? 18 : 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="surveyType" />
-              <YAxis allowDecimals={false} />
+              <XAxis
+                dataKey="surveyType"
+                interval={0}
+                angle={isMobile ? -20 : 0}
+                textAnchor={isMobile ? 'end' : 'middle'}
+                height={isMobile ? 44 : 30}
+                tick={{ fontSize: isMobile ? 9 : 12 }}
+              />
+              <YAxis allowDecimals={false} width={isMobile ? 30 : 40} tick={{ fontSize: isMobile ? 9 : 12 }} />
               <Tooltip />
               <Bar dataKey="responses" radius={[6, 6, 0, 0]}>
                 {responseVolume(comparableResponses, activeSurveyTypes).map((entry) => (
@@ -824,10 +837,18 @@ export function AnalyticsPage({
       <div className="grid gap-5 xl:grid-cols-2">
         <ChartCard title="N/A Frequency" subtitle="Non-applicable responses by category" contentClassName="h-[26rem]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={naFrequency(comparableResponses)}>
+            <BarChart data={naFrequency(comparableResponses)} margin={{ top: 8, right: 6, left: isMobile ? -24 : 0, bottom: isMobile ? 42 : 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="category" />
-              <YAxis allowDecimals={false} />
+              <XAxis
+                dataKey="category"
+                interval={0}
+                tickFormatter={(value: string) => truncateQuestion(value, isMobile ? 12 : 24)}
+                angle={isMobile ? -30 : 0}
+                textAnchor={isMobile ? 'end' : 'middle'}
+                height={isMobile ? 62 : 30}
+                tick={{ fontSize: isMobile ? 9 : 12 }}
+              />
+              <YAxis allowDecimals={false} width={isMobile ? 30 : 40} tick={{ fontSize: isMobile ? 9 : 12 }} />
               <Tooltip />
               <Bar dataKey="count" fill="#d97706" radius={[6, 6, 0, 0]} />
             </BarChart>
@@ -900,7 +921,7 @@ export function AnalyticsPage({
               {/* Highest Rated Partner Row */}
               <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800/40">
                 <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                     <TrendingUp size={14} className="shrink-0" />
                     <span>{highestLabel}</span>
                   </div>
@@ -915,8 +936,8 @@ export function AnalyticsPage({
                   </p>
                 </div>
                 {/* Right side circular progress */}
-                <div className="relative flex items-center justify-center w-24 h-24 shrink-0">
-                  <svg className="w-full h-full transform -rotate-90">
+                <div className="relative flex h-20 w-20 shrink-0 items-center justify-center min-[380px]:h-24 min-[380px]:w-24">
+                  <svg viewBox="0 0 96 96" className="h-full w-full -rotate-90 transform">
                     <circle
                       cx="48"
                       cy="48"
@@ -944,7 +965,7 @@ export function AnalyticsPage({
               {/* Lowest Rated Partner Row */}
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-rose-500 dark:text-rose-400 whitespace-nowrap">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-rose-500 dark:text-rose-400">
                     <Users size={14} className="shrink-0" />
                     <span>{lowestLabel}</span>
                   </div>
@@ -959,8 +980,8 @@ export function AnalyticsPage({
                   </p>
                 </div>
                 {/* Right side circular progress */}
-                <div className="relative flex items-center justify-center w-24 h-24 shrink-0">
-                  <svg className="w-full h-full transform -rotate-90">
+                <div className="relative flex h-20 w-20 shrink-0 items-center justify-center min-[380px]:h-24 min-[380px]:w-24">
+                  <svg viewBox="0 0 96 96" className="h-full w-full -rotate-90 transform">
                     <circle
                       cx="48"
                       cy="48"
@@ -1037,13 +1058,13 @@ export function AnalyticsPage({
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend}>
+              <LineChart data={trend} margin={{ top: 8, right: isMobile ? 0 : 8, left: isMobile ? -8 : 0, bottom: isMobile ? 12 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="key" />
-                <YAxis yAxisId="left" domain={[0, 100]} tick={{ fill: '#2563eb' }} />
-                <YAxis yAxisId="right" orientation="right" allowDecimals={false} tick={{ fill: '#10b981' }} />
-                <Tooltip />
-                <Legend />
+                <XAxis dataKey="key" minTickGap={isMobile ? 20 : 8} tick={{ fontSize: isMobile ? 9 : 12 }} />
+                <YAxis yAxisId="left" domain={[0, 100]} width={isMobile ? 34 : 48} tickFormatter={(value: number) => `${value}%`} tick={{ fill: '#2563eb', fontSize: isMobile ? 9 : 12 }} />
+                <YAxis yAxisId="right" orientation="right" width={isMobile ? 28 : 48} allowDecimals={false} tick={{ fill: '#10b981', fontSize: isMobile ? 9 : 12 }} />
+                <Tooltip formatter={(value, name) => [name === 'Average score (left axis)' ? `${value}%` : value, name]} />
+                <Legend wrapperStyle={{ fontSize: isMobile ? 10 : 12 }} />
                 <Line yAxisId="left" type="monotone" dataKey="average" name="Average score (left axis)" stroke="#2563eb" strokeWidth={3} dot={false} />
                 <Line yAxisId="right" type="monotone" dataKey="responses" name="Responses (right axis)" stroke="#10b981" strokeWidth={2} dot={false} />
               </LineChart>

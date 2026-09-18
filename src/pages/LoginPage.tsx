@@ -6,7 +6,6 @@ import {
   signInWithSupabasePassword,
   signUpWithSupabasePassword,
 } from '../services/supabasePasswordAuth';
-import { isDemoModeEnabled } from '../utils/demoMode';
 
 // Passed up to App so it can establish the Supabase session (RLS) from the
 // Microsoft ID token. `auth` is optional only so non-Microsoft/dev callers
@@ -15,13 +14,6 @@ export interface MicrosoftAuth {
   idToken: string;
   nonce: string;
 }
-
-const DEMO_LOGIN_ACCOUNTS = [
-  { email: 'admin@mgenesis.com', label: 'Admin', role: 'Admin' },
-  { email: 'maria.fernandez@mgenesis.com', label: 'Maria Fernandez', role: 'Employee' },
-  { email: 'miguel.santos@mgenesis.com', label: 'Miguel Santos', role: 'Employee' },
-  { email: 'joshua.ramos@mgenesis.com', label: 'Joshua Ramos', role: 'Employee' },
-];
 
 interface LoginPageProps {
   onLogin: (email: string, auth?: MicrosoftAuth) => void;
@@ -123,9 +115,6 @@ function HeroIllustration({ className }: { className?: string }) {
 
 export function LoginPage({ onLogin }: LoginPageProps) {
   const msalReady = isMsalConfigured();
-  const demoModeEnabled = isDemoModeEnabled();
-  const [demoEmail, setDemoEmail] = useState('admin@mgenesis.com');
-  const [demoError, setDemoError] = useState('');
   const [isMsSigningIn, setIsMsSigningIn] = useState(false);
   const [msError, setMsError] = useState('');
   const [email, setEmail] = useState('');
@@ -133,19 +122,6 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [passwordError, setPasswordError] = useState('');
   const [passwordMessage, setPasswordMessage] = useState('');
   const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
-
-  function handleDemoLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const normalizedEmail = demoEmail.trim().toLowerCase();
-    setDemoError('');
-
-    if (!DEMO_LOGIN_ACCOUNTS.some((demoAccount) => demoAccount.email === normalizedEmail)) {
-      setDemoError('Select a seeded demo email.');
-      return;
-    }
-
-    onLogin(normalizedEmail);
-  }
 
   async function handleMicrosoftSignIn() {
     setMsError('');
@@ -358,41 +334,10 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               </div>
             ) : (
               !isSupabaseConfigured && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-700">
-                Microsoft sign-in is not configured. Use Demo mode below, or set{' '}
+                Authentication is not configured. Set the Supabase authentication variables or{' '}
                 <span className="font-semibold">VITE_AZURE_CLIENT_ID</span> and{' '}
                 <span className="font-semibold">VITE_AZURE_TENANT_ID</span> for Microsoft sign-in.
               </p>
-            )}
-
-            {demoModeEnabled && (
-              <div className="mt-6 border-t border-slate-200 pt-6">
-                <div className="mb-3">
-                  <p className="text-sm font-semibold text-slate-800">Demo mode</p>
-                  <p className="mt-1 text-xs text-slate-500">Use a seeded employee or admin account to preview the system.</p>
-                </div>
-
-                <form onSubmit={handleDemoLogin} className="space-y-3">
-                  <select
-                    value={demoEmail}
-                    onChange={(event) => setDemoEmail(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-[#0063a9] focus:ring-2 focus:ring-[#0063a9]/15"
-                    aria-label="Demo email"
-                  >
-                    {DEMO_LOGIN_ACCOUNTS.map((demoAccount) => (
-                      <option key={demoAccount.email} value={demoAccount.email}>
-                        {demoAccount.email} - {demoAccount.role}
-                      </option>
-                    ))}
-                  </select>
-                  {demoError && <p className="text-xs text-rose-600">{demoError}</p>}
-                  <button
-                    type="submit"
-                    className="w-full rounded-lg bg-[#0063a9] py-2.5 text-sm font-semibold text-white transition hover:bg-[#00558f]"
-                  >
-                    Enter demo mode
-                  </button>
-                </form>
-              </div>
             )}
 
             <p className="mt-8 text-center text-[11px] leading-relaxed text-slate-400">

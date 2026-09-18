@@ -9,14 +9,14 @@ export function ResponseTable({ responses }: ResponseTableProps) {
 
   return (
     <section className="panel overflow-hidden">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
         <div>
           <h3 className="text-base font-semibold">Response Table</h3>
           <p className="text-sm text-slate-500 dark:text-slate-400">Showing {visibleResponses.length} of {responses.length} filtered list records</p>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
+        <table className="min-w-[760px] text-left text-sm">
           <thead className="border-b border-slate-200 text-xs uppercase text-slate-500 dark:border-slate-800 dark:text-slate-400">
             <tr>
               <th className="px-3 py-3">Response ID</th>

@@ -61,7 +61,7 @@ export function SentReportsTab({
   // Calculate live time remaining string
   const getRemainingTimeStr = (expiresAtIso: string) => {
     const diff = new Date(expiresAtIso).getTime() - new Date().getTime();
-    if (diff <= 0) return '00:00:00 (Auto-Sending...)';
+    if (diff <= 0) return 'Review window ended';
 
     const totalSecs = Math.floor(diff / 1000);
     const mins = Math.floor(totalSecs / 60);
@@ -118,7 +118,7 @@ export function SentReportsTab({
       {/* Email Log Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-[920px] text-left text-xs">
             <thead className="bg-slate-50 text-slate-600 dark:bg-slate-900/80 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
               <tr>
                 <th className="px-4 py-3.5">Date Queued / Sent</th>
@@ -198,7 +198,7 @@ export function SentReportsTab({
                               Queued ⏳ {getRemainingTimeStr(report.expiresAt)}
                             </span>
                             <p className="text-[10px] text-amber-700 dark:text-amber-400">
-                              Auto-sends at expiry
+                              Manual confirmation required to send
                             </p>
                           </div>
                         )}
@@ -334,7 +334,7 @@ export function SentReportsTab({
               </button>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
+            <div className="max-h-[70vh] space-y-4 overflow-y-auto p-4 text-xs sm:p-6">
               <div className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex gap-2">
                   <span className="w-14 shrink-0 font-bold text-slate-500">To:</span>

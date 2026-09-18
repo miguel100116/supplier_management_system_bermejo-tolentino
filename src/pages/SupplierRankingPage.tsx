@@ -215,7 +215,7 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="panel p-0 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+            <table className="w-full min-w-[700px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-950/60">
                   <th className="w-10 px-3 py-3" />
@@ -332,7 +332,7 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
           <p className="py-6 text-center text-xs text-slate-400">No changes have been saved yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+            <table className="w-full min-w-[560px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-950/60">
                   <th className="px-3 py-2.5">Date &amp; Time</th>

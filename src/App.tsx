@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, useEffect } from 'react';
-import { BarChart3, FileText, LayoutDashboard, Moon, Search, Sun, FilePlus, ClipboardCheck, ArrowLeft, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { BarChart3, FileText, LayoutDashboard, Moon, Search, Sun, FilePlus, ClipboardCheck, ArrowLeft, Clock3, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
 import { AccountMenu } from './components/AccountMenu';
 import { NotificationBell } from './components/NotificationBell';
 import { EmployeeNotificationBell } from './components/EmployeeNotificationBell';
@@ -30,7 +30,6 @@ import { SupplierRankingPage } from './pages/SupplierRankingPage';
 import { SurveyFormsPage } from './pages/SurveyFormsPage';
 import { PresentPage } from './pages/PresentPage';
 import { ArchivePage } from './pages/ArchivePage';
-import { SimulatorPage } from './pages/SimulatorPage';
 import { ImportEvaluationsPage } from './pages/ImportEvaluationsPage';
 import { AccountManagementPage } from './pages/AccountManagementPage';
 import { PartnersFeedbackHubPage } from './pages/PartnersFeedbackHubPage';
@@ -45,11 +44,10 @@ import { useSurveyData } from './hooks/useSurveyData';
 import { applyFilters, initialFilters } from './utils/analytics';
 import { FilterState, SurveyType, CustomForm, SurveyResponse } from './types/survey';
 import { PageModuleKey, getDefaultPermissions, hasPageAccess, getDepartmentDefaultPermissions } from './utils/rbac';
-import { SimClock, loadSimClock, saveSimClock } from './utils/simClock';
-import { SimulatedClockIndicator } from './components/SimulatedClockIndicator';
-import { isDemoModeEnabled } from './utils/demoMode';
 import { hydrateFeedbackHubFromSupabase } from './utils/feedbackHubStore';
 import { hydrateNotificationSettingsFromSupabase } from './utils/documentNotificationSettings';
+import { clearSessionActivity, recordSessionActivity, useIdleSessionTimeout } from './hooks/useIdleSessionTimeout';
+import { formatSessionTimeRemaining } from './utils/sessionTimeout';
 
 // Shared by userAccessibleResponses/userAccessibleAllTimeResponses below - the
 // same role/department/survey-type scoping rule applied to either the
@@ -98,9 +96,6 @@ interface PersistedDepartmentPermission {
   surveyTypes: SurveyType[];
 }
 
-// Kept even with demo mode off - this is the one bootstrap account needed to
-// log in and start adding real employees via Account Management on a fresh
-// deployment, not placeholder demo data.
 // Real system administrators. Any @mgenesis.com Microsoft account listed here
 // is recognized as Admin the moment it signs in, even before an accounts row
 // exists for it - so the first admins are never locked out on a fresh system.
@@ -118,135 +113,9 @@ const BOOTSTRAP_ADMIN_ACCOUNTS: AccountProfile[] = BOOTSTRAP_ADMIN_EMAILS.map((e
   department: 'Business Solutions Manager',
 }));
 
-// Placeholder roster simulating a multi-department org for demoing/testing
-// RBAC. Only seeded when demo mode is enabled - see isDemoModeEnabled().
-const DEMO_SEED_ACCOUNTS: AccountProfile[] = [
-  // Procurement
-  {
-    email: 'maria.fernandez@mgenesis.com',
-    role: 'Employee',
-    designation: 'Rank & File',
-    department: 'Procurement Group'
-  },
-  {
-    email: 'carlos.bautista@mgenesis.com',
-    role: 'Employee',
-    designation: 'Supervisory',
-    department: 'Procurement Group'
-  },
-  {
-    email: 'angela.reyes@mgenesis.com',
-    role: 'Employee',
-    designation: 'Managerial',
-    department: 'Procurement Group'
-  },
+const DEFAULT_ACCOUNTS: AccountProfile[] = [...BOOTSTRAP_ADMIN_ACCOUNTS];
 
-  // Logistics
-  {
-    email: 'miguel.santos@mgenesis.com',
-    role: 'Employee',
-    designation: 'Rank & File',
-    department: 'Logistics'
-  },
-  {
-    email: 'denise.aquino@mgenesis.com',
-    role: 'Employee',
-    designation: 'Supervisory',
-    department: 'Logistics'
-  },
-  {
-    email: 'ramon.villanueva@mgenesis.com',
-    role: 'Employee',
-    designation: 'Managerial',
-    department: 'Logistics'
-  },
-
-  // Accounts Payable - Trade
-  {
-    email: 'kristine.manalo@mgenesis.com',
-    role: 'Employee',
-    designation: 'Rank & File',
-    department: 'Accounts Payable - Trade'
-  },
-  {
-    email: 'paolo.cruz@mgenesis.com',
-    role: 'Employee',
-    designation: 'Supervisory',
-    department: 'Accounts Payable - Trade'
-  },
-  {
-    email: 'bianca.torres@mgenesis.com',
-    role: 'Employee',
-    designation: 'Managerial',
-    department: 'Accounts Payable - Trade'
-  },
-
-  // Business Solutions Manager (BSM)
-  {
-    email: 'joshua.ramos@mgenesis.com',
-    role: 'Employee',
-    designation: 'Rank & File',
-    department: 'Business Solutions Manager'
-  },
-  {
-    email: 'katrina.lopez@mgenesis.com',
-    role: 'Employee',
-    designation: 'Supervisory',
-    department: 'Business Solutions Manager'
-  },
-  {
-    email: 'nathaniel.garcia@mgenesis.com',
-    role: 'Employee',
-    designation: 'Managerial',
-    department: 'Business Solutions Manager'
-  },
-  {
-    email: 'estrella.domingo@mgenesis.com',
-    role: 'Employee',
-    designation: 'Director',
-    department: 'Business Solutions Manager'
-  },
-
-  // TASS
-  {
-    email: 'julius.mercado@mgenesis.com',
-    role: 'Employee',
-    designation: 'Rank & File',
-    department: 'TASS'
-  },
-  {
-    email: 'corazon.ilagan@mgenesis.com',
-    role: 'Employee',
-    designation: 'Supervisory',
-    department: 'TASS'
-  },
-  {
-    email: 'vincent.alvarez@mgenesis.com',
-    role: 'Employee',
-    designation: 'Managerial',
-    department: 'TASS'
-  },
-  {
-    email: 'patricia.navarro@mgenesis.com',
-    role: 'Employee',
-    designation: 'Director',
-    department: 'TASS'
-  },
-
-  // Executive Office (new department)
-  {
-    email: 'rafael.concepcion@mgenesis.com',
-    role: 'Employee',
-    designation: 'Executive',
-    department: 'Executive Office'
-  }
-];
-
-const DEFAULT_ACCOUNTS: AccountProfile[] = isDemoModeEnabled()
-  ? [...BOOTSTRAP_ADMIN_ACCOUNTS, ...DEMO_SEED_ACCOUNTS]
-  : [...BOOTSTRAP_ADMIN_ACCOUNTS];
-
-type PageKey = 'dashboard' | 'partner-companies' | 'document-register' | 'supplier-ranking' | 'partners-feedback-hub' | 'account-management' | 'survey-forms' | 'analytics' | 'present' | 'explorer' | 'reports' | 'notifications' | 'create-form' | 'view-form' | 'fill-form' | 'archive' | 'simulator' | 'import-evaluations' | 'my-submissions' | 'profile-settings' | 'pending-review' | 'export-history' | 'settings' | 'categories-manager';
+type PageKey = 'dashboard' | 'partner-companies' | 'document-register' | 'supplier-ranking' | 'partners-feedback-hub' | 'account-management' | 'survey-forms' | 'analytics' | 'present' | 'explorer' | 'reports' | 'notifications' | 'create-form' | 'view-form' | 'fill-form' | 'archive' | 'import-evaluations' | 'my-submissions' | 'profile-settings' | 'pending-review' | 'export-history' | 'settings' | 'categories-manager';
 
 // Admin sidebar: grouped by workflow stage (raw data -> insight -> output)
 // rather than flat/alphabetical, per the dashboard IA redesign.
@@ -301,17 +170,29 @@ const allSurveyTypes: SurveyType[] = ['Courier', 'Supplier', 'Subcontractor'];
 
 export default function App() {
   const [accountPersistenceError, setAccountPersistenceError] = useState<string | null>(null);
-  const [account, setAccount] = useState<string | null>(() => {
-    // When Microsoft SSO is configured it is the source of truth: identity is
-    // restored from the MSAL cache in the effect below, and a bare
-    // localStorage string can no longer grant access (that was the old
-    // bypass). Only trust localStorage in dev when SSO is unconfigured.
-    if (isSupabaseConfigured || isMsalConfigured()) return null;
-    return localStorage.getItem('user_account') || null;
-  });
+  const [account, setAccount] = useState<string | null>(null);
   // Gates the first paint until we've asked MSAL whether a real signed-in
   // account exists, so we never flash the app before auth is verified.
   const [authChecked, setAuthChecked] = useState(() => !isSupabaseConfigured && !isMsalConfigured());
+
+  const handleLogout = useCallback(() => {
+    if (account) clearSessionActivity(account);
+    setAccount(null);
+    localStorage.removeItem('user_account');
+    void signOutSupabase();
+    void logoutMicrosoft();
+  }, [account]);
+
+  const {
+    isWarningVisible: isSessionWarningVisible,
+    remainingMs: sessionRemainingMs,
+    staySignedIn,
+    signOutNow,
+  } = useIdleSessionTimeout({
+    userEmail: account,
+    enabled: authChecked && Boolean(account),
+    onTimeout: handleLogout,
+  });
 
   // 'current' = active period only (today's default, unchanged behavior).
   // 'all-time' = active + every archived period combined, so multi-year
@@ -323,17 +204,22 @@ export default function App() {
   const [dataScope, setDataScope] = useState<'current' | 'all-time' | 'custom'>('current');
   const [selectedSeriesIds, setSelectedSeriesIds] = useState<string[]>([]);
 
-  // Simulated system clock (Database Simulator "time travel") - persisted so
-  // it survives reloads like an actual changed system clock would. null
-  // means "real time," everything else reads through utils/simClock.ts.
-  const [simClock, setSimClockState] = useState<SimClock | null>(() => loadSimClock());
-  const setSimClock = (clock: SimClock | null) => {
-    setSimClockState(clock);
-    saveSimClock(clock);
-  };
-
   // Accounts Management State
   const [accounts, setAccounts] = useState<AccountProfile[]>(() => {
+    // Remove browser-only sample state left by older frontend builds. Shared
+    // records rehydrate from Supabase after authentication.
+    if (localStorage.getItem('legacy_frontend_data_removed_v1') !== 'true') {
+      localStorage.removeItem('survey_accounts_v1');
+      localStorage.removeItem('survey_analytics_responses');
+      localStorage.removeItem('survey_analytics_responses_v4');
+      localStorage.removeItem('survey_analytics_responses_v5');
+      localStorage.removeItem('survey_analytics_responses_v6');
+      localStorage.removeItem('survey_analytics_full_dataset_active');
+      localStorage.removeItem('survey_sim_clock_v1');
+      localStorage.removeItem('partner_feedback_contacts_v2');
+      localStorage.setItem('legacy_frontend_data_removed_v1', 'true');
+      return DEFAULT_ACCOUNTS;
+    }
     const saved = localStorage.getItem('survey_accounts_v1');
     if (saved) {
       try {
@@ -396,14 +282,6 @@ export default function App() {
         department: 'Business Solutions Manager',
       };
     }
-    if (isDemoModeEnabled() && normalized === 'admin@mgenesis.com') {
-      return {
-        email: normalized,
-        role: 'Admin',
-        designation: 'Executive',
-        department: 'Business Solutions Manager',
-      };
-    }
     return {
       email: normalized,
       role: 'Employee',
@@ -424,9 +302,6 @@ export default function App() {
         pages: [
           'dashboard', 'survey-forms', 'explorer', 'analytics', 'reports', 'present',
           'partner-companies', 'document-register', 'renew-documents', 'supplier-ranking', 'partners-feedback-hub', 'account-management', 'notifications', 'archive', 'import-evaluations',
-          // Database Simulator is demo/testing tooling only - excluded once
-          // VITE_ENABLE_DEMO_MODE is turned off.
-          ...(isDemoModeEnabled() ? ['simulator' as PageModuleKey] : []),
         ] as PageModuleKey[],
         surveyTypes: ['Courier', 'Supplier', 'Subcontractor'] as SurveyType[]
       };
@@ -489,11 +364,7 @@ export default function App() {
     renameCategory,
     restoreDefaultCategories,
     resetAllData,
-    isFullDatasetActive,
-    clearResponses,
-    addEvaluations,
-    resetSimulation,
-  } = useSurveyData(accounts, account, isAdmin, simClock);
+  } = useSurveyData(accounts, account, isAdmin);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
@@ -542,7 +413,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
 
   const handleResetAllData = () => {
-    logAdminActivity('Reset system database');
+    logAdminActivity('Cleared local frontend cache');
     resetAllData();
   };
 
@@ -657,8 +528,7 @@ export default function App() {
   const userAccessiblePartnerCompanies = useMemo(() => {
     // Uncategorized companies (pending review, no assigned survey type) are
     // never accessible here — same behavior as before this type existed.
-    // Archived companies (demo-only entries with no real Master List match,
-    // or anything an admin has archived) are excluded too: every page fed by
+    // Archived companies are excluded too: every page fed by
     // this list (dashboard stats, reports, presentation, feedback hub) should
     // only ever see the live registry, matching the Partner Registry's own
     // Active tab.
@@ -718,7 +588,6 @@ export default function App() {
       return selected ? `Survey: ${selected.title}` : 'Survey Details';
     }
     if (activePage === 'fill-form') return 'Fill Out Stakeholder Survey';
-    if (activePage === 'simulator') return 'Database Simulator';
     if (activePage === 'import-evaluations') return 'Import Evaluation Responses';
     return flatNavLeaves.find((page) => page.key === activePage)?.label ?? 'Dashboard';
   }, [activePage, selectedSurveyId, surveys, editingSurveyId, profile, flatNavLeaves]);
@@ -862,6 +731,7 @@ export default function App() {
   }, [account, profile]);
 
   const handleLogin = (email: string, auth?: MicrosoftAuth) => {
+    recordSessionActivity(email);
     setAccount(email);
     localStorage.setItem('user_account', email);
     setActivePage('dashboard');
@@ -874,13 +744,6 @@ export default function App() {
         if (!res.ok) console.warn('[auth] Supabase session not established:', res.error);
       });
     }
-  };
-
-  const handleLogout = () => {
-    setAccount(null);
-    localStorage.removeItem('user_account');
-    void signOutSupabase();
-    void logoutMicrosoft();
   };
 
   // Hold the first paint until MSAL has been consulted, so the app never
@@ -935,7 +798,6 @@ export default function App() {
         // survey-scoped view via userAccessiblePartnerCompanies.
         partnerCompanies={partnerCompanies}
         responses={userAccessibleResponses}
-        simClock={simClock}
         onAddCompany={addPartnerCompany}
         onRemoveCompany={removePartnerCompany}
         onUpdateCompany={updatePartnerCompany}
@@ -951,10 +813,10 @@ export default function App() {
     'document-register': (
       <DocumentRegisterPage
         partnerCompanies={partnerCompanies}
-        simClock={simClock}
         canRenewDocuments={canRenewDocuments}
         onUpdateCompany={updatePartnerCompany}
         currentUserEmail={account || ''}
+        isAdmin={isAdmin}
       />
     ),
     'supplier-ranking': (
@@ -972,7 +834,6 @@ export default function App() {
         responses={userAccessibleResponses}
         partnerCompanies={userAccessiblePartnerCompanies}
         accounts={accounts}
-        simClock={simClock}
         currentUser={profile}
         onNavigatePage={(p) => setActivePage(p as PageKey)}
         onMarkSurveyComplete={(id) => {
@@ -997,7 +858,6 @@ export default function App() {
         responses={userAccessibleResponses}
         partnerCompanies={userAccessiblePartnerCompanies}
         userEmail={account || ''}
-        simClock={simClock}
         onUpdateSurvey={updateSurvey}
         onUpdateSurveysBulk={updateSurveysBulk}
         onArchiveResponses={archiveResponsesForSurveys}
@@ -1073,7 +933,6 @@ export default function App() {
         department={profile.department}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((value) => !value)}
-        onOpenSimulator={() => setActivePage('simulator')}
         onOpenImportEvaluations={() => setActivePage('import-evaluations')}
         onResetSystemData={handleResetAllData}
         onLogout={handleLogout}
@@ -1193,17 +1052,6 @@ export default function App() {
         isAdmin={isAdmin}
       />
     ),
-    simulator: (
-      <SimulatorPage
-        responses={responses}
-        archivedResponses={archivedResponses}
-        onSimulate={addEvaluations}
-        onResetSimulation={resetSimulation}
-        simClock={simClock}
-        onSetSimClock={(isoDateTime) => setSimClock({ anchorIso: isoDateTime, activatedAtMs: Date.now() })}
-        onClearSimClock={() => setSimClock(null)}
-      />
-    ),
     'import-evaluations': (
       <ImportEvaluationsPage onPreview={previewRawEvaluations} onCommit={commitRawEvaluations} />
     ),
@@ -1231,12 +1079,9 @@ export default function App() {
         title={activeTitle}
         pageHeading={pageHeading}
         action={
-          <div className="flex items-center divide-x divide-blue-400/25">
-            <div className="pr-3 hidden md:block">
-              <SimulatedClockIndicator simClock={simClock} />
-            </div>
+          <div className="flex min-w-0 items-center divide-x divide-blue-400/25">
             {isAdmin ? (
-              <div className="pr-3">
+              <div className="pr-1 sm:pr-3">
                 <NotificationBell
                   notifications={notifications}
                   unreadCount={unreadCount}
@@ -1245,7 +1090,7 @@ export default function App() {
                 />
               </div>
             ) : (
-              <div className="pr-3">
+              <div className="pr-1 sm:pr-3">
                 <EmployeeNotificationBell
                   userEmail={account || ''}
                   surveys={surveys}
@@ -1260,7 +1105,7 @@ export default function App() {
                 />
               </div>
             )}
-            <div className="px-3">
+            <div className="px-1 sm:px-3">
               <button
                 className={`inline-flex h-10 w-10 items-center justify-center rounded-lg transition cursor-pointer ${
                   darkMode ? 'bg-white/10 text-white' : 'text-blue-100 hover:text-white'
@@ -1272,7 +1117,7 @@ export default function App() {
                 {darkMode ? <Sun size={18} /> : <Moon size={18} />}
               </button>
             </div>
-            <div className="pl-3">
+            <div className="pl-1 sm:pl-3">
               <AccountMenu
                 email={account}
                 designation={profile?.designation}
@@ -1311,9 +1156,9 @@ export default function App() {
               <button
                 onClick={handleResetAllData}
                 className="text-xs font-bold text-rose-500 hover:text-rose-600 hover:underline transition shrink-0 cursor-pointer"
-                title="Re-seed standard reports and database values"
+                title="Clear cached frontend records and reload shared data"
               >
-                Reset System Database
+                Clear Local Cache
               </button>
             </div>
           )}
@@ -1381,6 +1226,54 @@ export default function App() {
         </div>
       )}
 
+      {isSessionWarningVisible && account && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="session-timeout-title"
+          aria-describedby="session-timeout-description"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-6 shadow-2xl dark:border-amber-900/60 dark:bg-slate-950">
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                <Clock3 size={22} aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h2 id="session-timeout-title" className="text-lg font-bold text-slate-900 dark:text-white">
+                  Your session is about to end
+                </h2>
+                <p id="session-timeout-description" className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  You have been inactive. For security, you will be signed out in{' '}
+                  <strong className="font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                    {formatSessionTimeRemaining(sessionRemainingMs)}
+                  </strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={signOutNow}
+                className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+              >
+                <LogOut size={16} aria-hidden="true" />
+                Sign out now
+              </button>
+              <button
+                type="button"
+                onClick={staySignedIn}
+                autoFocus
+                className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-[#0063a9] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#00528c] focus:outline-none focus:ring-2 focus:ring-[#0063a9] focus:ring-offset-2 dark:focus:ring-offset-slate-950"
+              >
+                Stay signed in
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isSettingsModalOpen && profile && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60 p-2 backdrop-blur-sm sm:p-4"
@@ -1422,10 +1315,6 @@ export default function App() {
                   department={profile.department}
                   darkMode={darkMode}
                   onToggleDarkMode={() => setDarkMode((value) => !value)}
-                  onOpenSimulator={() => {
-                    setIsSettingsModalOpen(false);
-                    setActivePage('simulator');
-                  }}
                   onOpenImportEvaluations={() => {
                     setIsSettingsModalOpen(false);
                     setActivePage('import-evaluations');

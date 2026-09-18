@@ -1,5 +1,10 @@
 import type { PageModuleKey } from '../utils/rbac';
 import type { SurveyResponse, SurveyType } from '../types/survey';
+import type { NotificationReadState } from '../utils/notificationReadState';
+import {
+  createNotificationReadState,
+  parseNotificationReadState,
+} from '../utils/notificationReadState';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 export type ApplicationRecordType =
@@ -12,7 +17,8 @@ export type ApplicationRecordType =
   | 'feedback_contact'
   | 'feedback_report'
   | 'feedback_settings'
-  | 'document_notification_rule';
+  | 'document_notification_rule'
+  | 'notification_read_state';
 
 export function persistApplicationRecordsInBackground(operation: Promise<void>): void {
   void operation.catch((error) => {
@@ -144,6 +150,36 @@ export async function replaceApplicationRecords<T>(
     .filter((id) => !nextIds.has(id));
   await upsertApplicationRecords(recordType, values, getId);
   await deleteApplicationRecords(recordType, removedIds);
+}
+
+export async function loadNotificationReadState(userEmail: string): Promise<NotificationReadState | null> {
+  requireConfigured();
+  const ownerId = await currentUserId();
+  const { data, error } = await supabase
+    .from('application_records')
+    .select('record_id,payload')
+    .eq('record_type', 'notification_read_state')
+    .eq('record_id', ownerId)
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+  if (error) throw new Error(`Unable to load notification read state: ${error.message}`);
+  if (!data) return null;
+  const parsed = parseNotificationReadState(data.payload, userEmail);
+  if (!parsed) throw new Error('The stored notification read state is invalid.');
+  return parsed;
+}
+
+export async function saveNotificationReadState(state: NotificationReadState): Promise<void> {
+  requireConfigured();
+  const ownerId = await currentUserId();
+  const normalized = createNotificationReadState(state.userEmail, state.readNotificationIds, state.updatedAt);
+  const { error } = await supabase.from('application_records').upsert({
+    record_type: 'notification_read_state',
+    record_id: ownerId,
+    payload: normalized,
+    owner_id: ownerId,
+  }, { onConflict: 'record_type,record_id' });
+  if (error) throw new Error(`Unable to save notification read state: ${error.message}`);
 }
 
 export async function loadProfiles(): Promise<PersistedProfile[]> {

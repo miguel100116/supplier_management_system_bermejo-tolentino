@@ -12,7 +12,6 @@ export type PageModuleKey =
   | 'account-management'
   | 'notifications'
   | 'archive'
-  | 'simulator'
   | 'import-evaluations'
   | 'document-register'
   | 'supplier-ranking'
@@ -90,7 +89,6 @@ export function getDefaultPermissions(designation: string, department: string): 
       'account-management',
       'notifications',
       'archive',
-      'simulator',
       'import-evaluations'
     ];
   }

@@ -1,6 +1,8 @@
 # Normalized Supabase CSV import
 
-Status: prepared, locally tested, and imported into the dedicated `supplier-management-staging` project on 2026-09-16. The reviewed local resolution file produces a zero-blocker plan. The remote migration, database lint, initial import, consolidated reconciliation, repeat import, and repeat reconciliation all passed. Counts remained unchanged on retry, with zero duplicate business keys and zero broken relationships. No production Supabase project was changed, and the application is not yet connected to the normalized tables.
+Status: prepared, locally tested, and imported into the dedicated `supplier-management-staging` project on 2026-09-16. The reviewed local resolution file produces a zero-blocker plan. The remote migration, database lint, initial import, consolidated reconciliation, repeat import, and repeat reconciliation all passed. Counts remained unchanged on retry, with zero duplicate business keys and zero broken relationships. Authenticated staging sessions use the seeded `application_records` projection as their editable UI-facing store; the normalized tables remain the immutable import/audit layer. No production Supabase project was changed.
+
+Reverified on 2026-09-18: all four repository file hashes and source-row counts matched staging byte-for-byte. Staging contained 1,140 companies, 1,251 branches, 6,957 document rows, 280 submissions, and 6,355 answers, with zero duplicate or broken relationships. Every imported company and answer identity was present in `application_records`, and the compared CSV response fields had zero mismatches. The application store also contained 86 later non-CSV response rows, which were preserved. Three provided documents had the UI-derived `Current` status where the source status was blank; their source values were otherwise unchanged.
 
 ## Scope
 
@@ -109,7 +111,7 @@ Afterward, run the read-only queries in `supabase/verification/normalized_import
 
 ## Current limitations
 
-- The exact live indexes, constraints, grants, triggers, and RLS policies remain unverified through the available anonymous PostgREST access.
-- Browser-facing policies are intentionally absent until the actual Microsoft Entra to Supabase identity token claims are verified.
-- Application reads and writes still use the legacy/localStorage paths. UI cutover belongs to the next phase after the normalized import is applied and verified.
+- The imported normalized tables are not edited by the browser. Authenticated application reads and writes use the RLS-protected `application_records` projection, with local storage retained as an authenticated startup cache and for device-specific state.
+- Re-running the normalized CSV importer updates the audit tables but does not overwrite later UI edits in `application_records`. A changed source file therefore requires an explicit, reviewed projection reconciliation rather than a blind reseed.
+- Supabase password authentication is the active staging identity boundary. Microsoft Entra integration remains unavailable until tenant access is provided.
 - UPSERT batches are individually retryable but are not one cross-table PostgreSQL transaction through PostgREST. Apply to staging first and retain a pre-import backup for rollback.

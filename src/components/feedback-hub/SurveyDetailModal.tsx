@@ -107,13 +107,13 @@ export function SurveyDetailModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-fadeIn">
       <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800 bg-emerald-50/50 dark:bg-emerald-950/20">
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-emerald-50/50 px-4 py-4 dark:border-slate-800 dark:bg-emerald-950/20 sm:items-center sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
               <CheckCircle2 size={22} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
                   Completed Survey
                 </span>
@@ -129,7 +129,7 @@ export function SurveyDetailModal({
                   </span>
                 )}
               </div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{survey.title}</h3>
+              <h3 className="mt-0.5 break-words text-base font-bold text-slate-900 dark:text-white sm:text-lg">{survey.title}</h3>
             </div>
           </div>
           <button
@@ -141,7 +141,7 @@ export function SurveyDetailModal({
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
           {/* KPI Stats Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="rounded-lg border border-slate-200 p-4 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/50">
@@ -176,9 +176,9 @@ export function SurveyDetailModal({
             <div className="space-y-2.5 rounded-lg border border-slate-200 p-4 dark:border-slate-800 bg-white dark:bg-slate-900">
               {categoryScores.map((c, i) => (
                 <div key={i} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs font-medium">
-                    <span className="text-slate-700 dark:text-slate-300">{c.category}</span>
-                    <span className="font-bold text-slate-900 dark:text-white">
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-xs font-medium">
+                    <span className="min-w-0 break-words text-slate-700 dark:text-slate-300">{c.category}</span>
+                    <span className="shrink-0 font-bold tabular-nums text-slate-900 dark:text-white">
                       {c.scoreText} ({c.scorePct.toFixed(0)}%)
                     </span>
                   </div>
@@ -200,12 +200,12 @@ export function SurveyDetailModal({
             </h4>
             <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 text-xs">
               {respondentsList.map((resp, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2.5">
-                  <div>
-                    <span className="font-medium text-slate-800 dark:text-slate-200">{resp.email}</span>
+                <div key={idx} className="flex items-start justify-between gap-2 p-2.5 min-[420px]:items-center">
+                  <div className="min-w-0">
+                    <span className="break-all font-medium text-slate-800 dark:text-slate-200">{resp.email}</span>
                     <span className="ml-2 text-slate-500">({resp.department})</span>
                   </div>
-                  <span className="text-slate-400">{resp.date}</span>
+                  <span className="shrink-0 text-right text-slate-400">{resp.date}</span>
                 </div>
               ))}
             </div>
@@ -213,8 +213,8 @@ export function SurveyDetailModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end border-t border-slate-200 px-6 py-4 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-end border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900 sm:px-6">
+          <div className="flex w-full flex-col gap-2 min-[420px]:w-auto min-[420px]:flex-row min-[420px]:items-center">
             <button
               onClick={() => {
                 // Preserve the selected survey/card. Company selection happens

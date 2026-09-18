@@ -1317,7 +1317,7 @@ export function ExecutiveSummaryReportBuilderPage({
 
         {/* Paper Container */}
         <div className="flex-1 bg-slate-100 dark:bg-slate-900/60 rounded-xl p-4 md:p-8 overflow-y-auto max-h-[820px] border border-slate-200/50 dark:border-slate-800/40">
-          <div className="bg-white dark:bg-slate-950 mx-auto max-w-[800px] p-8 md:p-12 shadow-md border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 relative space-y-7">
+          <div className="relative mx-auto max-w-[800px] space-y-7 border border-slate-200 bg-white p-4 text-slate-800 shadow-md dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 sm:p-8 md:p-12">
             
             {/* Confidential Cover Page Preview if checked */}
             {showCoverPage && (

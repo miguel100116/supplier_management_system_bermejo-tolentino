@@ -10,15 +10,15 @@ interface ChartCardProps {
 
 export function ChartCard({ title, subtitle, children, contentClassName, action }: ChartCardProps) {
   return (
-    <section className="panel">
+    <section className="panel min-w-0">
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold">{title}</h3>
-          {subtitle ? <p className="text-sm text-slate-500 dark:text-slate-400">{subtitle}</p> : null}
+        <div className="min-w-0">
+          <h3 className="break-words text-base font-semibold">{title}</h3>
+          {subtitle ? <p className="break-words text-sm text-slate-500 dark:text-slate-400">{subtitle}</p> : null}
         </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
+        {action ? <div className="max-w-full overflow-x-auto pb-1 sm:shrink-0 sm:pb-0">{action}</div> : null}
       </div>
-      <div className={contentClassName ?? 'h-72'}>{children}</div>
+      <div className={`min-w-0 max-w-full ${contentClassName ?? 'h-72'}`}>{children}</div>
     </section>
   );
 }

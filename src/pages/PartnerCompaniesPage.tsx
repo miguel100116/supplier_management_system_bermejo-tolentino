@@ -49,7 +49,6 @@ import { CATEGORY_BUCKET_KEYS, computeCategoryRankSummary } from '../utils/categ
 import { getRequiredDocumentKeys, isExpiryDocument } from '../utils/documentRequirements';
 import { findMissingProfileFields, MISSING_FIELD_LABELS, MissingProfileField } from '../utils/dataCompleteness';
 import { ImportResult } from '../utils/masterListImport';
-import { SimClock, getEffectiveNow, getEffectiveTodayStr } from '../utils/simClock';
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { logDocumentModification } from '../utils/documentModificationLog';
 
@@ -157,7 +156,6 @@ interface PartnerCompaniesPageProps {
   isAdmin?: boolean;
   /** Distinct from isAdmin - can be granted to a role without full Admin access (Account Management -> "Renew Compliance Documents"). */
   canRenewDocuments?: boolean;
-  simClock?: SimClock | null;
   /** Deep-link support: opens this company's detail/edit panel on arrival. */
   initialFocusCompanyId?: string | null;
   onFocusConsumed?: () => void;
@@ -174,7 +172,6 @@ export function PartnerCompaniesPage({
   onCommitMasterListImport,
   isAdmin,
   canRenewDocuments,
-  simClock = null,
   initialFocusCompanyId,
   onFocusConsumed,
   currentUserEmail = '',
@@ -198,12 +195,11 @@ export function PartnerCompaniesPage({
   const [selectedCompany, setSelectedCompany] = useState<PartnerCompany | null>(null);
   
   // Document Renewal Date Picker State - which branch/document is being
-  // renewed (null = closed), defaulting to the effective "today" (simulated
-  // date when a simulation is active, otherwise real today).
+  // renewed (null = closed), defaulting to today.
   const [renewalTarget, setRenewalTarget] = useState<{ branchId: string; docName: string } | null>(null);
-  const [renewalYear, setRenewalYear] = useState(() => getEffectiveNow(simClock).getFullYear());
-  const [renewalMonth, setRenewalMonth] = useState(() => getEffectiveNow(simClock).getMonth());
-  const [renewalDay, setRenewalDay] = useState(() => getEffectiveNow(simClock).getDate());
+  const [renewalYear, setRenewalYear] = useState(() => new Date().getFullYear());
+  const [renewalMonth, setRenewalMonth] = useState(() => new Date().getMonth());
+  const [renewalDay, setRenewalDay] = useState(() => new Date().getDate());
   const [renewalStep, setRenewalStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Confirm-before-apply gate for flag-only documents (provided/not-provided
@@ -224,7 +220,7 @@ export function PartnerCompaniesPage({
   // Category Summary bucket (Supplier-Local/-Foreign) this registration counts toward.
   const [newSupplierOrigin, setNewSupplierOrigin] = useState<SupplierOrigin>('Local');
   const [newAffiliation, setNewAffiliation] = useState('');
-  const [newRegDate, setNewRegDate] = useState(() => getEffectiveTodayStr(simClock));
+  const [newRegDate, setNewRegDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [newBpCode, setNewBpCode] = useState('');
   // A company can carry a second, Non-Trade BP Code (e.g. "ABC123-NT")
   // alongside its regular one - checking this reveals a second field so both
@@ -255,8 +251,8 @@ export function PartnerCompaniesPage({
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>(null);
 
   const adminPasscode = 'admin'; // Main passcode requested, mgenesis2026 as backup
-  const currentDateStr = getEffectiveTodayStr(simClock);
-  const effectiveNow = getEffectiveNow(simClock);
+  const effectiveNow = new Date();
+  const currentDateStr = effectiveNow.toISOString().slice(0, 10);
 
   // Always a valid summary (falls back to an empty company shape) so the
   // detail modal JSX never needs a null check on selectedCompany's status.
@@ -790,8 +786,8 @@ export function PartnerCompaniesPage({
 
         {isCategorySummaryOpen && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 border-t border-slate-100 dark:border-slate-800 p-4">
-            <div className="rounded-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+              <table className="w-full min-w-[480px] text-sm">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-900/50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     <th className="px-4 py-2">Category</th>
@@ -813,8 +809,8 @@ export function PartnerCompaniesPage({
               </table>
             </div>
 
-            <div className="rounded-xl border border-slate-100 dark:border-slate-800 overflow-hidden self-start">
-              <table className="w-full text-sm">
+            <div className="self-start overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+              <table className="w-full min-w-[480px] text-sm">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-900/50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     <th className="px-4 py-2">Supplier Rank</th>
@@ -972,7 +968,7 @@ export function PartnerCompaniesPage({
       ) : viewMode === 'simplified' ? (
         <div className="panel p-0 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-950/60">
                   <th 
@@ -1188,7 +1184,7 @@ export function PartnerCompaniesPage({
                 </div>
 
                 {/* Document Compliance Box */}
-                <div className="mt-5 p-3 bg-slate-50/60 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-800/80 grid grid-cols-3 gap-2 text-xs">
+                <div className="mt-5 grid grid-cols-1 gap-2 rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-xs dark:border-slate-800/80 dark:bg-slate-900/50 min-[420px]:grid-cols-3">
                   <div>
                     <span className="text-slate-400 font-medium block">Expired</span>
                     <strong className={`font-bold block ${docSummary.expiredCount > 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
@@ -1228,7 +1224,7 @@ export function PartnerCompaniesPage({
                 )}
 
                 {/* Multi-column specs details grid */}
-                <div className="mt-4 grid grid-cols-2 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 text-xs">
+                <div className="mt-4 grid grid-cols-1 gap-4 border-t border-slate-100 pt-3 text-xs dark:border-slate-800/60 min-[420px]:grid-cols-2">
                   {/* Column 1: Scope */}
                   <div className="space-y-1">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Specialization Scope</span>
@@ -1458,7 +1454,7 @@ export function PartnerCompaniesPage({
                 </h4>
 
                 <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
-                  <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="grid grid-cols-1 gap-3 text-xs min-[420px]:grid-cols-2">
                     <div className="bg-white dark:bg-slate-950 rounded-lg border border-slate-100 dark:border-slate-800 p-2.5">
                       <span className="text-slate-400 font-medium block">Required Documents</span>
                       <strong className="text-slate-700 dark:text-slate-200 text-base">{selectedCompanyDocSummary.totalRequired}</strong>
@@ -1780,7 +1776,7 @@ export function PartnerCompaniesPage({
               {renewalStep === 2 && (
                 <div className="space-y-3 animate-in fade-in slide-in-from-right-3 duration-150">
                   <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Step 2: Choose Month ({monthsList[renewalMonth]})</span>
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div className="grid grid-cols-2 gap-1.5 min-[420px]:grid-cols-4">
                     {monthsList.map((mName, index) => (
                       <button
                         key={mName}
@@ -2270,7 +2266,7 @@ export function PartnerCompaniesPage({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
+            <div className="mt-4 grid grid-cols-1 gap-3 text-xs min-[420px]:grid-cols-2">
               <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
                 <span className="text-slate-400 font-medium block">New companies to create</span>
                 <strong className="text-slate-800 dark:text-slate-100 text-lg">{importPreview.stats.createdCompanies}</strong>
@@ -2372,7 +2368,7 @@ export function PartnerCompaniesPage({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mt-5 text-xs">
+            <div className="mt-5 grid grid-cols-1 gap-3 text-xs min-[420px]:grid-cols-2">
               <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
                 <span className="text-slate-400 font-medium block">New companies created</span>
                 <strong className="text-slate-800 dark:text-slate-100 text-lg">{importResult.stats.createdCompanies}</strong>

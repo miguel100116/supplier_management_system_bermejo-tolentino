@@ -237,15 +237,15 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
           <div className="panel space-y-4">
             <h4 className="text-sm font-bold uppercase tracking-wider text-slate-400">Supplier Management System Overview</h4>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2">
               <div className="rounded-lg bg-slate-50 p-4 text-center dark:bg-slate-900/50">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Submissions</p>
-                <p className="text-3xl font-bold text-slate-800 dark:text-white mt-1">{stats.total}</p>
+                <p className="mt-1 break-words text-2xl font-bold tabular-nums text-slate-800 dark:text-white min-[420px]:text-3xl">{stats.total}</p>
               </div>
 
               <div className="rounded-lg bg-slate-50 p-4 text-center dark:bg-slate-900/50">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Average Rating</p>
-                <p className="text-3xl font-bold text-[#0063a9] dark:text-blue-300 mt-1">{formatCompositeScore(survey.surveyType, stats.avg).text}</p>
+                <p className="mt-1 break-words text-2xl font-bold tabular-nums text-[#0063a9] dark:text-blue-300 min-[420px]:text-3xl">{formatCompositeScore(survey.surveyType, stats.avg).text}</p>
               </div>
             </div>
 
@@ -281,7 +281,7 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-500 dark:text-slate-400">
+            <table className="w-full min-w-[720px] text-left text-sm text-slate-500 dark:text-slate-400">
               <thead className="text-xs uppercase tracking-wider text-slate-400 bg-slate-50 dark:bg-slate-900/50">
                 <tr>
                   <th className="px-4 py-3">Respondent Entity</th>

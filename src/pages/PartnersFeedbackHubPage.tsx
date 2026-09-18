@@ -21,8 +21,7 @@ import { SendToPartnerWizard } from '../components/feedback-hub/SendToPartnerWiz
 import { BulkHiddenChartCapturer, BulkReportCaptureItem } from '../components/feedback-hub/BulkHiddenChartCapturer';
 import { isMsalConfigured } from '../services/msalAuth';
 import { getSurveyCompletionSummary } from '../utils/surveyCompletion';
-import { SimulatableAccount } from '../hooks/useSurveyData';
-import { SimClock } from '../utils/simClock';
+import { SurveyAccount } from '../hooks/useSurveyData';
 
 import { FileText, Archive, Send, Clock, ShieldAlert, Sparkles, SendToBack } from 'lucide-react';
 
@@ -30,8 +29,7 @@ interface PartnersFeedbackHubPageProps {
   surveys: CustomForm[];
   responses: SurveyResponse[];
   partnerCompanies: PartnerCompany[];
-  accounts?: SimulatableAccount[];
-  simClock?: SimClock | null;
+  accounts?: SurveyAccount[];
   currentUser: { email: string; role: string } | null;
   onNavigatePage?: (page: string) => void;
   onMarkSurveyComplete?: (surveyId: string) => void;
@@ -44,7 +42,6 @@ export function PartnersFeedbackHubPage({
   responses,
   partnerCompanies,
   accounts = [],
-  simClock = null,
   currentUser,
   onNavigatePage,
   onMarkSurveyComplete,
@@ -222,11 +219,8 @@ export function PartnersFeedbackHubPage({
     setActiveTab('sent-reports');
   };
 
-  // Confirm Now action. When Microsoft sign-in is configured, this actually
-  // regenerates the PDF and emails it via Microsoft Graph as the signed-in
-  // admin (see realSendReport below/BulkHiddenChartCapturer's sendVia mode);
-  // otherwise it falls back to the original simulated status flip so nothing
-  // breaks before the Azure AD app registration exists.
+  // Confirm Now sends through Microsoft Graph. A missing mail integration is
+  // reported as a failure and never presented as a successful delivery.
   const handleConfirmNow = (reportId: string) => {
     if (isMsalConfigured()) {
       const report = sentReports.find((r) => r.id === reportId);
@@ -241,36 +235,17 @@ export function PartnersFeedbackHubPage({
       return;
     }
 
-    const nowIso = new Date().toISOString();
-    const actor = currentUser?.email || 'admin@mgenesis.com';
-
-    const updated = sentReports.map((rpt) => {
-      if (rpt.id === reportId) {
-        return {
-          ...rpt,
-          status: 'Sent' as const,
-          sentAt: nowIso,
-          history: [
-            ...rpt.history,
-            {
-              action: 'Confirmed Immediately' as const,
-              timestamp: nowIso,
-              actor,
-              details: 'Admin manually confirmed dispatch, bypassing remaining queue timer. Email dispatched to partner.',
-            },
-          ],
-        };
-      }
-      return rpt;
+    handleRealSendResult(reportId, {
+      success: false,
+      error: 'Microsoft Graph email is not configured. The report was not sent.',
     });
-    handleUpdateSentReports(updated);
   };
 
   // Applies the outcome of a real Graph send (see the BulkHiddenChartCapturer
   // mount below) to the report's status/history, then clears the mount.
   const handleRealSendResult = (reportId: string, result: { success: boolean; error?: string }) => {
     const nowIso = new Date().toISOString();
-    const actor = currentUser?.email || 'admin@mgenesis.com';
+    const actor = currentUser?.email || 'System Administrator';
 
     const updated = sentReports.map((rpt) => {
       if (rpt.id !== reportId) return rpt;
@@ -390,7 +365,7 @@ export function PartnersFeedbackHubPage({
   // to Evaluate" selection).
   const activeSurveys = surveys.filter((s) => s.status !== 'Archived');
   const hasOngoingSurveys = activeSurveys.some(
-    (s) => !getSurveyCompletionSummary(s, accounts, partnerCompanies, responses, simClock).isComplete
+    (s) => !getSurveyCompletionSummary(s, accounts, partnerCompanies, responses).isComplete
   );
   const areAllSurveysCompleted = !hasOngoingSurveys;
 
@@ -513,7 +488,6 @@ export function PartnersFeedbackHubPage({
           responses={responses}
           partnerCompanies={partnerCompanies}
           accounts={accounts}
-          simClock={simClock}
           sentReports={sentReports}
           onSendToPartner={handleOpenSendToPartner}
           onMarkSurveyComplete={onMarkSurveyComplete}

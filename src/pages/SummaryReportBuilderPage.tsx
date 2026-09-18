@@ -1093,7 +1093,7 @@ function SummaryPagedSheet({ children, pageLabel, footerPage }: { children: Reac
         className="w-full rounded-sm bg-white shadow-xl ring-1 ring-slate-900/5 dark:bg-slate-900 dark:ring-white/10"
         style={{ width: PAGE_WIDTH, minHeight: PAGE_HEIGHT, maxWidth: '100%' }}
       >
-        <div className="flex h-full flex-col px-10 py-9 sm:px-12">
+        <div className="flex h-full flex-col px-4 py-6 sm:px-12 sm:py-9">
           <div className="flex-1">{children}</div>
           {footerPage && (
             <div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-3 text-[10px] text-slate-400 dark:border-slate-800 dark:text-slate-500">

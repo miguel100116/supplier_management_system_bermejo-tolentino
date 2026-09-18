@@ -5,15 +5,13 @@ import { Clock, CheckCircle2, Send, Users, ChevronRight, AlertCircle, Sparkles, 
 import { SurveyProgressModal } from './SurveyProgressModal';
 import { SurveyDetailModal } from './SurveyDetailModal';
 import { getSurveyCompletionSummary } from '../../utils/surveyCompletion';
-import { SimulatableAccount } from '../../hooks/useSurveyData';
-import { SimClock } from '../../utils/simClock';
+import { SurveyAccount } from '../../hooks/useSurveyData';
 
 interface CurrentFormsTabProps {
   surveys: CustomForm[];
   responses: SurveyResponse[];
   partnerCompanies: PartnerCompany[];
-  accounts?: SimulatableAccount[];
-  simClock?: SimClock | null;
+  accounts?: SurveyAccount[];
   sentReports: QueuedReportEmail[];
   onSendToPartner: (survey: CustomForm, partnerCompany?: PartnerCompany) => void;
   onMarkSurveyComplete?: (surveyId: string) => void;
@@ -25,7 +23,6 @@ export function CurrentFormsTab({
   responses,
   partnerCompanies,
   accounts = [],
-  simClock = null,
   sentReports,
   onSendToPartner,
   onMarkSurveyComplete,
@@ -80,7 +77,7 @@ export function CurrentFormsTab({
 
       {/* Forms Grid */}
       {filteredSurveys.length === 0 ? (
-        <div className="panel p-12 text-center text-slate-500 space-y-2">
+        <div className="panel space-y-2 p-6 text-center text-slate-500 sm:p-12">
           <AlertCircle size={32} className="mx-auto text-slate-400" />
           <p className="font-semibold text-slate-700 dark:text-slate-300">No matching survey forms found</p>
           <p className="text-xs">Adjust search filters or create new survey forms under Survey Forms tab.</p>
@@ -91,7 +88,7 @@ export function CurrentFormsTab({
             // Companies this survey actually evaluates right now (respects
             // the admin's "Modify Companies to Evaluate" selection) and each
             // eligible employee's progress against that same list.
-            const completion = getSurveyCompletionSummary(survey, accounts, partnerCompanies, responses, simClock);
+            const completion = getSurveyCompletionSummary(survey, accounts, partnerCompanies, responses);
             const targetResponses = Math.max(completion.companiesTotal, 1);
             const employeesAt100 = completion.eligibleEmployees.filter((e) => e.completed >= e.total && e.total > 0).length;
             const responseCount = completion.eligibleEmployees.length
@@ -221,7 +218,6 @@ export function CurrentFormsTab({
           responses={responses}
           partnerCompanies={partnerCompanies}
           accounts={accounts}
-          simClock={simClock}
           onClose={() => setSelectedSurveyForProgress(null)}
           onMarkComplete={onMarkSurveyComplete}
           isAdmin={isAdmin}

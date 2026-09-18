@@ -45,10 +45,10 @@ export function CompletionStatusBar({ completed, total, className = '' }: Comple
   }
 
   return (
-    <div className={`space-y-1 min-w-[120px] ${className}`}>
-      <div className="flex items-center justify-between text-[10px] font-semibold">
-        <span className={style.textColorClass}>{completed} / {total} companies</span>
-        <span className={`font-bold ${style.textColorClass}`}>{style.percentage}%</span>
+    <div className={`w-full min-w-0 space-y-1 min-[380px]:min-w-[120px] ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px] font-semibold">
+        <span className={`break-words ${style.textColorClass}`}>{completed} / {total} companies</span>
+        <span className={`shrink-0 font-bold tabular-nums ${style.textColorClass}`}>{style.percentage}%</span>
       </div>
       <div className="h-2 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
         <div

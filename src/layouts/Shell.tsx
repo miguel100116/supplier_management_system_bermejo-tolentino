@@ -95,7 +95,7 @@ export function Shell<T extends string>({
       <header className="sticky top-0 z-40 h-20 border-b border-[#00528c] bg-[#0063a9] flex items-center justify-between w-full lg:pr-8 shadow-sm">
         <div className="flex items-center h-full flex-1 min-w-0">
           {/* Brand Box / Logo Area - Fixed Width, unaffected by collapsing */}
-          <div className="relative z-10 flex items-center justify-center h-full bg-[#0063a9] shrink-0 w-[220px] px-4">
+          <div className="relative z-10 flex h-full w-[92px] shrink-0 items-center justify-center bg-[#0063a9] px-2 min-[380px]:w-[116px] sm:w-[180px] sm:px-4 lg:w-[220px]">
             <button
                onClick={() => {
                  const homePage = pages.find((p) => p.type !== 'group' && (p as NavLeaf<T>).key === ('dashboard' as any));
@@ -108,7 +108,7 @@ export function Shell<T extends string>({
               <img
                 src="/microgenesis_logo.png"
                 alt="Microgenesis Logo"
-                className="transition duration-200 group-hover:opacity-90 shrink-0 h-10 max-w-full object-contain brightness-0 invert"
+                className="h-8 max-w-full shrink-0 object-contain brightness-0 invert transition duration-200 group-hover:opacity-90 sm:h-10"
                 referrerPolicy="no-referrer"
               />
             </button>
@@ -125,7 +125,7 @@ export function Shell<T extends string>({
         </div>
 
         {/* Header Actions */}
-        <div className="flex items-center gap-3 px-4 shrink-0">
+        <div className="flex shrink-0 items-center gap-0.5 px-1 min-[380px]:gap-1 min-[380px]:px-2 sm:gap-3 sm:px-4">
           {action}
         </div>
       </header>
@@ -330,11 +330,11 @@ export function Shell<T extends string>({
 
         {/* Page Content - Below Header */}
         <main className="min-w-0 flex-1 transition-colors duration-300 dark:bg-slate-900">
-          <div className="px-4 py-6 lg:px-8">
+          <div className="px-3 py-4 sm:px-4 sm:py-6 lg:px-8">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400">SUPPLIER MANAGEMENT PERFORMANCE EVALUATION SURVEY ANALYTICS</p>
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{pageHeading || title}</h2>
+              <div className="min-w-0">
+                <p className="mb-1 break-words text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400 sm:text-xs">SUPPLIER MANAGEMENT PERFORMANCE EVALUATION SURVEY ANALYTICS</p>
+                <h2 className="break-words text-xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-2xl">{pageHeading || title}</h2>
               </div>
               <div id="shell-header-action"></div>
             </div>

@@ -1,5 +1,4 @@
 import { ArchiveSeries, CustomForm, FilterState, KpiSummary, PartnerCompany, Rating, SurveyResponse, SurveyType } from '../types/survey';
-import { getEffectiveTodayStr } from './simClock';
 import { getQuestionMaxPoints, isScoredQuestion } from '../data/questionWeights';
 
 /**
@@ -24,7 +23,7 @@ import { getQuestionMaxPoints, isScoredQuestion } from '../data/questionWeights'
 export function getSurveyEvaluationCompanies(
   survey: Pick<CustomForm, 'surveyType' | 'evaluationCompanyIds'>,
   partnerCompanies: PartnerCompany[],
-  currentDateStr: string = getEffectiveTodayStr(null)
+  currentDateStr: string = new Date().toISOString().slice(0, 10)
 ): PartnerCompany[] {
   const companiesOfType = partnerCompanies.filter((c) => {
     if (c.type !== survey.surveyType) return false;

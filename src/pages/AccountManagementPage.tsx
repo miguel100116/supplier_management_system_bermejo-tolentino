@@ -30,7 +30,6 @@ const PAGE_MODULES: { key: PageModuleKey; label: string; description: string }[]
   { key: 'account-management', label: 'Account Management', description: 'Configure system roles, ranks, and user permissions' },
   { key: 'notifications', label: 'Notification Logs', description: 'Audit trails of incoming survey responses' },
   { key: 'archive', label: 'Archive Center', description: 'Browse and restore archived feedback submissions' },
-  { key: 'simulator', label: 'Database Simulator', description: 'Seed mock evaluations and reset system database' },
 ];
 
 const SURVEY_TYPES: { key: SurveyType; label: string; description: string }[] = [
@@ -347,7 +346,7 @@ export function AccountManagementPage({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
                 <th className="pb-3 pl-2 font-medium">Account Email</th>

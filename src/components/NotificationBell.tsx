@@ -65,7 +65,7 @@ export function NotificationBell({ notifications, unreadCount, onOpen, onViewAll
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-panel z-30 overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+        <div className="absolute right-0 top-full z-30 mt-2 w-[calc(100vw-1rem)] max-w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-100 dark:border-slate-800">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">Recent activity</p>
             <span className="text-xs text-slate-400 dark:text-slate-500">Live</span>

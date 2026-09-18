@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { sharePointService } from '../services/sharepointService';
 import { QuestionDefinition, ResponseNotification, SurveyResponse, SurveyType, CustomForm, Rating, PartnerCompany, PartnerCompanyType, BranchRecord, ArchiveSeries, SupplierOrigin } from '../types/survey';
 import { surveyQuestions } from '../data/questions';
-import { generateMockResponses, generateAllMockResponses, generateSingleMockResponse, generateBulkMockResponses } from '../data/mockResponses';
 import { importMasterListFromFile, ImportResult } from '../utils/masterListImport';
-import { seedPartnerCompanies } from '../data/partnerCompaniesSeed';
 import { importArchivedResponsesFromFile, ArchiveImportResult } from '../utils/archiveResponseTransfer';
 import {
   previewRawEvaluationImport as previewRawEvaluationImportFile,
@@ -13,7 +10,6 @@ import {
   RawEvalImportSummary,
   CompanyDecision,
 } from '../utils/rawEvaluationImport';
-import { SimClock, getEffectiveNow, getEffectiveTodayStr } from '../utils/simClock';
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { computeCompanyDocumentSummary, computeDocumentStatus, EXPIRING_SOON_DAYS } from '../utils/compliance';
 import { getRequiredDocumentKeys } from '../utils/documentRequirements';
@@ -24,23 +20,28 @@ import { getSupabaseSessionEmail } from '../services/supabasePasswordAuth';
 import {
   deleteApplicationRecords,
   loadApplicationRecords,
+  loadNotificationReadState,
   replaceApplicationRecords,
+  saveNotificationReadState,
   surveyResponseRecordId,
   upsertApplicationRecords,
 } from '../services/applicationRepository';
 import { CATEGORIES_STORAGE_KEY, DEFAULT_CATEGORIES, LEGACY_OVERALL_CATEGORY, OVERALL_CATEGORY, getStoredCategoryLabels } from '../data/questionCategories';
+import type { NotificationReadState } from '../utils/notificationReadState';
+import {
+  createNotificationReadState,
+  newestNotificationReadState,
+  notificationReadStateUserKey,
+  parseNotificationReadState,
+} from '../utils/notificationReadState';
 
-// Bumped from _v7: the Master List's format changed (columns shifted, one
-// more legend row added, Status dropdown expanded to 6 values) and
-// partnerCompaniesSeed.ts was regenerated from the updated file (~1129
-// companies) to match. Any browser without existing _v8 data starts from
-// that refreshed snapshot; once loaded, admin edits (add/update/archive/
-// import) persist under _v8 exactly like before - this only changes what
-// day-one state looks like.
+// Versioned browser cache for the authenticated Partner Company registry.
+// A missing cache starts empty until Supabase hydration completes.
 const PARTNER_COMPANIES_STORAGE_KEY = 'survey_analytics_partner_companies_v8';
 
 const NOTIFICATION_HISTORY_LIMIT = 200;
 const INITIAL_NOTIFICATION_SEED = 15;
+const NOTIFICATION_READ_STATE_STORAGE_PREFIX = 'notification_read_state_v1:';
 const ALL_DEPARTMENTS = [
   'Accounts Payable - Trade',
   'Business Solutions Manager',
@@ -49,6 +50,23 @@ const ALL_DEPARTMENTS = [
   'Procurement Group',
   'TASS'
 ];
+
+function notificationReadStateStorageKey(userEmail: string): string {
+  return `${NOTIFICATION_READ_STATE_STORAGE_PREFIX}${notificationReadStateUserKey(userEmail)}`;
+}
+
+function loadCachedNotificationReadState(userEmail: string): NotificationReadState | null {
+  try {
+    const stored = localStorage.getItem(notificationReadStateStorageKey(userEmail));
+    return stored ? parseNotificationReadState(JSON.parse(stored), userEmail) : null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheNotificationReadState(state: NotificationReadState): void {
+  safeSetItem(notificationReadStateStorageKey(state.userEmail), JSON.stringify(state));
+}
 const ALL_SURVEY_ACCESS_ROLES = ['Rank & File', 'Supervisory', 'Managerial', 'Director', 'Executive'] as const;
 
 function normalizeSurveyType(value: unknown): SurveyType {
@@ -217,20 +235,9 @@ function groupResponsesToNotifications(allResponses: SurveyResponse[]): Response
     .sort((a, b) => b.submissionDate.localeCompare(a.submissionDate));
 }
 
-// Fallback synthetic pool used only if no accounts are supplied to the hook
-// (e.g. very first render before account state is available). In normal
-// operation this is fully replaced by the live account roster below.
-const FALLBACK_NON_ADMIN_USERS = [
-  { rType: 'Rank & File', dept: 'Logistics', email: 'miguel.santos@mgenesis.com' },
-  { rType: 'Supervisory', dept: 'Logistics', email: 'denise.aquino@mgenesis.com' },
-  { rType: 'Managerial', dept: 'Procurement Group', email: 'angela.reyes@mgenesis.com' },
-  { rType: 'Director', dept: 'TASS', email: 'patricia.navarro@mgenesis.com' },
-  { rType: 'Executive', dept: 'Executive Office', email: 'rafael.concepcion@mgenesis.com' }
-];
-
 // Minimal shape needed from an account record — kept structural (not imported
 // from App.tsx) to avoid a circular import between the hook and the app shell.
-export interface SimulatableAccount {
+export interface SurveyAccount {
   email: string;
   role: string;
   designation: string;
@@ -359,7 +366,7 @@ function decompressResponses(compressed: any[]): SurveyResponse[] {
   return responses;
 }
 
-export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEmail?: string | null, isAdmin?: boolean, simClock: SimClock | null = null) {
+export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?: string | null, isAdmin?: boolean) {
   const [responses, setResponses] = useState<SurveyResponse[]>([]);
   const [surveys, setSurveys] = useState<CustomForm[]>([]);
   const [partnerCompanies, setPartnerCompanies] = useState<PartnerCompany[]>([]);
@@ -369,6 +376,8 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
   const [notifications, setNotifications] = useState<ResponseNotification[]>([]);
   const [unreadNotificationIds, setUnreadNotificationIds] = useState<Set<string>>(() => new Set());
   const knownSystemNotificationIdsRef = useRef<Set<string>>(new Set());
+  const readNotificationIdsRef = useRef<Set<string>>(new Set());
+  const notificationPersistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const persistRemote = (operation: Promise<void>) => {
     if (!isSupabaseConfigured) return;
@@ -378,6 +387,20 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
         setError(persistenceError instanceof Error ? persistenceError.message : 'Unable to save data to Supabase.');
       }
     });
+  };
+
+  const persistNotificationReadIds = (readIds: Set<string>) => {
+    if (!currentUserEmail) return;
+    const state = createNotificationReadState(currentUserEmail, readIds);
+    readNotificationIdsRef.current = new Set(state.readNotificationIds);
+    cacheNotificationReadState(state);
+    if (isSupabaseConfigured) {
+      const operation = notificationPersistenceQueueRef.current
+        .catch(() => undefined)
+        .then(() => saveNotificationReadState(state));
+      notificationPersistenceQueueRef.current = operation;
+      persistRemote(operation);
+    }
   };
 
   const [archiveSeries, setArchiveSeries] = useState<ArchiveSeries[]>(() => {
@@ -419,9 +442,6 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     if (renamed) persistRemote(upsertApplicationRecords('archive_series', [renamed], (series) => series.id));
   };
 
-  const [isFullDatasetActive, setIsFullDatasetActive] = useState(() => {
-    return localStorage.getItem('survey_analytics_full_dataset_active') === 'true';
-  });
   const isMountedRef = useRef(true);
 
   // Initialize and load surveys & responses
@@ -432,13 +452,9 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
       try {
         setIsLoading(true);
 
-        // One-time production reset ("treat it as no data yet"): any browser
-        // that was used during the demo/simulation phase is wiped clean the
-        // first time it loads this build - stale simulated surveys, responses,
-        // the full-dataset flag, and the time-travel clock all cleared - so
-        // every user starts from the migrated, empty state with closed
-        // surveys. The Partner Companies master list is deliberately NOT
-        // touched here (it is real reference data, not simulation).
+        // One-time cleanup for stale frontend-generated records left by older
+        // builds. The partner registry cache is retained until authenticated
+        // Supabase hydration replaces it.
         if (localStorage.getItem('survey_analytics_migration_v7_fresh') !== 'true') {
           localStorage.removeItem('survey_analytics_surveys_v6');
           localStorage.removeItem('survey_analytics_responses_v6');
@@ -1222,12 +1238,8 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
               questions: subcontractorQuestions as any,
             },
           ];
-          // Run default surveys through the same normalization as saved ones,
-          // so they also get the "Overall Comments & Feedback" question
-          // injected (ensureOverallFeedbackQuestion). Without this, a fresh
-          // install's default question sets have no such question at all,
-          // so simulated responses can never produce a stakeholder comment
-          // for any company using an untouched default survey.
+          // Run default survey templates through the same normalization as
+          // saved ones so they include the standard overall-feedback field.
           loadedSurveys = loadedSurveys.map(normalizeCustomForm);
           localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(loadedSurveys));
         }
@@ -1239,11 +1251,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
           loadedCompanies = JSON.parse(savedCompanies).map(normalizePartnerCompany);
           localStorage.setItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(loadedCompanies));
         } else {
-          // Baseline registry for any browser with no partner-company data yet:
-          // the full Master List snapshot (see partnerCompaniesSeed.ts) rather
-          // than a small hand-typed demo list.
-          loadedCompanies = seedPartnerCompanies.map(normalizePartnerCompany);
-          localStorage.setItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(loadedCompanies));
+          loadedCompanies = [];
         }
 
         // 3. Handle Responses
@@ -1267,9 +1275,6 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
           loadedResponses = decompressResponses(parsedResponses).map(normalizeSurveyResponse);
           safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(loadedResponses)));
         } else {
-          // Start with zero submissions instead of auto-seeding a mock dataset.
-          // Admins can still populate synthetic data on demand via the
-          // Database Simulator's "Add Evaluation" tool (addEvaluations below).
           loadedResponses = [];
           safeSetItem('survey_analytics_responses_v6', JSON.stringify([]));
         }
@@ -1300,8 +1305,22 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     };
   }, []);
 
+  // Reset account-specific notification state before the derived document
+  // alerts run. The local record is an authenticated browser cache;
+  // hydration below reconciles it with the owner's Supabase record.
+  useEffect(() => {
+    knownSystemNotificationIdsRef.current = new Set();
+    setUnreadNotificationIds(new Set());
+    if (!currentUserEmail) {
+      readNotificationIdsRef.current = new Set();
+      return;
+    }
+    const cached = loadCachedNotificationReadState(currentUserEmail);
+    readNotificationIdsRef.current = new Set(cached?.readNotificationIds ?? []);
+  }, [currentUserEmail]);
+
   // Supabase is the shared source of truth after authentication. localStorage
-  // remains a startup/offline cache and demo-mode store only.
+  // remains an authenticated startup/offline cache only.
   useEffect(() => {
     if (!isSupabaseConfigured || !currentUserEmail) return;
     let cancelled = false;
@@ -1311,12 +1330,13 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     (async () => {
       const sessionEmail = await getSupabaseSessionEmail();
       if (!sessionEmail || sessionEmail !== currentUserEmail.trim().toLowerCase()) return;
-      const [storedCompanies, storedSurveys, storedResponses, storedSeries, storedCategoryLabels] = await Promise.all([
+      const [storedCompanies, storedSurveys, storedResponses, storedSeries, storedCategoryLabels, remoteNotificationState] = await Promise.all([
         loadApplicationRecords<PartnerCompany>('partner_company'),
         loadApplicationRecords<CustomForm>('survey'),
         loadApplicationRecords<SurveyResponse>('survey_response'),
         loadApplicationRecords<ArchiveSeries>('archive_series'),
         loadApplicationRecords<Record<SurveyType, string[]>>('category_labels'),
+        loadNotificationReadState(currentUserEmail),
       ]);
       const companies = storedCompanies.length > 0
         ? storedCompanies
@@ -1326,6 +1346,18 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
       const normalizedCompanies = companies.map(normalizeDatabasePartnerCompany).map(normalizePartnerCompany);
       const normalizedSurveys = storedSurveys.map(normalizeCustomForm);
       const normalizedResponses = storedResponses.map(normalizeSurveyResponse);
+      const cachedNotificationState = loadCachedNotificationReadState(currentUserEmail);
+      const notificationState = newestNotificationReadState(remoteNotificationState, cachedNotificationState);
+      const restoredReadIds = new Set(notificationState?.readNotificationIds ?? []);
+      readNotificationIdsRef.current = restoredReadIds;
+      knownSystemNotificationIdsRef.current = new Set();
+      setUnreadNotificationIds((current) => new Set(Array.from(current).filter((id) => !restoredReadIds.has(id))));
+      if (notificationState) {
+        cacheNotificationReadState(notificationState);
+        if (!remoteNotificationState || notificationState.updatedAt !== remoteNotificationState.updatedAt) {
+          persistRemote(saveNotificationReadState(notificationState));
+        }
+      }
       setPartnerCompanies(normalizedCompanies);
       if (normalizedSurveys.length > 0) setSurveys(normalizedSurveys);
       setResponses(normalizedResponses);
@@ -1536,7 +1568,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     ntBpCode?: string,
     supplierOrigin?: SupplierOrigin
   ) => {
-    const todayStr = getEffectiveTodayStr(simClock);
+    const todayStr = new Date().toISOString().slice(0, 10);
     const id = `pc-${Date.now()}`;
     // Mirrors the Master List's own category string (e.g. "Supplier-Local",
     // "Courier-NT") so a manually-registered company is picked up by
@@ -1625,7 +1657,8 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     persistRemote(deleteApplicationRecords('partner_company', [id]));
   };
 
-  // Reset to initial mock data state
+  // Clear frontend caches so the next authenticated load rehydrates shared
+  // records. This does not mutate remote data.
   const resetAllData = () => {
     localStorage.removeItem('survey_analytics_surveys');
     localStorage.removeItem('survey_analytics_surveys_v4');
@@ -1640,112 +1673,21 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     localStorage.removeItem('survey_analytics_partner_companies_v6');
     localStorage.removeItem('survey_analytics_partner_companies_v7');
     localStorage.removeItem(PARTNER_COMPANIES_STORAGE_KEY);
-    localStorage.removeItem('survey_analytics_full_dataset_active');
     localStorage.removeItem(CATEGORIES_STORAGE_KEY);
     window.location.reload();
   };
 
-  // Every non-admin account currently registered in the system becomes part
-  // of the synthetic respondent pool used by the Database Simulator. This
-  // means the pool automatically grows or shrinks as accounts are added or
   // removed in Account Management — no hardcoded headcount to maintain.
-  const NON_ADMIN_USERS = useMemo(() => {
-    const derived = accounts
-      .filter((a) => a.role !== 'Admin')
-      .map((a) => ({ rType: a.designation, dept: a.department, email: a.email }));
-    return derived.length > 0 ? derived : FALLBACK_NON_ADMIN_USERS;
-  }, [accounts]);
-
-  const BULK_BATCH_SIZE = 15;
-
-  // Single unified entry point for the admin "Add Evaluation" test tool.
-  // - single: adds one random evaluation on top of whatever already exists.
-  // - bulk: adds a batch of random evaluations on top of whatever already exists.
-  // - complete: replaces all responses with a fully-covered dataset where every
-  //   non-admin employee has evaluated every registered company.
-  const addEvaluations = (mode: 'single' | 'bulk' | 'complete') => {
-    const targetDate = getEffectiveNow(simClock);
-    if (mode === 'complete') {
-      const fullRows = generateAllMockResponses(surveys, partnerCompanies, NON_ADMIN_USERS, targetDate);
-      // Only the active period gets replaced - previously archived rows
-      // (e.g. an archived prior year) must survive re-simulating a fresh
-      // "complete" dataset, otherwise archiving followed by re-simulating
-      // silently erases that archived history.
-      const preservedArchived = responses.filter((r) => r.archived);
-      const updated = [...preservedArchived, ...fullRows];
-      setResponses(updated);
-      safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updated)));
-      persistRemote(replaceApplicationRecords('survey_response', updated, surveyResponseRecordId));
-
-      const groupedNotifs = groupResponsesToNotifications(fullRows);
-      setNotifications(groupedNotifs.slice(0, NOTIFICATION_HISTORY_LIMIT));
-      setUnreadNotificationIds(new Set());
-      setIsFullDatasetActive(true);
-      safeSetItem('survey_analytics_full_dataset_active', 'true');
-      return;
-    }
-
-    const newRows =
-      mode === 'bulk'
-        ? generateBulkMockResponses(BULK_BATCH_SIZE, surveys, partnerCompanies, NON_ADMIN_USERS, targetDate)
-        : generateSingleMockResponse(surveys, partnerCompanies, NON_ADMIN_USERS, targetDate);
-
-    if (newRows.length === 0) return;
-
-    const updated = [...responses, ...newRows];
-    setResponses(updated);
-    safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updated)));
-    persistRemote(upsertApplicationRecords('survey_response', newRows, surveyResponseRecordId));
-    setIsFullDatasetActive(false);
-    safeSetItem('survey_analytics_full_dataset_active', 'false');
-
-    const newNotifications = groupResponsesToNotifications(newRows);
-    if (newNotifications.length > 0) {
-      setNotifications((current) => [...newNotifications, ...current].slice(0, NOTIFICATION_HISTORY_LIMIT));
-      setUnreadNotificationIds((current) => {
-        const next = new Set(current);
-        newNotifications.forEach((notification) => next.add(notification.id));
-        return next;
-      });
-    }
-  };
-
-  const clearResponses = () => {
-    setResponses([]);
-    setNotifications([]);
-    setUnreadNotificationIds(new Set());
-    safeSetItem('survey_analytics_responses_v6', JSON.stringify([]));
-    persistRemote(replaceApplicationRecords<SurveyResponse>('survey_response', [], surveyResponseRecordId));
-    setIsFullDatasetActive(false);
-    safeSetItem('survey_analytics_full_dataset_active', 'false');
-    window.location.reload();
-  };
-
-  const resetSimulation = () => {
-    const isSimulated = (id: string) => 
-      id.startsWith('RESP-MOCK-') || 
-      id.startsWith('RESP-SINGLE-') || 
-      id.startsWith('RESP-BULK-');
-      
-    const filtered = responses.filter(r => !isSimulated(r.responseId));
-    setResponses(filtered);
-    safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(filtered)));
-    const removed = responses.filter((response) => isSimulated(response.responseId)).map(surveyResponseRecordId);
-    persistRemote(deleteApplicationRecords('survey_response', removed));
-    setIsFullDatasetActive(false);
-    safeSetItem('survey_analytics_full_dataset_active', 'false');
-
-    const remainingSimulated = filtered.filter(r => isSimulated(r.responseId));
-    const groupedNotifs = groupResponsesToNotifications(filtered);
-    setNotifications(groupedNotifs.slice(0, NOTIFICATION_HISTORY_LIMIT));
-    setUnreadNotificationIds(new Set());
-  };
-
   const markNotificationsRead = () => {
+    const nextReadIds = new Set(readNotificationIdsRef.current);
+    combinedNotifications.forEach((notification) => nextReadIds.add(notification.id));
+    persistNotificationReadIds(nextReadIds);
     setUnreadNotificationIds(new Set());
   };
 
   const markNotificationRead = (id: string) => {
+    const nextReadIds = new Set(readNotificationIdsRef.current).add(id);
+    persistNotificationReadIds(nextReadIds);
     setUnreadNotificationIds((current) => {
       if (!current.has(id)) return current;
       const next = new Set(current);
@@ -1755,6 +1697,9 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
   };
 
   const markNotificationUnread = (id: string) => {
+    const nextReadIds = new Set(readNotificationIdsRef.current);
+    nextReadIds.delete(id);
+    persistNotificationReadIds(nextReadIds);
     setUnreadNotificationIds((current) => new Set(current).add(id));
   };
 
@@ -1988,7 +1933,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
   // computeCompanyDocumentSummary for how "Expired" is rolled up across a
   // company's required documents (Business Permit, AFS, SIF, etc.).
   const documentNotifications = useMemo<ResponseNotification[]>(() => {
-    const currentDate = getEffectiveNow(simClock);
+    const currentDate = new Date();
     const list: ResponseNotification[] = [];
 
     partnerCompanies.forEach((c) => {
@@ -2023,7 +1968,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     });
 
     return list;
-  }, [partnerCompanies, simClock]);
+  }, [partnerCompanies]);
 
   // Extra early heads-up notifications, per document type, configured via
   // the Document Register's "Add Notification" settings screen (see
@@ -2041,7 +1986,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
   }, []);
 
   const earlyMilestoneNotifications = useMemo<ResponseNotification[]>(() => {
-    const currentDate = getEffectiveNow(simClock);
+    const currentDate = new Date();
     const list: ResponseNotification[] = [];
     const rules = getNotificationSettings().filter(
       (r) => r.enabled && r.mode === 'day-milestones' && r.earlyMilestoneDays.length > 0
@@ -2085,7 +2030,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     });
 
     return list;
-  }, [partnerCompanies, simClock, notificationSettingsVersion]);
+  }, [partnerCompanies, notificationSettingsVersion]);
 
   const combinedNotifications = useMemo(() => {
     const list = [...documentNotifications, ...earlyMilestoneNotifications, ...notifications];
@@ -2096,7 +2041,7 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     const systemNotifications = [...documentNotifications, ...earlyMilestoneNotifications];
     const newSystemIds = systemNotifications
       .map((notification) => notification.id)
-      .filter((id) => !knownSystemNotificationIdsRef.current.has(id));
+      .filter((id) => !knownSystemNotificationIdsRef.current.has(id) && !readNotificationIdsRef.current.has(id));
     systemNotifications.forEach((notification) => knownSystemNotificationIdsRef.current.add(notification.id));
     if (newSystemIds.length === 0) return;
 
@@ -2153,9 +2098,5 @@ export function useSurveyData(accounts: SimulatableAccount[] = [], currentUserEm
     renameCategory,
     restoreDefaultCategories,
     resetAllData,
-    isFullDatasetActive,
-    clearResponses,
-    addEvaluations,
-    resetSimulation,
   };
 }

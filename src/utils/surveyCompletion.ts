@@ -1,7 +1,6 @@
 import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
-import { SimulatableAccount } from '../hooks/useSurveyData';
+import { SurveyAccount } from '../hooks/useSurveyData';
 import { getSurveyEvaluationCompanies } from './analytics';
-import { getEffectiveNow, getEffectiveTodayStr, SimClock } from './simClock';
 import { parseDDMMYYYY } from './time';
 
 export interface EmployeeSurveyProgress {
@@ -30,7 +29,7 @@ export interface SurveyCompletionSummary {
 }
 
 /** Non-admin accounts whose department and role fall within this survey's access limits. */
-export function getSurveyEligibleEmployees<T extends SimulatableAccount>(
+export function getSurveyEligibleEmployees<T extends SurveyAccount>(
   survey: Pick<CustomForm, 'accessDepartments' | 'accessRoles'>,
   accounts: T[]
 ): T[] {
@@ -56,12 +55,11 @@ export function getSurveyEligibleEmployees<T extends SimulatableAccount>(
  */
 export function getSurveyCompletionSummary(
   survey: CustomForm,
-  accounts: SimulatableAccount[],
+  accounts: SurveyAccount[],
   partnerCompanies: PartnerCompany[],
-  responses: SurveyResponse[],
-  simClock: SimClock | null = null
+  responses: SurveyResponse[]
 ): SurveyCompletionSummary {
-  const currentDateStr = getEffectiveTodayStr(simClock);
+  const currentDateStr = new Date().toISOString().slice(0, 10);
   const evaluationCompanies = getSurveyEvaluationCompanies(survey, partnerCompanies, currentDateStr);
   const companiesTotal = evaluationCompanies.length;
   const companyNameSet = new Set(evaluationCompanies.map((c) => c.name.trim().toLowerCase()));
@@ -96,7 +94,7 @@ export function getSurveyCompletionSummary(
   // Deadline day counts as still open until it fully elapses (end of day),
   // not at its first midnight.
   const deadlineEndOfDay = deadline ? new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate(), 23, 59, 59, 999) : null;
-  const deadlinePassed = !!deadlineEndOfDay && deadlineEndOfDay.getTime() < getEffectiveNow(simClock).getTime();
+  const deadlinePassed = !!deadlineEndOfDay && deadlineEndOfDay.getTime() < Date.now();
 
   const allEmployeesAt100 =
     companiesTotal > 0 &&

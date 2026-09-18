@@ -1,6 +1,6 @@
 # Supplier Management System — Engineering Second Brain
 
-Last verified: 2026-09-17
+Last verified: 2026-09-18
 
 This document preserves durable engineering context for maintainers and coding agents. It is a map, not a substitute for reading the relevant code. Verify details before making consequential changes.
 
@@ -29,14 +29,14 @@ Canonical product documentation:
 - Supabase email/password authentication is active for staging. Microsoft Entra ID code remains present but is unavailable without Azure tenant access.
 - Microsoft Graph delegated email sending.
 - Supabase client, response mirror, SQL schema, seed administration, and row-level-security policies.
-- Supabase CLI local configuration is initialized in `supabase/config.toml` and linked to the dedicated `supplier-management-staging` project (`adxwaxhnqxpmgjvsxgug`). The additive normalized migration and reviewed data import were applied there on 2026-09-16. Remote lint passed; repeat import and reconciliation preserved the expected counts with zero duplicates and zero broken relationships. Production remains untouched.
+- Supabase CLI local configuration is initialized in `supabase/config.toml` and linked to the dedicated `supplier-management-staging` project (`adxwaxhnqxpmgjvsxgug`). The additive normalized migration and reviewed data import were applied there on 2026-09-16. Remote lint passed; repeat import and reconciliation preserved the expected counts with zero duplicates and zero broken relationships. A 2026-09-18 read-only audit confirmed that all four repository CSV hashes, normalized counts, imported company identities, and imported response values match staging and its UI-facing application records; 86 later non-CSV response rows remain preserved. Production remains untouched.
 - CSV/XLSX imports and PDF, PPTX, Word, CSV, and spreadsheet exports.
 
 ### Current persistence model
 
 - Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub contacts/reports/settings, and document-notification rules through Supabase.
 - Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the canonical editable frontend store.
-- Browser `localStorage` remains a startup/demo cache and stores device-specific drafts/preferences plus lightweight audit/export logs that have not yet been approved for cross-device sharing.
+- Browser `localStorage` remains an authenticated startup cache and stores device-specific drafts/preferences plus lightweight audit/export logs that have not yet been approved for cross-device sharing.
 - This is unsuitable as the long-term multi-user system of record because clients can diverge and browser data lacks centralized durability and auditing.
 - Any migration away from browser storage must define one canonical backend source, compatibility behavior, validation, rollout, and recovery.
 
@@ -165,7 +165,7 @@ Context: The team cannot access the Microsoft Azure tenant, so Entra authenticat
 
 Decision: Use Supabase email/password authentication for staging, restricted to `@mgenesis.com`. Point the local browser build to the dedicated staging project through an ignored `.env.local` containing only the staging publishable key. Grant authenticated read-only RLS access to normalized company/form reference tables and load Partner Companies through a typed adapter. Keep raw evaluators, submissions, answers, and all backend write paths locked pending role and write-policy design.
 
-Consequences: Staging login and Partner Company reads no longer depend on Azure. Demo login has no remote access. Most feature state and writes remain local-only, and Microsoft Graph mail remains unavailable. The production service-role credential found in `.env` must be rotated; it is not present in the generated staging build.
+Consequences: Staging login and Partner Company reads no longer depend on Azure. The former demo login was removed on 2026-09-18. Shared feature state now persists through the staging application repository, while Microsoft Graph mail remains unavailable without Azure configuration. The production service-role credential found in `.env` must be rotated; it is not present in the generated staging build.
 
 Evidence: `src/services/supabasePasswordAuth.ts`, `src/services/normalizedPartnerCompanies.ts`, `supabase/migrations/202609160001_staging_email_auth_read_access.sql`
 
@@ -175,7 +175,7 @@ Status: accepted for staging
 
 Context: Partner edits, evaluation submissions, surveys, profiles, permissions, archives, and category changes were still browser-local after the initial read-only connection.
 
-Decision: Keep normalized import tables immutable and seed a per-entity `application_records` store for the frontend contract. Store account authorization in `app_profiles`. Use Supabase as the authenticated source of truth with local storage only as a cache/demo fallback. Enforce profile-scoped response reads, own-submission inserts, and Admin-only shared registry/configuration writes through RLS.
+Decision: Keep normalized import tables immutable and seed a per-entity `application_records` store for the frontend contract. Store account authorization in `app_profiles`. Use Supabase as the authenticated source of truth with local storage only as an authenticated cache. Enforce profile-scoped response reads, own-submission inserts, and Admin-only shared registry/configuration writes through RLS.
 
 Consequences: The main shared business modules, Feedback Hub records, and document-notification rules now persist across devices in staging. Device drafts/preferences and lightweight audit/export logs remain local. A confirmed user must exist before authenticated writes can be tested, and an approved profile must be promoted to Admin before shared registry/configuration edits can succeed.
 
@@ -192,6 +192,42 @@ Decision: Keep stable dotted keys in the immutable normalized tables. Map them t
 Consequences: Authenticated Document Tracker views now resolve imported document values and expiry dates. Future normalized adapters must use the same mapping boundary; new source document keys require a mapping entry and a regression test.
 
 Evidence: `src/services/normalizedPartnerCompanies.ts`, `src/services/normalizedPartnerCompanies.test.ts`, `supabase/migrations/202609170001_document_tracker_key_mapping.sql`, `supabase/migrations/202609170002_document_tracker_category_collision_fix.sql`
+
+### 2026-09-17 - Per-user notification read state
+
+Status: accepted; applied to staging on 2026-09-18
+
+Context: Admin notification read/unread choices existed only in React memory. Logging out and back in regenerated document alerts and marked them unread again, so the badge returned even after "Mark all as read."
+
+Decision: Persist a bounded, timestamped set of read notification IDs per authenticated user as an owner-scoped `notification_read_state` application record. Retain the same record in local storage as an authenticated cache, choose the newest valid copy during login, and serialize remote writes so rapid read/unread actions cannot arrive out of order.
+
+Consequences: Read state survives same-browser sessions and synchronizes across authenticated staging devices. Notification content remains derived from response and document records; no notifications are duplicated into the state record. The linked migration history confirmed `202609170003` locally and remotely after the push.
+
+Evidence: `src/utils/notificationReadState.ts`, `src/services/applicationRepository.ts`, `src/hooks/useSurveyData.ts`, `supabase/migrations/202609170003_notification_read_state.sql`
+
+### 2026-09-18 - Inactivity-based session logout
+
+Status: accepted
+
+Context: Manual logout correctly cleared the local identity and signed out Supabase and Microsoft sessions, but an unattended authenticated browser remained usable until the provider session ended.
+
+Decision: Apply an account-specific 30-minute inactivity limit in the application, show a five-minute accessible warning, and synchronize activity timestamps across browser tabs. Reuse the existing provider logout path when the limit expires; do not store tokens or credentials in the idle-session state.
+
+Consequences: Authenticated sessions now close after inactivity, while active work in any open tab refreshes the deadline. Supabase token expiry and database RLS remain the authoritative authentication and authorization boundaries.
+
+Evidence: `src/hooks/useIdleSessionTimeout.ts`, `src/utils/sessionTimeout.ts`, `src/utils/sessionTimeout.test.ts`, `src/App.tsx`
+
+### 2026-09-18 - Remove frontend mock business data
+
+Status: accepted
+
+Context: The frontend still contained quick-login identities, a placeholder employee roster, a bundled Partner Company snapshot, generated evaluation responses, simulated time, sample Feedback Hub contacts, and email paths that could display a successful send without calling Microsoft Graph.
+
+Decision: Remove the demo authentication and Database Simulator paths, generated response and bundled company datasets, simulated clock, placeholder data service, and sample Feedback Hub contacts. Keep the real survey templates and authenticated local cache. Require a real authentication provider, hydrate shared business records from Supabase, and never mark an email sent unless Microsoft Graph reports success.
+
+Consequences: A new browser no longer invents companies, accounts, evaluations, contacts, dates, or delivery results. Without configured authentication the app remains at the login screen. Clearing the local cache rehydrates shared records after the next authenticated load; CSV import/audit tables and staging application records are unchanged.
+
+Evidence: `src/App.tsx`, `src/pages/LoginPage.tsx`, `src/hooks/useSurveyData.ts`, `src/utils/feedbackHubStore.ts`, `src/pages/PartnersFeedbackHubPage.tsx`, `.env.example`
 
 ## Active modernization state
 

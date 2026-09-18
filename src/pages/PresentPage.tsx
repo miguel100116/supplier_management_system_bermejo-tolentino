@@ -121,12 +121,12 @@ export function PresentPage({ responses, partnerCompanies }: PresentPageProps) {
 
       {/* Step 1: Categories */}
       <section className="panel">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
+        <div className="mb-4 flex flex-col gap-3 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
+          <div className="min-w-0">
             <h3 className="text-base font-semibold">1. What would you like to present?</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">Select one or more topics. Overview and takeaways are always included.</p>
           </div>
-          <span className="badge">{selectedCategories.length} selected</span>
+          <span className="badge self-start min-[420px]:self-auto">{selectedCategories.length} selected</span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {PRESENTATION_CATEGORIES.map((category) => {

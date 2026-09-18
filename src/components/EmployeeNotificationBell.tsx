@@ -195,7 +195,7 @@ export function EmployeeNotificationBell({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-slate-200 bg-white shadow-panel z-50 overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+        <div className="absolute right-0 top-full z-50 mt-2 w-[calc(100vw-1rem)] max-w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-900">
           {renderDropdownContent()}
         </div>
       )}
