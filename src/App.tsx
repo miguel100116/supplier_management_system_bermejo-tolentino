@@ -206,8 +206,7 @@ export default function App() {
 
   // Accounts Management State
   const [accounts, setAccounts] = useState<AccountProfile[]>(() => {
-    // Remove browser-only sample state left by older frontend builds. Shared
-    // records rehydrate from Supabase after authentication.
+    // One-time cleanup of stale browser-only data from older builds.
     if (localStorage.getItem('legacy_frontend_data_removed_v1') !== 'true') {
       localStorage.removeItem('survey_accounts_v1');
       localStorage.removeItem('survey_analytics_responses');
@@ -218,7 +217,14 @@ export default function App() {
       localStorage.removeItem('survey_sim_clock_v1');
       localStorage.removeItem('partner_feedback_contacts_v2');
       localStorage.setItem('legacy_frontend_data_removed_v1', 'true');
-      return DEFAULT_ACCOUNTS;
+    }
+    // When Supabase is configured, profiles are the shared source of truth
+    // loaded after sign-in via loadProfiles(). Never seed from localStorage
+    // here - stale local accounts would show wrong roles/permissions until
+    // the Supabase fetch completes, causing inconsistent access behaviour.
+    if (isSupabaseConfigured) {
+      localStorage.removeItem('survey_accounts_v1');
+      return [];
     }
     const saved = localStorage.getItem('survey_accounts_v1');
     if (saved) {
@@ -233,7 +239,9 @@ export default function App() {
 
   const saveAccounts = (newAccounts: AccountProfile[]) => {
     setAccounts(newAccounts);
-    localStorage.setItem('survey_accounts_v1', JSON.stringify(newAccounts));
+    if (!isSupabaseConfigured) {
+      localStorage.setItem('survey_accounts_v1', JSON.stringify(newAccounts));
+    }
     if (isSupabaseConfigured) {
       setAccountPersistenceError(null);
       void replaceProfiles(newAccounts).catch((saveError) => {
@@ -244,6 +252,13 @@ export default function App() {
   };
 
   const [departmentPermissions, setDepartmentPermissions] = useState<Record<string, { pages: PageModuleKey[]; surveyTypes: SurveyType[] }>>(() => {
+    // When Supabase is configured, department permissions are loaded from
+    // application_records after sign-in. Don't seed from localStorage to
+    // avoid stale permissions showing before the remote fetch completes.
+    if (isSupabaseConfigured) {
+      localStorage.removeItem('survey_department_permissions_v1');
+      return {};
+    }
     const saved = localStorage.getItem('survey_department_permissions_v1');
     if (saved) {
       try {
@@ -257,7 +272,9 @@ export default function App() {
 
   const saveDepartmentPermissions = (newPerms: Record<string, { pages: PageModuleKey[]; surveyTypes: SurveyType[] }>) => {
     setDepartmentPermissions(newPerms);
-    localStorage.setItem('survey_department_permissions_v1', JSON.stringify(newPerms));
+    if (!isSupabaseConfigured) {
+      localStorage.setItem('survey_department_permissions_v1', JSON.stringify(newPerms));
+    }
     if (isSupabaseConfigured) {
       const records = Object.entries(newPerms).map(([department, permissions]) => ({ department, ...permissions }));
       setAccountPersistenceError(null);
@@ -367,6 +384,7 @@ export default function App() {
   } = useSurveyData(accounts, account, isAdmin);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
+  const [isSupabaseHydrating, setIsSupabaseHydrating] = useState(isSupabaseConfigured);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
@@ -673,8 +691,9 @@ export default function App() {
   useEffect(() => {
     if (!isSupabaseConfigured || !account) return;
     let cancelled = false;
-    setAccountPersistenceError(null);
-    Promise.all([
+      setAccountPersistenceError(null);
+      setIsSupabaseHydrating(true);
+      Promise.all([
       loadProfiles(),
       loadApplicationRecords<PersistedDepartmentPermission>('department_permission'),
     ])
@@ -682,7 +701,6 @@ export default function App() {
         if (cancelled) return;
         if (remoteProfiles.length > 0) {
           setAccounts(remoteProfiles);
-          localStorage.setItem('survey_accounts_v1', JSON.stringify(remoteProfiles));
         }
         const permissionMap = Object.fromEntries(
           remoteDepartmentPermissions.map((record) => [
@@ -1063,6 +1081,20 @@ export default function App() {
       />
     ),
   }[activePage];
+
+  
+  if (isSupabaseConfigured && (isSupabaseHydrating || isLoading) && account) {
+    return (
+      <div className={darkMode ? 'dark' : ''}>
+        <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+          <div className="flex flex-col items-center gap-4 text-slate-500 dark:text-slate-400">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-300 border-t-[#0063a9] dark:border-slate-700 dark:border-t-blue-500" />
+            <p className="font-medium animate-pulse">Loading application data...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={darkMode ? 'dark' : ''}>
