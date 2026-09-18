@@ -4,15 +4,13 @@ import { CustomForm, PartnerCompany, SurveyResponse } from '../../types/survey';
 import { submissionScores } from '../../utils/analytics';
 import { formatCompositeScore } from '../../data/questionWeights';
 import { getSurveyCompletionSummary } from '../../utils/surveyCompletion';
-import { SimulatableAccount } from '../../hooks/useSurveyData';
-import { SimClock } from '../../utils/simClock';
+import { SurveyAccount } from '../../hooks/useSurveyData';
 
 interface SurveyProgressModalProps {
   survey: CustomForm;
   responses: SurveyResponse[];
   partnerCompanies: PartnerCompany[];
-  accounts?: SimulatableAccount[];
-  simClock?: SimClock | null;
+  accounts?: SurveyAccount[];
   onClose: () => void;
   onMarkComplete?: (surveyId: string) => void;
   isAdmin?: boolean;
@@ -23,7 +21,6 @@ export function SurveyProgressModal({
   responses,
   partnerCompanies,
   accounts = [],
-  simClock = null,
   onClose,
   onMarkComplete,
   isAdmin,
@@ -53,7 +50,7 @@ export function SurveyProgressModal({
   // Real target: the companies this survey is currently scoped to evaluate
   // (its "Modify Companies to Evaluate" selection, live against the Partner
   // Registry), plus each eligible employee's own progress against that list.
-  const completion = getSurveyCompletionSummary(survey, accounts, partnerCompanies, responses, simClock);
+  const completion = getSurveyCompletionSummary(survey, accounts, partnerCompanies, responses);
   const targetResponses = Math.max(completion.companiesTotal, 1);
   const progressPercent = Math.min(100, Math.round((totalCount / targetResponses) * 100));
 
@@ -69,19 +66,19 @@ export function SurveyProgressModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-fadeIn">
       <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800 bg-amber-50/50 dark:bg-amber-950/20">
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-amber-50/50 px-4 py-4 dark:border-slate-800 dark:bg-amber-950/20 sm:items-center sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
               <Clock size={20} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
                   Survey Ongoing
                 </span>
                 <span className="text-xs font-medium text-slate-500">{survey.surveyType} Survey</span>
               </div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{survey.title}</h3>
+              <h3 className="mt-0.5 break-words text-base font-bold text-slate-900 dark:text-white sm:text-lg">{survey.title}</h3>
             </div>
           </div>
           <button
@@ -93,7 +90,7 @@ export function SurveyProgressModal({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
           {/* Ongoing Notification Banner */}
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 flex items-start gap-3 text-sm">
             <AlertTriangle size={18} className="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
@@ -146,7 +143,7 @@ export function SurveyProgressModal({
 
           {/* Per-Employee Completion (drives the "all employees at 100%" auto-completion rule) */}
           <div>
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center justify-between">
+            <h4 className="mb-3 flex flex-col gap-1 text-sm font-bold text-slate-900 dark:text-white min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
               <span>
                 Employee Completion ({completion.eligibleEmployees.filter((e) => e.completed >= e.total && e.total > 0).length} / {completion.eligibleEmployees.length} at 100%)
               </span>
@@ -164,8 +161,8 @@ export function SurveyProgressModal({
                       <p className="font-medium text-slate-800 dark:text-slate-200 truncate">{emp.email}</p>
                       <p className="text-[11px] text-slate-500">{emp.department}</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700 min-[380px]:block">
                         <div
                           className={`h-full transition-all duration-300 ${emp.pct >= 100 ? 'bg-emerald-500' : 'bg-amber-500'}`}
                           style={{ width: `${emp.pct}%` }}
@@ -183,7 +180,7 @@ export function SurveyProgressModal({
 
           {/* List of Respondents */}
           <div>
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center justify-between">
+            <h4 className="mb-3 flex flex-col gap-1 text-sm font-bold text-slate-900 dark:text-white min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
               <span>Respondents Recorded ({respondentsList.length})</span>
               <span className="text-xs font-normal text-slate-500">Real-time submissions</span>
             </h4>
@@ -194,17 +191,17 @@ export function SurveyProgressModal({
             ) : (
               <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
                 {respondentsList.map((resp, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 text-xs">
-                    <div className="flex items-center gap-2">
+                  <div key={idx} className="flex items-start justify-between gap-2 p-3 text-xs min-[420px]:items-center">
+                    <div className="flex min-w-0 items-center gap-2">
                       <div className="h-6 w-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-[10px] dark:bg-blue-900/50 dark:text-blue-300">
                         {resp.email.charAt(0).toUpperCase()}
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-800 dark:text-slate-200">{resp.email}</p>
+                      <div className="min-w-0">
+                        <p className="break-all font-medium text-slate-800 dark:text-slate-200">{resp.email}</p>
                         <p className="text-[11px] text-slate-500">{resp.department}</p>
                       </div>
                     </div>
-                    <span className="text-slate-400">{resp.date}</span>
+                    <span className="shrink-0 text-right text-slate-400">{resp.date}</span>
                   </div>
                 ))}
               </div>
@@ -213,7 +210,7 @@ export function SurveyProgressModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-between border-t border-slate-200 px-6 py-4 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+        <div className="flex flex-col items-stretch gap-3 border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between sm:px-6">
           <div className="flex flex-col gap-1">
             <span className="text-[11px] text-slate-500 max-w-xs">
               Completes automatically once every employee reaches 100% or the deadline passes.

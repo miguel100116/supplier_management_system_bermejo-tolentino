@@ -148,8 +148,7 @@ A **Data Scope** toggle (shared across Dashboard and Analytics) further switches
 | **Archive Center** | Browse and restore archived feedback submissions and series. |
 | **Import Evaluation Responses** | Bulk-import external evaluation data (Excel/CSV) into the system. |
 | **Categories Manager** | Rename the display labels of scoring categories per survey type. |
-| **Database Simulator** | Demo/testing tooling: generate submissions and "time-travel" the system clock (disabled when demo mode is off). |
-| **Settings / Profile** | A large modal opened from the account-session dropdown. Employees retain their full profile, impact, recent-submission, preference, and session view; Admins retain the complete Settings view with activity, import, simulator, and reset tools. |
+| **Settings / Profile** | A large modal opened from the account-session dropdown. Employees retain their full profile, impact, recent-submission, preference, and session view; Admins retain the complete Settings view with activity, import, and cache-management tools. |
 
 ---
 
@@ -170,7 +169,7 @@ The application is a **single-page React app** with a thin Express server used o
 | **Email** | Microsoft Graph (`Mail.Send`, delegated) |
 | **Exports** | jsPDF + jspdf-autotable (PDF), xlsx (Excel), papaparse (CSV), pptxgenjs (PPTX), docx |
 
-**Key design decision — the data source seam:** The dashboard reads data only through a swappable service interface (`src/services/sharepointService.ts` and `useSurveyData.ts`). The current implementation uses local storage + mock/seed data; it can be replaced with SharePoint REST, Microsoft Graph, Supabase, or another API **without changing the dashboard views**.
+**Key design decision — the data source seam:** Authenticated staging sessions load the shared Partner Company registry, evaluation responses, surveys, archives, and configuration through the Supabase application repository used by `useSurveyData.ts`. The normalized CSV tables remain the immutable import/audit layer, while `application_records` is the editable UI-facing store. Local storage is limited to authenticated startup caching and device-specific state; the frontend no longer generates or bundles mock business records.
 
 ---
 
@@ -186,8 +185,8 @@ Supplier_Management_System/
 │   ├── components/             # 15 shared UI components (charts, bells, panels…)
 │   ├── services/               # Data source, MSAL auth, Graph mail, Supabase client
 │   ├── utils/                  # 29 domain utilities (rbac, scoring, exporters, compliance…)
-│   ├── hooks/                  # useSurveyData (central data store), useIsMobile, useEffectiveNow
-│   ├── data/                   # Questions, weights, categories, seed/mock data
+│   ├── hooks/                  # useSurveyData (central data store), session and viewport hooks
+│   ├── data/                   # Survey questions, weights, and category definitions
 │   └── types/                  # TypeScript domain types (survey, feedbackHub)
 ├── docs/
 │   ├── Admin_Manual.docx       # Full administrator manual
@@ -205,7 +204,7 @@ Supplier_Management_System/
 
 ## 7. Data Storage & Persistence
 
-**Current state:** Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub contacts/queue/settings, and document-notification rules through Supabase. `localStorage` is retained as a startup/demo cache and for intentionally device-specific state such as in-progress survey drafts and layout preferences.
+**Current state:** Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub contacts/queue/settings, and document-notification rules through Supabase. `localStorage` is retained as an authenticated startup cache and for intentionally device-specific state such as in-progress survey drafts and layout preferences.
 
 > **Implication:** Authenticated shared business data is available across devices through staging Supabase. Clearing browser storage removes only the local cache and device-specific drafts/preferences; it does not delete the shared backend records.
 
@@ -219,11 +218,12 @@ Staging signs users in with **Supabase email and password** because the team doe
 
 - **Email domain is enforced:** only `@mgenesis.com` addresses are accepted.
 - **Password management:** staging passwords belong to Supabase Auth. A reset UI is still pending.
+- **Session safety:** users can sign out manually; after 25 minutes without activity the app shows a five-minute warning, then signs out at 30 minutes. Activity in another open tab refreshes the same account-specific deadline.
 - **Microsoft features:** Microsoft login and Graph report-email delivery remain unavailable until Azure access is provided.
 
 > **Security boundary:** browser access uses the publishable key plus authenticated RLS. Secret/service-role keys must never be placed in `VITE_*` variables.
 
-**Bootstrap admin:** A single seed account, `admin@mgenesis.com`, ships so a fresh deployment has a way to sign in and start adding real employees via Account Management. Admin rights are simply an authorization record — set any real employee's System Role to `Admin` to grant them.
+**Bootstrap admins:** The approved bootstrap identities are maintained in `src/App.tsx` and `supabase/seed_admins.sql` so a fresh deployment can authorize the initial administrators. Admin rights are authorization records; set an approved employee's System Role to `Admin` to grant them.
 
 ---
 
@@ -243,20 +243,18 @@ npm run dev
 
 The app starts on **http://localhost:3000**. With Supabase variables configured, the login page uses email/password authentication and loads the staging Partner Companies registry after sign-in.
 
-Create a staging account with an `@mgenesis.com` email, confirm it from the received email, then sign in. When demo mode is enabled, quick-login accounts remain available for isolated UI testing but do not receive remote database access.
+Create a staging account with an `@mgenesis.com` email, confirm it from the received email, then sign in. There is no quick-login or frontend-only authentication path.
 
 ---
 
 ## 10. Environment Configuration
 
-All configuration is optional for local development. Copy `.env.example` to `.env` and fill in what you need:
+Copy `.env.example` to `.env` and configure at least one real authentication provider:
 
 | Variable | Purpose |
 |---|---|
-| `VITE_DATA_SOURCE` | Set to `sharepoint` to switch the data service to the (placeholder) API implementation; otherwise the mock/local service is used. |
-| `VITE_ENABLE_DEMO_MODE` | Defaults to **enabled**. Controls quick-login accounts, the placeholder employee roster, and the Database Simulator. Set to `false` before deploying to the real company. |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase project connection (publishable key is not a secret; access control lives in RLS). |
-| `VITE_AZURE_CLIENT_ID` / `VITE_AZURE_TENANT_ID` | Microsoft Entra ID app registration — required for real Microsoft sign-in and Graph email. Leave blank to keep the demo login. |
+| `VITE_AZURE_CLIENT_ID` / `VITE_AZURE_TENANT_ID` | Microsoft Entra ID app registration — required for Microsoft sign-in and Graph email. |
 | `VITE_AZURE_REDIRECT_URI` | Optional; defaults to `window.location.origin`. |
 
 Full step-by-step Azure app-registration instructions are documented inline in [`.env.example`](.env.example).
@@ -286,10 +284,9 @@ NODE_ENV=production npm run start
 
 The app has previously been deployed to **Vercel**. Before deploying to the real company environment:
 
-1. Set `VITE_ENABLE_DEMO_MODE=false` to strip demo/testing scaffolding.
-2. Configure the approved Supabase URL and publishable key; never put a secret/service-role key in a `VITE_*` variable.
-3. Decide whether audit/export history must be shared across devices; it remains local because it is currently lightweight client-side telemetry.
-4. Configure Azure only if Microsoft login or Graph email is restored as a requirement.
+1. Configure the approved Supabase URL and publishable key; never put a secret/service-role key in a `VITE_*` variable.
+2. Decide whether audit/export history must be shared across devices; it remains local because it is currently lightweight client-side telemetry.
+3. Configure Azure only if Microsoft login or Graph email is restored as a requirement.
 
 ---
 
@@ -313,7 +310,7 @@ The system was built iteratively over roughly three weeks, starting **July 18, 2
 | 2026-08-04 | Backend groundwork | Supabase draft schema + partial wiring; `.env` / demo-mode flags added. |
 | 2026-08-05 | Categories & docs | Categories Manager wired up; system turnover + Admin/Employee manuals added. |
 
-The system evolved through a **service-seam architecture** from day one — the dashboard was always decoupled from its data source behind `sharepointService.ts`, which is what makes the localStorage → Supabase migration a contained change rather than a rewrite.
+The system now uses explicit Supabase repository and adapter boundaries for shared business data, keeping normalized import/audit tables separate from the editable frontend projection.
 
 ---
 
@@ -358,7 +355,6 @@ This system is **pre-production**. The most important open items (verified again
 | **Archive series** | A named snapshot of a completed survey period, preserved for long-term trends. |
 | **Custom overrides** | Per-account permissions set by an Admin that replace the computed role defaults. |
 | **Department access** | A per-department access ceiling that caps what any member of that department can see. |
-| **Demo mode** | Testing scaffolding (quick-login accounts, seed roster, simulator); disabled in production. |
 
 ---
 

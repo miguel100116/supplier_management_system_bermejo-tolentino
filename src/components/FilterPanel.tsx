@@ -61,7 +61,7 @@ export function FilterPanel({
 
   return (
     <section className="panel sticky top-24">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-base font-semibold">Filters</h3>
         <button className="ghost-button" type="button" onClick={onReset}>
           <RotateCcw size={15} />

@@ -532,7 +532,7 @@ export function DashboardPage({
           TO-DO PROGRESS FOR NON-ADMINS
           ---------------------------------------------------- */}
       {!isAdmin && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm mb-6">
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
           <div className="flex items-center gap-2.5 mb-6">
             <span className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400">
               <CheckCircle2 size={20} className="animate-pulse" />
@@ -566,7 +566,7 @@ export function DashboardPage({
 
               if (!hasAssignedForm) {
                 return (
-                  <div key={category} className="flex flex-col items-center justify-center p-7 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800/80 bg-slate-50/20 dark:bg-slate-950/20 shadow-2xs min-h-[220px]">
+                  <div key={category} className="flex min-h-[220px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/20 p-4 shadow-2xs dark:border-slate-800/80 dark:bg-slate-950/20 sm:p-7">
                     <span className="p-3 rounded-full bg-slate-100 dark:bg-slate-900 text-slate-400 dark:text-slate-600 mb-3">
                       <ClipboardList size={22} />
                     </span>
@@ -584,7 +584,7 @@ export function DashboardPage({
               }
 
               return (
-                <div key={category} className="flex flex-col items-center p-7 rounded-2xl border border-slate-100 dark:border-slate-800/80 bg-slate-50/20 dark:bg-slate-950/20 shadow-2xs">
+                <div key={category} className="flex flex-col items-center rounded-2xl border border-slate-100 bg-slate-50/20 p-4 shadow-2xs dark:border-slate-800/80 dark:bg-slate-950/20 sm:p-7">
                   {/* Half-circle progress gauge with percentage nested inside the arc */}
                   <div className="relative w-full max-w-[260px]">
                     <svg viewBox="0 0 200 100" className="w-full h-auto overflow-visible">
@@ -607,7 +607,7 @@ export function DashboardPage({
                       />
                     </svg>
                     <div className="absolute inset-x-0 bottom-[22%] flex justify-center">
-                      <span className={`text-3xl font-extrabold leading-none ${textColor}`}>
+                      <span className={`text-2xl font-extrabold leading-none tabular-nums sm:text-3xl ${textColor}`}>
                         {pct}%
                       </span>
                     </div>
@@ -633,7 +633,7 @@ export function DashboardPage({
           ACTIVE WIDGETS GRID
           ---------------------------------------------------- */}
       {activeWidgets.length === 0 ? (
-        <div className="flex flex-col items-center justify-center min-h-[360px] text-center p-8 bg-white dark:bg-slate-900 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800">
+        <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white p-5 text-center dark:border-slate-800 dark:bg-slate-900 sm:p-8">
           <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/20 rounded-full flex items-center justify-center mb-4 text-blue-500">
             <Sparkles size={32} />
           </div>
@@ -734,7 +734,7 @@ export function DashboardPage({
                   </div>
 
                   {/* Widget Card Body */}
-                  <div className="p-5 flex-1 flex flex-col justify-center min-h-[160px]">
+                  <div className="flex min-h-[160px] flex-1 flex-col justify-center p-4 sm:p-5">
                     {widget.type === 'satisfaction-gauge' && (
                       <div className="space-y-4">
                         {topPartner ? (
@@ -772,13 +772,13 @@ export function DashboardPage({
                               <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md inline-block">
                                 {topPartner.type} Top Rank
                               </span>
-                              <h5 className="font-bold text-slate-800 dark:text-slate-100 text-xl mt-1.5 truncate max-w-[280px]">
+                              <h5 className="mt-1.5 max-w-full truncate text-lg font-bold text-slate-800 dark:text-slate-100 sm:text-xl">
                                 {topPartner.name}
                               </h5>
                               <p className="text-xs text-slate-400 mt-1 leading-snug">
                                 Acclaimed leader across {topPartner.count} employee feedback surveys.
                               </p>
-                              <div className="mt-3 flex items-center gap-4 text-[11px] font-semibold text-slate-500">
+                              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500 sm:justify-start">
                                 <span>Rating: {formatCompositeScore(topPartner.type as SurveyType, topPartner.scorePercentage).text}</span>
                                 <span>•</span>
                                 <span>{topPartner.count} reviews</span>
@@ -794,10 +794,10 @@ export function DashboardPage({
                     )}
 
                     {widget.type === 'volume-tracker' && (
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-4">
                         <div className="bg-slate-50/50 dark:bg-slate-900/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
                           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Feedback</span>
-                          <span className="text-2xl font-light text-slate-800 dark:text-white mt-1 block">
+                          <span className="mt-1 block break-words text-2xl font-light tabular-nums text-slate-800 dark:text-white">
                             {submissionCount(effectiveHistoryResponses)}
                           </span>
                           <span className="text-[10px] text-blue-500 mt-1 block font-medium">Submissions log</span>
@@ -805,7 +805,7 @@ export function DashboardPage({
 
                         <div className="bg-slate-50/50 dark:bg-slate-900/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
                           <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Active Partners</span>
-                          <span className="text-2xl font-light text-slate-800 dark:text-white mt-1 block">
+                          <span className="mt-1 block break-words text-2xl font-light tabular-nums text-slate-800 dark:text-white">
                             {accreditedBranchTotal}
                           </span>
                           <span className="text-[10px] text-emerald-500 mt-1 block font-medium">Accredited BP Codes</span>
@@ -831,7 +831,7 @@ export function DashboardPage({
                         <div className="space-y-6 w-full">
                           {/* Courier Group Row */}
                           <div className="space-y-1.5">
-                            <div className="flex justify-between text-sm font-medium text-slate-600 dark:text-slate-400">
+                            <div className="flex flex-col gap-1 text-sm font-medium text-slate-600 dark:text-slate-400 min-[420px]:flex-row min-[420px]:justify-between">
                               <span>Couriers ({groupAverages.counts.Courier} submissions)</span>
                               <span className="font-bold text-slate-800 dark:text-slate-200">
                                 {groupAverages.Courier ? `${Math.round(groupAverages.Courier)} / 100` : 'N/A'}
@@ -847,7 +847,7 @@ export function DashboardPage({
 
                           {/* Supplier Group Row */}
                           <div className="space-y-1.5">
-                            <div className="flex justify-between text-sm font-medium text-slate-600 dark:text-slate-400">
+                            <div className="flex flex-col gap-1 text-sm font-medium text-slate-600 dark:text-slate-400 min-[420px]:flex-row min-[420px]:justify-between">
                               <span>Suppliers ({groupAverages.counts.Supplier} submissions)</span>
                               <span className="font-bold text-slate-800 dark:text-slate-200">
                                 {groupAverages.Supplier ? `${Math.round(groupAverages.Supplier)} / 100` : 'N/A'}
@@ -863,7 +863,7 @@ export function DashboardPage({
 
                           {/* Subcontractor Group Row */}
                           <div className="space-y-1.5">
-                            <div className="flex justify-between text-sm font-medium text-slate-600 dark:text-slate-400">
+                            <div className="flex flex-col gap-1 text-sm font-medium text-slate-600 dark:text-slate-400 min-[420px]:flex-row min-[420px]:justify-between">
                               <span>Subcontractors ({groupAverages.counts.Subcontractor} submissions)</span>
                               <span className="font-bold text-slate-800 dark:text-slate-200">
                                 {groupAverages.Subcontractor ? formatCompositeScore('Subcontractor', groupAverages.Subcontractor).text : 'N/A'}

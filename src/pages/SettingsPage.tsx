@@ -3,7 +3,6 @@ import {
   Award,
   Building2,
   ClipboardList,
-  Database,
   Download,
   History,
   LogOut,
@@ -19,7 +18,6 @@ import {
 } from 'lucide-react';
 import { getAdminActivity } from '../utils/adminActivityLog';
 import { getExportHistory } from '../utils/exportHistory';
-import { isDemoModeEnabled } from '../utils/demoMode';
 
 interface SettingsPageProps {
   email: string;
@@ -28,7 +26,6 @@ interface SettingsPageProps {
   department?: string;
   darkMode: boolean;
   onToggleDarkMode: () => void;
-  onOpenSimulator: () => void;
   onOpenImportEvaluations: () => void;
   onResetSystemData: () => void;
   onLogout: () => void;
@@ -52,7 +49,6 @@ export function SettingsPage({
   department,
   darkMode,
   onToggleDarkMode,
-  onOpenSimulator,
   onOpenImportEvaluations,
   onResetSystemData,
   onLogout,
@@ -200,25 +196,9 @@ export function SettingsPage({
 
       <section className="panel xl:col-span-2">
         <h3 className="text-base font-semibold mb-1">System Tools</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Advanced tools for testing and data management.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Administrative data-management tools.</p>
 
         <div className="space-y-3">
-          {isDemoModeEnabled() && (
-            <button
-              onClick={onOpenSimulator}
-              type="button"
-              className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-800 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-900 transition cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <Database size={18} className="text-[#0063a9] dark:text-blue-400 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Database Simulator</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Simulate submissions and time-travel the system clock.</p>
-                </div>
-              </div>
-            </button>
-          )}
-
           <button
             onClick={onOpenImportEvaluations}
             type="button"
@@ -241,8 +221,8 @@ export function SettingsPage({
             <div className="flex items-center gap-3">
               <RefreshCw size={18} className="text-rose-500 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-rose-600 dark:text-rose-400">Reset System Database</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Re-seed standard reports and database values.</p>
+                <p className="text-sm font-semibold text-rose-600 dark:text-rose-400">Clear Local Cache</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Clear cached frontend records and reload shared data.</p>
               </div>
             </div>
           </button>

@@ -100,7 +100,7 @@ export function PastResultsTab({
       {/* Table View */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-[760px] text-left text-xs">
             <thead className="bg-slate-50 text-slate-600 dark:bg-slate-900/80 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
               <tr>
                 <th className="px-4 py-3.5">Survey Name</th>

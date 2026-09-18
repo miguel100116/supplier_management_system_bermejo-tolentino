@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -464,7 +465,7 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
                   </p>
                 )}
               </div>
-              <div className="flex shrink-0 rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="flex max-w-full shrink-0 overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
                 <button
                   type="button"
                   onClick={() => setChartView('radar')}
@@ -493,17 +494,17 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
                 </button>
               </div>
             </div>
-            <div className="h-[26rem] md:h-[32rem] w-full overflow-hidden">
+            <div className="h-[22rem] w-full min-w-0 overflow-hidden md:h-[32rem]">
               <ResponsiveContainer width="100%" height="100%">
                 {chartView === 'radar' ? (
                   <RadarChart
                     data={chartData}
-                    outerRadius={isMobile ? '65%' : '80%'}
-                    margin={isMobile ? { top: 8, right: 28, bottom: 8, left: 28 } : { top: 10, right: 40, bottom: 10, left: 40 }}
+                    outerRadius={isMobile ? '58%' : '80%'}
+                    margin={isMobile ? { top: 8, right: 16, bottom: 8, left: 16 } : { top: 10, right: 40, bottom: 10, left: 40 }}
                   >
                     <PolarGrid />
-                    <PolarAngleAxis dataKey="section" tick={{ fontSize: isMobile ? 10 : 13 }} />
-                    <PolarRadiusAxis domain={sectionAxisDomain} tick={{ fontSize: 11 }} />
+                    <PolarAngleAxis dataKey="section" tick={{ fontSize: isMobile ? 9 : 13 }} />
+                    <PolarRadiusAxis domain={sectionAxisDomain} tickFormatter={(value: number) => `${value}%`} tick={{ fontSize: isMobile ? 9 : 11 }} />
                     <Radar
                       name={activeComposite.company}
                       dataKey={activeComposite.company}
@@ -519,7 +520,7 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
                       fillOpacity={0.3}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Tooltip />
+                    <Tooltip formatter={(value) => [`${value}%`, 'Score']} />
                   </RadarChart>
                 ) : (
                   <BarChart data={chartData} margin={{ top: 10, right: 20, bottom: 10, left: -8 }}>
@@ -532,11 +533,15 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
                       textAnchor={isMobile ? 'end' : 'middle'}
                       height={isMobile ? 48 : 28}
                     />
-                    <YAxis domain={sectionAxisDomain} tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey={activeComposite.company} fill={PRIMARY_COLOR} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey={compareLabel} fill={COMPARE_COLOR} radius={[4, 4, 0, 0]} />
+                    <YAxis domain={sectionAxisDomain} width={isMobile ? 34 : 44} tickFormatter={(value: number) => `${value}%`} tick={{ fontSize: isMobile ? 9 : 12 }} />
+                    <Tooltip formatter={(value) => [`${value}%`, 'Score']} />
+                    <Legend wrapperStyle={{ fontSize: isMobile ? 10 : 12 }} />
+                    <Bar dataKey={activeComposite.company} fill={PRIMARY_COLOR} radius={[4, 4, 0, 0]}>
+                      <LabelList dataKey={activeComposite.company} position="top" formatter={(value) => `${typeof value === 'number' ? Math.round(value) : value}%`} style={{ fontSize: isMobile ? 8 : 10, fontWeight: 700 }} />
+                    </Bar>
+                    <Bar dataKey={compareLabel} fill={COMPARE_COLOR} radius={[4, 4, 0, 0]}>
+                      <LabelList dataKey={compareLabel} position="top" formatter={(value) => `${typeof value === 'number' ? Math.round(value) : value}%`} style={{ fontSize: isMobile ? 8 : 10, fontWeight: 700 }} />
+                    </Bar>
                   </BarChart>
                 )}
               </ResponsiveContainer>
@@ -556,7 +561,7 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
                   </p>
                 )}
               </div>
-              <div className="flex shrink-0 rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="flex max-w-full shrink-0 overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
                 {(['monthly', 'yearly', 'series'] as const).map((option, idx) => (
                   <button
                     key={option}
@@ -581,12 +586,12 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
                 </div>
               ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={displayedTrendData}>
+                <LineChart data={displayedTrendData} margin={{ top: 8, right: isMobile ? 6 : 16, left: isMobile ? -16 : 0, bottom: 6 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis domain={trendAxisDomain} tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <XAxis dataKey="label" minTickGap={isMobile ? 20 : 8} tick={{ fontSize: isMobile ? 9 : 11 }} />
+                  <YAxis domain={trendAxisDomain} width={isMobile ? 34 : 44} tickFormatter={(value: number) => `${value}%`} tick={{ fontSize: isMobile ? 9 : 11 }} />
+                  <Tooltip formatter={(value) => [`${value}%`, 'Score']} />
+                  <Legend wrapperStyle={{ fontSize: isMobile ? 10 : 12 }} />
                   <Line
                     type="monotone"
                     dataKey={activeComposite.company}

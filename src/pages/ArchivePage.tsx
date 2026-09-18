@@ -13,6 +13,7 @@ import { ArchiveSeries, CustomForm, SurveyResponse, SurveyType } from '../types/
 import { exportArchivedResponsesAsExcel } from '../utils/archiveResponseTransfer';
 import type { ArchiveImportResult } from '../utils/archiveResponseTransfer';
 import { ChartCard } from '../components/ChartCard';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { seriesTrend, companySeriesTrend } from '../utils/analytics';
 
 interface ArchivePageProps {
@@ -42,6 +43,7 @@ export function ArchivePage({
   onImportArchivedResponses,
   isAdmin
 }: ArchivePageProps) {
+  const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<'surveys' | 'responses'>('surveys');
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmSurvey, setConfirmSurvey] = useState<CustomForm | null>(null);
@@ -296,7 +298,7 @@ export function ArchivePage({
 
   if (!isAdmin) {
     return (
-      <div className="panel p-8 text-center text-slate-500 max-w-md mx-auto mt-10">
+      <div className="panel mx-auto mt-10 max-w-md p-5 text-center text-slate-500 sm:p-8">
         <Trash2 className="mx-auto mb-4 text-rose-500 h-12 w-12" />
         <h3 className="text-lg font-bold text-slate-900 dark:text-white">Access Restricted</h3>
         <p className="text-sm mt-2">Only administrators can access the Archive Center.</p>
@@ -521,12 +523,12 @@ export function ArchivePage({
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={seriesTrendData}>
+                    <LineChart data={seriesTrendData} margin={{ top: 8, right: isMobile ? 0 : 8, left: isMobile ? -8 : 0, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="key" />
-                      <YAxis yAxisId="left" domain={[0, 100]} />
-                      <YAxis yAxisId="right" orientation="right" allowDecimals={false} />
-                      <Tooltip />
+                      <XAxis dataKey="key" minTickGap={isMobile ? 20 : 8} tick={{ fontSize: isMobile ? 9 : 12 }} />
+                      <YAxis yAxisId="left" domain={[0, 100]} width={isMobile ? 34 : 48} tickFormatter={(value: number) => `${value}%`} tick={{ fontSize: isMobile ? 9 : 12 }} />
+                      <YAxis yAxisId="right" orientation="right" width={isMobile ? 28 : 48} allowDecimals={false} tick={{ fontSize: isMobile ? 9 : 12 }} />
+                      <Tooltip formatter={(value, name) => [name === 'Average Score' ? `${value}%` : value, name]} />
                       <Line yAxisId="left" type="monotone" dataKey="average" name="Average Score" stroke="#2563eb" strokeWidth={3} dot={{ r: 4 }} />
                       <Line yAxisId="right" type="monotone" dataKey="responses" name="Responses" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
                     </LineChart>
@@ -827,7 +829,7 @@ export function ArchivePage({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mt-5 text-xs">
+            <div className="mt-5 grid grid-cols-1 gap-3 text-xs min-[420px]:grid-cols-3">
               <div className="bg-emerald-50 dark:bg-emerald-950/20 p-3 rounded-lg border border-emerald-100 dark:border-emerald-900">
                 <span className="text-emerald-700 dark:text-emerald-400 font-medium block">Imported</span>
                 <strong className="text-emerald-800 dark:text-emerald-300 text-lg">{importResult.stats.imported}</strong>

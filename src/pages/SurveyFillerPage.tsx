@@ -663,7 +663,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
 
   if (!activeSurvey && surveys.length === 0) {
     return (
-      <div className="panel max-w-2xl mx-auto p-12 text-center" id="survey-filler-empty">
+      <div className="panel mx-auto max-w-2xl p-6 text-center sm:p-12" id="survey-filler-empty">
         <Info size={40} className="mx-auto text-amber-500 mb-4" />
         <h3 className="text-xl font-bold">No Surveys Available</h3>
         <p className="text-slate-500 dark:text-slate-400 mt-2">There are currently no published survey forms inside the system.</p>
@@ -701,25 +701,25 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
       </div>
 
       {/* Step Progress bar */}
-      <div className="flex items-center justify-between px-2">
+      <div className="flex items-center justify-between gap-2 px-1 sm:px-2">
         <div className="flex items-center gap-1.5 text-xs font-semibold">
           <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${step >= 1 ? 'bg-[#0063a9] text-white' : 'bg-slate-200 text-slate-500'}`}>1</span>
-          <span className={step >= 1 ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-400'}>Respondent Info</span>
+          <span className={`hidden min-[420px]:inline ${step >= 1 ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-400'}`}>Respondent Info</span>
         </div>
-        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 mx-4" />
+        <div className="mx-1 h-px flex-1 bg-slate-200 dark:bg-slate-800 sm:mx-4" />
         <div className="flex items-center gap-1.5 text-xs font-semibold">
           <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${step >= 2 ? 'bg-[#0063a9] text-white' : 'bg-slate-200 text-slate-500'}`}>2</span>
-          <span className={step >= 2 ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-400'}>Questions Form</span>
+          <span className={`hidden min-[420px]:inline ${step >= 2 ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-400'}`}>Questions Form</span>
         </div>
-        <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1 mx-4" />
+        <div className="mx-1 h-px flex-1 bg-slate-200 dark:bg-slate-800 sm:mx-4" />
         <div className="flex items-center gap-1.5 text-xs font-semibold">
           <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${step >= 3 ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}`}>3</span>
-          <span className={step >= 3 ? 'text-emerald-600 font-bold' : 'text-slate-400'}>Success</span>
+          <span className={`hidden min-[420px]:inline ${step >= 3 ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>Success</span>
         </div>
       </div>
 
       {step === 1 && (
-        <div className="panel p-6 sm:p-10 space-y-6" id="survey-filler-step-1">
+        <div className="panel space-y-6 p-4 min-[420px]:p-6 sm:p-10" id="survey-filler-step-1">
           <div className="text-center max-w-xl mx-auto space-y-2">
             <p className="text-[10px] uppercase tracking-widest text-[#0063a9] font-bold dark:text-blue-300">Microsoft Forms Ingress</p>
             <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Stakeholder Feedback Form</h2>
@@ -899,12 +899,12 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
               </div>
             )}
 
-            <div className="flex items-center justify-between border-t border-slate-100 pt-5 dark:border-slate-800">
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 dark:border-slate-800 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
               {onCancel ? (
                 <button
                   type="button"
                   onClick={onCancel}
-                  className="secondary-button"
+                  className="secondary-button w-full min-[420px]:w-auto"
                 >
                   Back to Form Management
                 </button>
@@ -914,7 +914,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
               {!hasEvaluatedAll && (
                 <button
                   type="submit"
-                  className="primary-button bg-[#0063a9] hover:bg-[#00528c]"
+                  className="primary-button w-full bg-[#0063a9] hover:bg-[#00528c] min-[420px]:w-auto"
                   id="btn-filler-next"
                 >
                   <span>Proceed to Form Questions</span>
@@ -1268,12 +1268,12 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
           </div>
 
           {/* Form Footer */}
-          <div className="panel p-5 flex items-center justify-between gap-4">
+          <div className="panel flex flex-col-reverse gap-3 p-4 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between sm:p-5">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="secondary-button flex items-center gap-1.5 text-xs py-2 px-3"
+                className="secondary-button flex w-full items-center gap-1.5 px-3 py-2 text-xs min-[420px]:w-auto"
               >
                 <ArrowLeft size={14} />
                 <span>Return</span>
@@ -1282,7 +1282,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
             
             <button
               type="submit"
-              className="primary-button bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-4"
+              className="primary-button w-full bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 min-[420px]:w-auto"
               id="btn-filler-submit"
             >
               <Send size={14} />
@@ -1293,7 +1293,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
       )}
 
       {step === 3 && (
-        <div className="panel p-10 sm:p-16 text-center space-y-6" id="survey-filler-success">
+        <div className="panel space-y-6 p-6 text-center sm:p-16" id="survey-filler-success">
           <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-500 dark:bg-emerald-950/30 dark:text-emerald-400">
             <CheckCircle size={36} />
           </div>

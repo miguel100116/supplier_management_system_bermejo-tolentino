@@ -10,6 +10,7 @@ interface AccountMenuProps {
   onLogout: () => void;
 }
 
+
 export function AccountMenu({ email, designation, department, role, onOpenSettings, onLogout }: AccountMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -38,7 +39,7 @@ export function AccountMenu({ email, designation, department, role, onOpenSettin
     <div className="relative" ref={menuRef} id="account-menu-container">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 rounded-lg bg-[#00528c]/40 hover:bg-[#00528c]/60 px-3 py-1.5 transition text-white text-sm font-medium border border-blue-400/25 cursor-pointer outline-none animate-fade-in"
+        className="flex items-center gap-1 rounded-lg border border-blue-400/25 bg-[#00528c]/40 px-1.5 py-1.5 text-sm font-medium text-white outline-none transition hover:bg-[#00528c]/60 min-[380px]:gap-2 min-[380px]:px-2 sm:px-3 cursor-pointer animate-fade-in"
         type="button"
         id="account-menu-trigger"
       >
@@ -53,7 +54,7 @@ export function AccountMenu({ email, designation, department, role, onOpenSettin
 
       {isOpen && (
         <div
-          className="absolute right-0 mt-2 w-64 origin-top-right rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5 focus:outline-none dark:border-slate-800 dark:bg-slate-950 z-50 animate-in fade-in slide-in-from-top-1 duration-150"
+          className="absolute right-0 z-50 mt-2 w-[calc(100vw-1rem)] max-w-64 origin-top-right rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5 focus:outline-none dark:border-slate-800 dark:bg-slate-950 animate-in fade-in slide-in-from-top-1 duration-150"
           id="account-menu-dropdown"
         >
           <div className="px-3 py-2.5 border-b border-slate-100 dark:border-slate-800">

@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Globe, MapPin, Truck, Package, Briefcase, RefreshCw, X, Check, Users, ShieldCheck, Clock, XCircle, Gauge, LayoutGrid, Settings2, RotateCcw, AlertTriangle, History, ChevronUp, ChevronDown, BellPlus, Plus } from 'lucide-react';
+import { Search, Globe, MapPin, Truck, Package, Briefcase, RefreshCw, X, Check, Users, ShieldCheck, Clock, XCircle, Gauge, LayoutGrid, Settings2, RotateCcw, AlertTriangle, History, ChevronUp, ChevronDown, BellPlus, Plus, SlidersHorizontal, Trash2, Filter } from 'lucide-react';
 import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { BranchRecord, BranchStatus, ComplianceDocument, DocumentStatus, PartnerCompany, PartnerCompanyType, SupplierOrigin } from '../types/survey';
 import { branchAwareCompanyLabel, computeCompanyDocumentSummary, computeDocumentStatus, isNTBranch } from '../utils/compliance';
 import { getRequiredDocumentKeys, isExpiryDocument } from '../utils/documentRequirements';
-import { SimClock, getEffectiveNow, getEffectiveTodayStr } from '../utils/simClock';
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { DocumentModificationEntry, getDocumentModifications, logDocumentModification } from '../utils/documentModificationLog';
 import {
@@ -16,14 +15,160 @@ import {
   restoreDefaultNotificationSettings,
 } from '../utils/documentNotificationSettings';
 import { ChartCard } from '../components/ChartCard';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { BRANCH_STATUS_OPTIONS, branchStatusBadgeClasses } from './PartnerCompaniesPage';
 
 interface DocumentRegisterPageProps {
   partnerCompanies: PartnerCompany[];
   onUpdateCompany: (company: PartnerCompany) => void;
   canRenewDocuments?: boolean;
-  simClock?: SimClock | null;
   currentUserEmail?: string;
+  isAdmin?: boolean;
+}
+
+// Each configurable filter chip. 'all' is always shown and cannot be
+// disabled - it's the "show everything" fallback. The other three
+// (expired, expiring, missing) can be toggled on/off and their labels
+// can be renamed by an admin, with changes persisted to localStorage.
+interface FilterChipConfig {
+  key: 'all' | 'expired' | 'expiring' | 'missing';
+  label: string;
+  enabled: boolean;
+}
+
+const DEFAULT_FILTER_CHIPS: FilterChipConfig[] = [
+  { key: 'all',      label: 'All',          enabled: true },
+  { key: 'expired',  label: 'Expired',      enabled: true },
+  { key: 'expiring', label: 'Expiring ≤30d', enabled: true },
+  { key: 'missing',  label: 'Missing',      enabled: true },
+];
+
+const FILTER_CONFIG_STORAGE_KEY = 'document_register_filter_config_v1';
+
+// ---------------------------------------------------------------------------
+// Advanced custom filter rows - field + condition + value triples that are
+// composed by the admin in the Customize Filters panel and applied on top of
+// the quick-chip filter. None of these fields are invented: every key maps
+// directly to a verified property of DisplayRow / PartnerCompany / BranchRecord
+// or to the matrixCellData computed values.
+// ---------------------------------------------------------------------------
+
+type FilterFieldType = 'text' | 'select' | 'number';
+
+interface FilterableField {
+  key: string;
+  label: string;
+  type: FilterFieldType;
+  options?: string[];       // only for 'select' type
+  placeholder?: string;    // only for 'text' / 'number' type
+  unit?: string;            // suffix shown next to number input (e.g. "days")
+}
+
+// Verified fields — every option value comes from types/survey.ts or
+// documentRequirements.ts; nothing is invented.
+const FILTERABLE_FIELDS: FilterableField[] = [
+  {
+    key: 'company.name',
+    label: 'Company Name',
+    type: 'text',
+    placeholder: 'Enter company name…',
+  },
+  {
+    key: 'branch.bpCode',
+    label: 'BP Code',
+    type: 'text',
+    placeholder: 'Enter BP code…',
+  },
+  {
+    key: 'branch.status',
+    label: 'Branch Status',
+    type: 'select',
+    // Values from BranchStatus: 'Pending'|'Updated'|'Outdated'|'Incomplete'|'Completed'|'Accredited'|'Inactive'
+    options: ['Pending', 'Updated', 'Outdated', 'Incomplete', 'Completed', 'Accredited', 'Inactive'],
+  },
+  {
+    key: 'branch.supplierRank',
+    label: 'Supplier Rank',
+    type: 'select',
+    options: ['Major', 'Regular'],
+  },
+  {
+    key: 'isNT',
+    label: 'Trade Type',
+    type: 'select',
+    options: ['Trade', 'Non-Trade'],
+  },
+  {
+    key: 'accreditationStatus',
+    label: 'Accreditation',
+    type: 'select',
+    // Values from AccreditationStatus
+    options: ['Accredited', 'Unaccredited'],
+  },
+  {
+    key: 'doc.status',
+    label: 'Any Document Status',
+    type: 'select',
+    // Values from DocumentStatus
+    options: ['Current', 'Expiring Soon', 'Expired', 'Missing', 'For Update'],
+  },
+  {
+    key: 'doc.daysLeft',
+    label: 'Days Left (expiry docs)',
+    type: 'number',
+    placeholder: '30',
+    unit: 'days',
+  },
+];
+
+type TextCondition = 'contains' | 'equals';
+type SelectCondition = 'equals';
+type NumberCondition = 'equals' | 'lt' | 'lte' | 'gt' | 'gte';
+type FilterCondition = TextCondition | SelectCondition | NumberCondition;
+
+const TEXT_CONDITIONS: { value: TextCondition; label: string }[] = [
+  { value: 'contains', label: 'Contains' },
+  { value: 'equals',   label: 'Equals' },
+];
+const SELECT_CONDITIONS: { value: SelectCondition; label: string }[] = [
+  { value: 'equals', label: 'Equals' },
+];
+const NUMBER_CONDITIONS: { value: NumberCondition; label: string }[] = [
+  { value: 'equals', label: 'Equals' },
+  { value: 'lt',     label: 'Less than' },
+  { value: 'lte',    label: 'Less than or equal' },
+  { value: 'gt',     label: 'Greater than' },
+  { value: 'gte',    label: 'Greater than or equal' },
+];
+
+function getConditionsForField(field: FilterableField) {
+  if (field.type === 'text')   return TEXT_CONDITIONS;
+  if (field.type === 'number') return NUMBER_CONDITIONS;
+  return SELECT_CONDITIONS;
+}
+
+function defaultConditionForField(field: FilterableField): FilterCondition {
+  if (field.type === 'text')   return 'contains';
+  if (field.type === 'number') return 'lte';
+  return 'equals';
+}
+
+interface FilterRow {
+  id: string;
+  field: string;       // key from FILTERABLE_FIELDS
+  condition: FilterCondition;
+  value: string;       // always string; parsed to number when needed
+}
+
+let _filterRowSeq = 0;
+function newFilterRow(): FilterRow {
+  const field = FILTERABLE_FIELDS[0];
+  return {
+    id: `fr-${++_filterRowSeq}`,
+    field: field.key,
+    condition: defaultConditionForField(field),
+    value: '',
+  };
 }
 
 // One category tab = one column set, mirroring the Master List's
@@ -74,10 +219,8 @@ const ADVANCED_WIDGET_IDS = OVERVIEW_WIDGETS.map((w) => w.id);
 const DEFAULT_WIDGET_IDS = ADVANCED_WIDGET_IDS;
 const WIDGET_VISIBILITY_STORAGE_KEY = 'document_register_widget_visibility_v1';
 
-// One snapshot per category per calendar day (keyed by getEffectiveTodayStr,
-// so the Database Simulator's time-travel can be used to generate a real
-// multi-day trend for testing/demo). Revisiting the same day overwrites
-// that day's entry instead of duplicating it.
+// One snapshot per category per calendar day. Revisiting the same day
+// overwrites that day's entry instead of duplicating it.
 const COMPLIANCE_HISTORY_STORAGE_KEY = 'document_register_compliance_history_v1';
 const COMPLIANCE_HISTORY_LIMIT = 180;
 interface ComplianceSnapshot {
@@ -235,22 +378,8 @@ function pickBranchForDoc(company: PartnerCompany, docName: string): BranchRecor
   }) ?? branches[0];
 }
 
-// Renders each pie slice's raw count + share of the total just outside the
-// slice - values visible without hovering, not just in the tooltip.
-const RADIAN = Math.PI / 180;
-function renderDonutValueLabel(props: any) {
-  const { cx, cy, midAngle, outerRadius, value, percent } = props;
-  const radius = outerRadius + 22;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  return (
-    <text x={x} y={y} fill={CHART_INK} textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize={14} fontWeight={700}>
-      {value} <tspan fillOpacity={0.65}>({Math.round(percent * 100)}%)</tspan>
-    </text>
-  );
-}
-
-export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRenewDocuments, simClock = null, currentUserEmail = '' }: DocumentRegisterPageProps) {
+export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRenewDocuments, currentUserEmail = '', isAdmin = false }: DocumentRegisterPageProps) {
+  const isMobile = useIsMobile();
   const [categoryKey, setCategoryKey] = useState<string>('supplier-local');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'expired' | 'expiring' | 'missing'>('all');
@@ -282,6 +411,22 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
   const [widgetVisibility, setWidgetVisibility] = useState<Record<string, string[]>>({});
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
   const customizeRef = useRef<HTMLDivElement>(null);
+  // Customizable filter chips - admin-editable list of which chips are
+  // shown and what their labels say. Persisted to localStorage so
+  // changes survive page reloads. Non-admin users see only the
+  // enabled chips; the customize button is hidden from them entirely.
+  const [filterChips, setFilterChips] = useState<FilterChipConfig[]>(DEFAULT_FILTER_CHIPS);
+  // Applied custom filter rows (used by the `rows` useMemo).
+  const [customFilterRows, setCustomFilterRows] = useState<FilterRow[]>([]);
+  // Draft rows - working copy while the filter panel is open.
+  // Committed on Apply; discarded on Cancel.
+  const [draftFilterRows, setDraftFilterRows] = useState<FilterRow[]>([]);
+  // Whether the full inline Customize Filters panel is expanded.
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  // Tracks which filter chip label is currently being edited inline
+  // (the chip rename feature is still supported - only the full advanced
+  //  panel replaces the old dropdown).
+  const [editingFilterKey, setEditingFilterKey] = useState<string | null>(null);
   const [complianceHistory, setComplianceHistory] = useState<Record<string, ComplianceSnapshot[]>>({});
   const [modificationLog, setModificationLog] = useState<DocumentModificationEntry[]>([]);
   const [sortKey, setSortKey] = useState<MatrixSortKey>('company');
@@ -319,6 +464,24 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
       if (saved) setWidgetVisibility(JSON.parse(saved));
     } catch {
       // Best-effort only - falls back to the default widget set.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FILTER_CONFIG_STORAGE_KEY);
+      if (saved) {
+        const parsed: FilterChipConfig[] = JSON.parse(saved);
+        // Merge saved config with defaults so newly added filter keys
+        // from future code updates aren't silently lost.
+        const merged = DEFAULT_FILTER_CHIPS.map((def) => {
+          const override = parsed.find((p) => p.key === def.key);
+          return override ? { ...def, ...override } : def;
+        });
+        setFilterChips(merged);
+      }
+    } catch {
+      // Best-effort only - falls back to the default filter set.
     }
   }, []);
 
@@ -375,8 +538,8 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
     }
   };
 
-  const effectiveNow = getEffectiveNow(simClock);
-  const currentDateStr = getEffectiveTodayStr(simClock);
+  const effectiveNow = new Date();
+  const currentDateStr = effectiveNow.toISOString().slice(0, 10);
 
   const isAllView = categoryKey === ALL_KEY;
   const category = CATEGORIES.find((c) => c.key === categoryKey) ?? CATEGORIES[0];
@@ -407,6 +570,82 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
     setWidgetVisibility(updated);
     localStorage.setItem(WIDGET_VISIBILITY_STORAGE_KEY, JSON.stringify(updated));
   };
+
+  // --- Filter chip customization helpers (admin-only) ---
+
+  const saveFilterChips = (next: FilterChipConfig[]) => {
+    setFilterChips(next);
+    localStorage.setItem(FILTER_CONFIG_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const toggleFilterChip = (key: string) => {
+    // 'all' chip can never be disabled.
+    if (key === 'all') return;
+    saveFilterChips(filterChips.map((c) => (c.key === key ? { ...c, enabled: !c.enabled } : c)));
+  };
+
+  const renameFilterChip = (key: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    if (!trimmed) return;
+    saveFilterChips(filterChips.map((c) => (c.key === key ? { ...c, label: trimmed } : c)));
+  };
+
+  const restoreDefaultFilterChips = () => {
+    saveFilterChips(DEFAULT_FILTER_CHIPS);
+  };
+
+  // --- Custom filter panel helpers ---
+
+  // Open the panel: populate draft from last applied rows so editing
+  // feels like continuing from the previous state.
+  const openFilterPanel = () => {
+    setDraftFilterRows(customFilterRows.map((r) => ({ ...r })));
+    setIsFilterPanelOpen(true);
+  };
+
+  const closeFilterPanel = () => {
+    setIsFilterPanelOpen(false);
+    setEditingFilterKey(null);
+  };
+
+  const applyFilters = () => {
+    setCustomFilterRows(draftFilterRows.filter((r) => r.value.trim() !== ''));
+    closeFilterPanel();
+  };
+
+  const cancelFilters = () => {
+    // Discard drafts; don't touch applied rows.
+    closeFilterPanel();
+  };
+
+  const addDraftRow = () => {
+    setDraftFilterRows((prev) => [...prev, newFilterRow()]);
+  };
+
+  const removeDraftRow = (id: string) => {
+    setDraftFilterRows((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const updateDraftRow = (id: string, patch: Partial<FilterRow>) => {
+    setDraftFilterRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const next = { ...r, ...patch };
+        // When field changes, reset condition to the new field's default
+        // and clear value so stale text/number doesn't pass wrong type.
+        if (patch.field !== undefined && patch.field !== r.field) {
+          const newField = FILTERABLE_FIELDS.find((f) => f.key === patch.field);
+          if (newField) {
+            next.condition = defaultConditionForField(newField);
+            next.value = '';
+          }
+        }
+        return next;
+      })
+    );
+  };
+
+  const clearDraftRows = () => setDraftFilterRows([]);
 
   // Every non-archived company in the selected category, unfiltered by
   // search - this is what the Compliance Overview summarizes, so switching
@@ -513,6 +752,79 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
         });
       });
     }
+
+    // Apply every custom filter row that has a non-empty value.
+    // All rows must match (AND logic) - if one row doesn't match, the
+    // supplier row is excluded. Incomplete rows (empty value) are skipped.
+    const activeCustomRows = customFilterRows.filter((r) => r.value.trim() !== '');
+    if (activeCustomRows.length > 0) {
+      list = list.filter((row) =>
+        activeCustomRows.every((fr) => {
+          const fieldDef = FILTERABLE_FIELDS.find((f) => f.key === fr.field);
+          if (!fieldDef) return true; // unknown field — don't filter
+
+          const condition = fr.condition;
+          const rawValue = fr.value.trim();
+
+          // ----- text fields -----
+          if (fieldDef.type === 'text') {
+            let actual = '';
+            if (fr.field === 'company.name') actual = row.company.name ?? '';
+            else if (fr.field === 'branch.bpCode') actual = row.branch?.bpCode ?? '';
+            const a = actual.toLowerCase();
+            const v = rawValue.toLowerCase();
+            if (condition === 'contains') return a.includes(v);
+            if (condition === 'equals')   return a === v;
+            return true;
+          }
+
+          // ----- select fields -----
+          if (fieldDef.type === 'select') {
+            if (fr.field === 'branch.status') {
+              return (row.branch?.status ?? '') === rawValue;
+            }
+            if (fr.field === 'branch.supplierRank') {
+              return (row.branch?.supplierRank ?? '') === rawValue;
+            }
+            if (fr.field === 'isNT') {
+              const tradeLabel = row.isNT ? 'Non-Trade' : 'Trade';
+              return tradeLabel === rawValue;
+            }
+            if (fr.field === 'accreditationStatus') {
+              return (row.company.accreditationStatus ?? '') === rawValue;
+            }
+            if (fr.field === 'doc.status') {
+              const cells = matrixCellData.get(row.key) ?? [];
+              return cells.some((cell) => cell.status === rawValue);
+            }
+            return true;
+          }
+
+          // ----- number fields -----
+          if (fieldDef.type === 'number') {
+            const numValue = parseFloat(rawValue);
+            if (!Number.isFinite(numValue)) return true; // unparseable — skip
+            if (fr.field === 'doc.daysLeft') {
+              const cells = matrixCellData.get(row.key) ?? [];
+              // The row passes if ANY expiry document cell satisfies the condition.
+              return cells.some((cell) => {
+                if (!cell.expiryBased || typeof cell.daysLeft !== 'number') return false;
+                const d = cell.daysLeft;
+                if (condition === 'equals') return d === numValue;
+                if (condition === 'lt')     return d < numValue;
+                if (condition === 'lte')    return d <= numValue;
+                if (condition === 'gt')     return d > numValue;
+                if (condition === 'gte')    return d >= numValue;
+                return true;
+              });
+            }
+            return true;
+          }
+
+          return true;
+        })
+      );
+    }
     // Every column header is clickable to sort (see handleSortClick) - the
     // comparator below dispatches on which key is active, always falling
     // back to company name (then NT/non-NT) so ties stay stable and a
@@ -553,7 +865,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
       const cmp = primary !== 0 ? primary : fallback(a, b);
       return sortDirection === 'asc' ? cmp : -cmp;
     });
-  }, [displayRows, searchQuery, statusFilter, matrixCellData, sortKey, sortDirection]);
+  }, [displayRows, searchQuery, statusFilter, customFilterRows, matrixCellData, sortKey, sortDirection]);
 
   // Compliance Overview: one KPI/chart summary per selected view, computed
   // once per company (not per document cell) so it stays cheap even at
@@ -651,7 +963,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
     const upcomingTable = upcoming.sort((a, b) => a.daysLeft - b.daysLeft).slice(0, 10);
 
     return {
-      total, activeAccreditation, expiringSoonDocs, expiredDocs, complianceRate,
+      total, activeAccreditation, expiringSoonDocs, expiredDocs, complianceRate, statusTotal: brandedBranchTotal,
       donutData, barData, docStatusTable, agingTable, upcomingTable,
     };
   }, [categoryCompanies, displayRows, effectiveNow]);
@@ -1040,7 +1352,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
                 </button>
 
                 {isCustomizeOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-slate-200 bg-white shadow-panel z-30 overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+                  <div className="absolute right-0 top-full z-30 mt-2 w-[calc(100vw-2rem)] max-w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-100 dark:border-slate-800">
                       <p className="text-sm font-semibold text-slate-900 dark:text-white">Customize Overview</p>
                       <span className="text-[10px] text-slate-400">{viewLabel}</span>
@@ -1120,52 +1432,86 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
               <div className={chartsGridClass}>
                 {isWidgetVisible('chart-compliance') && (
                   <div className={chartsToShow.length === 2 ? 'lg:col-span-2' : ''}>
-                    <ChartCard title="Status Breakdown" subtitle={viewLabel} contentClassName="h-64">
+                    <ChartCard title="Status Breakdown" subtitle={viewLabel} contentClassName="min-h-[27rem] sm:h-80 sm:min-h-0">
                       {overview.donutData.length === 0 ? (
                         <div className="h-full flex items-center justify-center text-xs text-slate-400">
                           No companies in this view yet.
                         </div>
                       ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={overview.donutData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={0}
-                              outerRadius={68}
-                              paddingAngle={2}
-                              dataKey="value"
-                              nameKey="name"
-                              isAnimationActive={false}
-                              label={renderDonutValueLabel}
-                              labelLine={false}
-                            >
-                              {overview.donutData.map((entry) => (
-                                <Cell key={entry.name} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip contentStyle={{ fontSize: '11px', borderRadius: 10, border: '1px solid #e2e8f0' }} />
-                            <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} iconType="circle" iconSize={8} />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        <div
+                          className="flex min-h-[27rem] min-w-0 flex-col items-center justify-center gap-4 sm:h-80 sm:min-h-0 sm:gap-3"
+                          role="group"
+                          aria-label={`${viewLabel} branch status breakdown`}
+                        >
+                          <div className="relative h-52 w-full min-w-0 max-w-sm shrink-0 -translate-y-2 sm:h-44 sm:-translate-y-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie
+                                  data={overview.donutData}
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={isMobile ? 42 : 48}
+                                  outerRadius={isMobile ? 78 : 88}
+                                  paddingAngle={2}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  isAnimationActive={false}
+                                  stroke="transparent"
+                                >
+                                  {overview.donutData.map((entry) => (
+                                    <Cell key={entry.name} fill={entry.color} />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  position={{ x: isMobile ? 128 : 220, y: 4 }}
+                                  contentStyle={{ fontSize: '11px', borderRadius: 10, border: '1px solid #e2e8f0' }}
+                                  wrapperStyle={{ zIndex: 10, outline: 'none' }}
+                                  formatter={(value, name) => {
+                                    const count = typeof value === 'number' ? value : Number(value ?? 0);
+                                    const percent = overview.statusTotal > 0 ? Math.round((count / overview.statusTotal) * 100) : 0;
+                                    return [`${count} (${percent}%)`, String(name)];
+                                  }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center" aria-hidden="true">
+                              <span className="text-2xl font-semibold leading-none tabular-nums text-slate-900 dark:text-white">{overview.statusTotal}</span>
+                              <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Branches</span>
+                            </div>
+                          </div>
+
+                          <ul className="grid w-full min-w-0 max-w-2xl grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 sm:gap-y-1.5" aria-label="Status counts and percentages">
+                            {overview.donutData.map((entry) => {
+                              const percent = overview.statusTotal > 0 ? Math.round((entry.value / overview.statusTotal) * 100) : 0;
+                              return (
+                                <li key={entry.name} className="flex min-w-0 items-center gap-2 text-xs">
+                                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} aria-hidden="true" />
+                                  <span className="min-w-0 flex-1 truncate font-medium text-slate-600 dark:text-slate-300" title={entry.name}>{entry.name}</span>
+                                  <span className="shrink-0 font-semibold tabular-nums text-slate-900 dark:text-white">
+                                    {entry.value} <span className="font-medium text-slate-400">({percent}%)</span>
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
                       )}
                     </ChartCard>
                   </div>
                 )}
                 {isWidgetVisible('chart-attention') && (
                   <div className={chartsToShow.length === 2 ? 'lg:col-span-3' : ''}>
-                    <ChartCard title="Documents Needing Attention" subtitle="By document type" contentClassName="h-64">
+                    <ChartCard title="Documents Needing Attention" subtitle="By document type" contentClassName="h-72 sm:h-80">
                       {overview.barData.length === 0 ? (
                         <div className="h-full flex items-center justify-center text-xs text-slate-400">
                           Nothing expiring or overdue in this view.
                         </div>
                       ) : (
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={overview.barData} layout="vertical" margin={{ left: 8, right: 36 }} barCategoryGap="30%">
+                          <BarChart data={overview.barData} layout="vertical" margin={{ left: isMobile ? 0 : 8, right: isMobile ? 24 : 36 }} barCategoryGap="30%">
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-slate-100 dark:stroke-slate-800" />
                             <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
-                            <YAxis type="category" dataKey="doc" width={110} tick={{ fontSize: 11, fill: CHART_INK, fontWeight: 600 }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
+                            <YAxis type="category" dataKey="doc" width={isMobile ? 76 : 110} tickFormatter={(value: string) => isMobile && value.length > 12 ? `${value.slice(0, 11)}…` : value} tick={{ fontSize: isMobile ? 9 : 11, fill: CHART_INK, fontWeight: 600 }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
                             <Tooltip contentStyle={{ fontSize: '11px', borderRadius: 10, border: '1px solid #e2e8f0' }} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
                             <Legend wrapperStyle={{ fontSize: '11px' }} iconType="circle" iconSize={8} />
                             <Bar dataKey="Expiring Soon" stackId="a" fill={CHART_WARNING} radius={[0, 0, 0, 0]} maxBarSize={20} isAnimationActive={false}>
@@ -1198,7 +1544,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={history} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
+                      <ComposedChart data={history} margin={{ top: 20, right: isMobile ? 4 : 16, left: isMobile ? -12 : 0, bottom: 0 }}>
                         <defs>
                           <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#0063a9" stopOpacity={0.16} />
@@ -1206,8 +1552,8 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-slate-100 dark:stroke-slate-800" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} tickFormatter={(d: string) => formatDate(d)} />
-                        <YAxis domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} />
+                        <XAxis dataKey="date" minTickGap={isMobile ? 24 : 8} tick={{ fontSize: isMobile ? 9 : 10, fill: '#94a3b8' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} tickFormatter={(d: string) => formatDate(d)} />
+                        <YAxis domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: isMobile ? 9 : 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={isMobile ? 34 : 40} />
                         <Tooltip contentStyle={{ fontSize: '11px', borderRadius: 10, border: '1px solid #e2e8f0' }} labelFormatter={(d) => formatDate(String(d ?? ''))} formatter={(v) => [`${typeof v === 'number' ? v : 0}%`, 'Compliance Rate']} />
                         <Area type="monotone" dataKey="rate" stroke="none" fill="url(#trendFill)" isAnimationActive={false} />
                         <Line type="monotone" dataKey="rate" stroke="#0063a9" strokeWidth={2} dot={{ r: 4, fill: '#0063a9', strokeWidth: 0 }} activeDot={{ r: 6 }} isAnimationActive={false}>
@@ -1344,33 +1690,291 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
       })()}
 
       {!isAllView && categoryCompanies.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1">Filter:</span>
-          {(
-            [
-              { key: 'all', label: 'All', count: null, activeClass: 'border-transparent bg-[#0063a9] text-white' },
-              { key: 'expired', label: 'Expired', count: chipCounts.expired, activeClass: 'border-[#f43f5e]/30 bg-rose-50 text-[#f43f5e] dark:bg-rose-950/40 dark:text-rose-400' },
-              { key: 'expiring', label: 'Expiring ≤30d', count: chipCounts.expiringSoon, activeClass: 'border-amber-200 bg-amber-50 text-[#a16207] dark:bg-amber-950/40 dark:text-amber-400' },
-              { key: 'missing', label: 'Missing', count: chipCounts.missing, activeClass: 'border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300' },
-            ] as const
-          ).map((chip) => {
-            const active = statusFilter === chip.key;
-            return (
+        <div className="space-y-0">
+          {/* ── Quick-filter bar ─────────────────────────────────────────── */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+
+            {/* Quick chips (left) */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1">Filter:</span>
+
+              {filterChips
+                .filter((chip) => chip.key === 'all' || chip.enabled)
+                .map((chip) => {
+                  const active = statusFilter === chip.key;
+                  const count =
+                    chip.key === 'expired'
+                      ? chipCounts.expired
+                      : chip.key === 'expiring'
+                      ? chipCounts.expiringSoon
+                      : chip.key === 'missing'
+                      ? chipCounts.missing
+                      : null;
+                  const activeClass =
+                    chip.key === 'all'
+                      ? 'border-transparent bg-[#0063a9] text-white'
+                      : chip.key === 'expired'
+                      ? 'border-[#f43f5e]/30 bg-rose-50 text-[#f43f5e] dark:bg-rose-950/40 dark:text-rose-400'
+                      : chip.key === 'expiring'
+                      ? 'border-amber-200 bg-amber-50 text-[#a16207] dark:bg-amber-950/40 dark:text-amber-400'
+                      : 'border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300';
+                  return (
+                    <button
+                      key={chip.key}
+                      type="button"
+                      onClick={() => setStatusFilter(chip.key as typeof statusFilter)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold transition cursor-pointer ${
+                        active
+                          ? activeClass
+                          : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <span>{chip.label}</span>
+                      {count !== null && <span className="tabular-nums opacity-80">{count}</span>}
+                    </button>
+                  );
+                })}
+            </div>
+
+            {/* Customize Filters button (right, admin-only) */}
+            {isAdmin && (
               <button
-                key={chip.key}
                 type="button"
-                onClick={() => setStatusFilter(chip.key)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold transition cursor-pointer ${
-                  active
-                    ? chip.activeClass
-                    : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:text-slate-200'
+                onClick={() => (isFilterPanelOpen ? cancelFilters() : openFilterPanel())}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                  isFilterPanelOpen
+                    ? 'border-[#0063a9] bg-[#0063a9]/5 text-[#0063a9] dark:bg-[#0063a9]/20 dark:text-sky-400'
+                    : customFilterRows.length > 0
+                    ? 'border-[#0063a9]/40 bg-[#0063a9]/5 text-[#0063a9] dark:bg-[#0063a9]/10 dark:border-sky-700 dark:text-sky-400'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-800 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-white'
                 }`}
               >
-                <span>{chip.label}</span>
-                {chip.count !== null && <span className="tabular-nums opacity-80">{chip.count}</span>}
+                <SlidersHorizontal size={12} />
+                <span>Customize Filters</span>
+                {customFilterRows.length > 0 && !isFilterPanelOpen && (
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#0063a9] text-white text-[10px] font-bold leading-none px-1">
+                    {customFilterRows.length}
+                  </span>
+                )}
+                {isFilterPanelOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               </button>
-            );
-          })}
+            )}
+          </div>
+
+          {/* ── Inline Customize Filters panel ───────────────────────────── */}
+          {isAdmin && isFilterPanelOpen && (
+            <div className="mt-2 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+              {/* Panel header */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Filter size={14} className="text-[#0063a9]" />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white leading-none">Customize Filters</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Add filters to quickly find suppliers</p>
+                  </div>
+                </div>
+                {draftFilterRows.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearDraftRows}
+                    className="text-xs font-semibold text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 transition cursor-pointer"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+
+              {/* Quick-chip toggle section (still available inside panel for admin convenience) */}
+              <div className="px-5 pt-4 pb-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Quick Filter Chips</p>
+                <div className="flex flex-wrap gap-2">
+                  {filterChips.map((chip) => {
+                    const isAll = chip.key === 'all';
+                    const isEditing = editingFilterKey === chip.key;
+                    return (
+                      <div key={chip.key} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800/60">
+                        <input
+                          type="checkbox"
+                          checked={chip.enabled}
+                          disabled={isAll}
+                          onChange={() => toggleFilterChip(chip.key)}
+                          className="rounded border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                          aria-label={`Show ${chip.label} filter`}
+                        />
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            defaultValue={chip.label}
+                            maxLength={24}
+                            className="w-24 rounded border border-[#0063a9]/40 bg-white px-1.5 py-0.5 text-xs font-semibold text-slate-800 dark:border-sky-700 dark:bg-slate-950 dark:text-white focus:outline-none"
+                            onBlur={(e) => { renameFilterChip(chip.key, e.target.value); setEditingFilterKey(null); }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { renameFilterChip(chip.key, (e.target as HTMLInputElement).value); setEditingFilterKey(null); }
+                              if (e.key === 'Escape') setEditingFilterKey(null);
+                            }}
+                          />
+                        ) : (
+                          <span
+                            className={`text-xs font-semibold ${chip.enabled || isAll ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}
+                          >
+                            {chip.label}
+                          </span>
+                        )}
+                        {!isAll && !isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingFilterKey(chip.key)}
+                            title="Rename"
+                            className="text-slate-300 hover:text-[#0063a9] dark:text-slate-600 dark:hover:text-sky-400 transition cursor-pointer"
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                        )}
+                        {isAll && <span className="text-[9px] text-slate-300 dark:text-slate-600 font-bold uppercase tracking-wide">always on</span>}
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={restoreDefaultFilterChips}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-[#0063a9] transition cursor-pointer"
+                  >
+                    <RotateCcw size={11} />
+                    <span>Reset labels</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Divider + filter rows section */}
+              {draftFilterRows.length > 0 && (
+                <div className="px-5 pb-1 pt-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-3">Advanced Filters</p>
+                  <div className="space-y-2">
+                    {draftFilterRows.map((fr) => {
+                      const fieldDef = FILTERABLE_FIELDS.find((f) => f.key === fr.field) ?? FILTERABLE_FIELDS[0];
+                      const conditions = getConditionsForField(fieldDef);
+                      return (
+                        <div key={fr.id} className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                          {/* Field selector */}
+                          <select
+                            value={fr.field}
+                            onChange={(e) => updateDraftRow(fr.id, { field: e.target.value })}
+                            className="field text-xs py-1.5 sm:w-44 shrink-0"
+                            aria-label="Filter field"
+                          >
+                            {FILTERABLE_FIELDS.map((f) => (
+                              <option key={f.key} value={f.key}>{f.label}</option>
+                            ))}
+                          </select>
+
+                          {/* Condition selector */}
+                          <select
+                            value={fr.condition}
+                            onChange={(e) => updateDraftRow(fr.id, { condition: e.target.value as FilterCondition })}
+                            className="field text-xs py-1.5 sm:w-44 shrink-0"
+                            aria-label="Filter condition"
+                          >
+                            {conditions.map((c) => (
+                              <option key={c.value} value={c.value}>{c.label}</option>
+                            ))}
+                          </select>
+
+                          {/* Value input — adapts to field type */}
+                          <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                            {fieldDef.type === 'select' ? (
+                              <select
+                                value={fr.value}
+                                onChange={(e) => updateDraftRow(fr.id, { value: e.target.value })}
+                                className="field text-xs py-1.5 flex-1"
+                                aria-label="Filter value"
+                              >
+                                <option value="">— Select value —</option>
+                                {(fieldDef.options ?? []).map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                            ) : fieldDef.type === 'number' ? (
+                              <>
+                                <input
+                                  type="number"
+                                  value={fr.value}
+                                  onChange={(e) => updateDraftRow(fr.id, { value: e.target.value })}
+                                  placeholder={fieldDef.placeholder ?? '0'}
+                                  className="field text-xs py-1.5 flex-1 min-w-0"
+                                  aria-label="Filter value"
+                                />
+                                {fieldDef.unit && (
+                                  <span className="shrink-0 text-xs text-slate-400 whitespace-nowrap">{fieldDef.unit}</span>
+                                )}
+                              </>
+                            ) : (
+                              <input
+                                type="text"
+                                value={fr.value}
+                                onChange={(e) => updateDraftRow(fr.id, { value: e.target.value })}
+                                placeholder={fieldDef.placeholder ?? 'Enter value…'}
+                                className="field text-xs py-1.5 flex-1 min-w-0"
+                                aria-label="Filter value"
+                              />
+                            )}
+                          </div>
+
+                          {/* Delete row */}
+                          <button
+                            type="button"
+                            onClick={() => removeDraftRow(fr.id)}
+                            title="Remove this filter"
+                            className="shrink-0 self-end sm:self-auto inline-flex items-center justify-center h-8 w-8 rounded-lg border border-rose-100 bg-rose-50 text-rose-400 hover:bg-rose-100 hover:text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* + Add Filter */}
+              <div className="px-5 py-3">
+                <button
+                  type="button"
+                  onClick={addDraftRow}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500 hover:border-[#0063a9]/50 hover:bg-[#0063a9]/5 hover:text-[#0063a9] dark:border-slate-700 dark:bg-slate-800/40 dark:hover:border-sky-700 dark:hover:text-sky-400 transition cursor-pointer"
+                >
+                  <Plus size={13} />
+                  Add Filter
+                </button>
+              </div>
+
+              {/* Footer: Cancel + Apply */}
+              <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60">
+                <button
+                  type="button"
+                  onClick={cancelFilters}
+                  className="secondary-button text-xs py-1.5 px-4"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={applyFilters}
+                  className="primary-button text-xs py-1.5 px-4"
+                >
+                  Apply Filters
+                  {draftFilterRows.filter((r) => r.value.trim() !== '').length > 0 && (
+                    <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-white/25 text-white text-[10px] font-bold leading-none px-1">
+                      {draftFilterRows.filter((r) => r.value.trim() !== '').length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2036,7 +2640,7 @@ function KpiCard({
           <Icon size={14} />
         </span>
       </div>
-      <span className="mt-2 block text-[28px] leading-none font-semibold tracking-tight text-slate-900 dark:text-white">{value}</span>
+      <span className="mt-2 block break-words text-2xl font-semibold leading-none tracking-tight text-slate-900 tabular-nums dark:text-white sm:text-[28px]">{value}</span>
       <span className={`mt-2 block text-[11px] font-medium ${accent}`}>{caption}</span>
     </section>
   );

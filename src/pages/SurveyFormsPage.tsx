@@ -4,7 +4,6 @@ import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../typ
 import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
 import { getAllCompaniesOfType, getSurveyEvaluationCompanies } from '../utils/analytics';
-import { SimClock } from '../utils/simClock';
 
 interface SurveyFormsPageProps {
   surveys: CustomForm[];
@@ -18,7 +17,6 @@ interface SurveyFormsPageProps {
   onUpdateSurveysBulk?: (updatedSurveysList: CustomForm[]) => void;
   onArchiveResponses?: (surveyIds: string[], seriesLabel?: string) => void;
   isAdmin?: boolean;
-  simClock?: SimClock | null;
 }
 
 const surveyTypeOptions: Array<'All' | SurveyType> = ['All', 'Courier', 'Supplier', 'Subcontractor'];
@@ -90,7 +88,6 @@ export function SurveyFormsPage({
   onUpdateSurveysBulk,
   onArchiveResponses,
   isAdmin,
-  simClock = null
 }: SurveyFormsPageProps) {
   const [surveyType, setSurveyType] = useState<'All' | SurveyType>('All');
   const [search, setSearch] = useState('');
@@ -464,8 +461,8 @@ export function SurveyFormsPage({
     <div className="space-y-5">
       {/* Cards Row */}
       <section className="grid gap-4 sm:grid-cols-2">
-        <div className="panel p-5 flex items-center justify-between">
-          <div className="space-y-1">
+        <div className="panel flex items-start justify-between gap-3 p-4 sm:items-center sm:p-5">
+          <div className="min-w-0 space-y-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Total Active Templates</span>
             <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{activeTemplatesCount}</h3>
             <p className="text-xs text-slate-400 dark:text-slate-500">Configured forms for Microgenesis evaluations</p>
@@ -477,8 +474,8 @@ export function SurveyFormsPage({
 
         {!isAdmin ? (
           totalCompanies === 0 ? (
-            <div className="panel p-5 flex items-center justify-between border-dashed border-2 border-slate-200 dark:border-slate-800/80 bg-slate-50/25 dark:bg-transparent">
-              <div className="space-y-1 flex-1">
+            <div className="panel flex items-start justify-between gap-3 border-2 border-dashed border-slate-200 bg-slate-50/25 p-4 dark:border-slate-800/80 dark:bg-transparent sm:items-center sm:p-5">
+              <div className="min-w-0 flex-1 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Your Evaluation Progress</span>
                 <h3 className="text-base font-extrabold text-slate-500 dark:text-slate-400">No Task Yet</h3>
                 <p className="text-xs text-slate-400 dark:text-slate-500">
@@ -489,10 +486,10 @@ export function SurveyFormsPage({
           ) : (
           <button
             onClick={() => setIsModalOpen(true)}
-            className="panel p-5 flex items-center justify-between hover:border-[#0063a9] dark:hover:border-blue-500/50 hover:bg-slate-50/50 dark:hover:bg-slate-900/10 transition cursor-pointer group text-left w-full border border-slate-100 dark:border-slate-800"
+            className="panel group flex w-full items-start justify-between gap-3 border border-slate-100 p-4 text-left transition hover:border-[#0063a9] hover:bg-slate-50/50 dark:border-slate-800 dark:hover:border-blue-500/50 dark:hover:bg-slate-900/10 sm:items-center sm:p-5 cursor-pointer"
             type="button"
           >
-            <div className="space-y-1 flex-1">
+            <div className="min-w-0 flex-1 space-y-1">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#0063a9] dark:text-blue-400">Your Evaluation Progress</span>
               <h3 className="text-base font-extrabold text-slate-800 dark:text-slate-100 group-hover:text-[#0063a9] dark:group-hover:text-blue-400 transition">
                 {evaluatedCount} of {totalCompanies} Partners Evaluated

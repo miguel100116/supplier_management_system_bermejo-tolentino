@@ -952,7 +952,7 @@ export function SendToPartnerWizard({
                           <CheckCircle2 className="text-[#0063a9]" size={15} />
                           Active completed survey evaluation found!
                         </div>
-                        <div className="grid grid-cols-2 gap-4 text-xs">
+                        <div className="grid grid-cols-1 gap-4 text-xs min-[420px]:grid-cols-2">
                           <div>
                             <span className="text-slate-400">Total Evaluations:</span>
                             <span className="ml-1.5 font-bold text-slate-800 dark:text-slate-200">
@@ -1736,7 +1736,7 @@ export function SendToPartnerWizard({
               </button>
             </div>
             <div className="p-5 space-y-4">
-               <div className="grid grid-cols-2 gap-3">
+               <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                  <GraphOption icon={BarChart3} label="Category Bar Graph" checked={graphs.bar} onChange={() => setGraphs({ ...graphs, bar: !graphs.bar })} />
                  <GraphOption icon={BarChart3} label="Category Radar" checked={graphs.radar} onChange={() => setGraphs({ ...graphs, radar: !graphs.radar })} />
                  <GraphOption icon={BarChart3} label="Historical Trend" checked={graphs.trend} onChange={() => setGraphs({ ...graphs, trend: !graphs.trend })} />
@@ -1804,7 +1804,7 @@ function PagedSheet({
         className="w-full rounded-sm bg-white shadow-xl ring-1 ring-slate-900/5 dark:bg-slate-900 dark:ring-white/10"
         style={{ width: PAGE_WIDTH, minHeight: PAGE_HEIGHT, maxWidth: '100%' }}
       >
-        <div className="flex h-full flex-col px-10 py-9 sm:px-12">
+        <div className="flex h-full flex-col px-4 py-6 sm:px-12 sm:py-9">
           <div className="flex-1">{children}</div>
           {footerRight && (
             <div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-3 text-[10px] text-slate-400 dark:border-slate-800 dark:text-slate-500">

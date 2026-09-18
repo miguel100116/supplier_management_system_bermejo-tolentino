@@ -322,7 +322,7 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
                     <span className="text-xs font-bold">Import complete</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-1 gap-2 text-xs min-[420px]:grid-cols-2">
                     <div className="bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
                       <span className="text-slate-400 font-medium block text-[10px] uppercase tracking-wider">Submissions</span>
                       <strong className="text-slate-800 dark:text-slate-100 text-base">{card.result.imported}</strong>
