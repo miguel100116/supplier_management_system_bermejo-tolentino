@@ -7,6 +7,7 @@ import { branchAwareCompanyLabel, computeCompanyDocumentSummary, computeDocument
 import { getRequiredDocumentKeys, isExpiryDocument } from '../utils/documentRequirements';
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { DocumentModificationEntry, getDocumentModifications, logDocumentModification } from '../utils/documentModificationLog';
+import { ComplianceSnapshot, getComplianceHistory, saveComplianceHistory } from '../utils/complianceHistory';
 import {
   DocNotificationRule,
   DEFAULT_NOTIFICATION_RULES,
@@ -221,13 +222,7 @@ const WIDGET_VISIBILITY_STORAGE_KEY = 'document_register_widget_visibility_v1';
 
 // One snapshot per category per calendar day. Revisiting the same day
 // overwrites that day's entry instead of duplicating it.
-const COMPLIANCE_HISTORY_STORAGE_KEY = 'document_register_compliance_history_v1';
 const COMPLIANCE_HISTORY_LIMIT = 180;
-interface ComplianceSnapshot {
-  date: string;
-  rate: number;
-  total: number;
-}
 
 const AGING_BUCKETS = [
   { key: 'expired', label: '≤ 0 Days', status: 'Expired', match: (d: number) => d <= 0 },
@@ -486,12 +481,10 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
   }, []);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(COMPLIANCE_HISTORY_STORAGE_KEY);
-      if (saved) setComplianceHistory(JSON.parse(saved));
-    } catch {
-      // Best-effort only - trend chart just starts empty.
-    }
+    setComplianceHistory(getComplianceHistory());
+    const refresh = () => setComplianceHistory(getComplianceHistory());
+    window.addEventListener('compliance-history-updated', refresh);
+    return () => window.removeEventListener('compliance-history-updated', refresh);
   }, []);
 
   // Loaded once up front, then kept live off the same event
@@ -985,7 +978,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
         nextList = [...existing, { date: currentDateStr, rate: overview.complianceRate, total: overview.total }].slice(-COMPLIANCE_HISTORY_LIMIT);
       }
       const updated = { ...prev, [categoryKey]: nextList };
-      localStorage.setItem(COMPLIANCE_HISTORY_STORAGE_KEY, JSON.stringify(updated));
+      saveComplianceHistory(updated, categoryKey);
       return updated;
     });
   }, [categoryKey, currentDateStr, overview.total, overview.complianceRate]);

@@ -2,8 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 
 // `import.meta.env` is injected by Vite in the browser, but is absent when a
 // pure mapper importing this module runs under Node's test runner.
-const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY;
+const runtimeConfig = typeof window !== 'undefined' ? window.__SMS_RUNTIME_CONFIG__ : undefined;
+const supabaseUrl = runtimeConfig?.supabaseUrl || import.meta.env?.VITE_SUPABASE_URL;
+const supabaseKey = runtimeConfig?.supabasePublishableKey || import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 

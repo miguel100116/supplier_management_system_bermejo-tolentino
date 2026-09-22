@@ -19,6 +19,8 @@ async function startServer() {
   // static frontend bundle.
   app.get('/api/config', (req, res) => {
     res.json({
+      supabaseUrl: process.env.VITE_SUPABASE_URL || '',
+      supabasePublishableKey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
       azureClientId: process.env.VITE_AZURE_CLIENT_ID || '',
       azureTenantId: process.env.VITE_AZURE_TENANT_ID || '',
       azureRedirectUri: process.env.VITE_AZURE_REDIRECT_URI || '',

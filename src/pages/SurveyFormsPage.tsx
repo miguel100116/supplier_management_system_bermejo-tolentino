@@ -4,6 +4,7 @@ import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../typ
 import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
 import { getAllCompaniesOfType, getSurveyEvaluationCompanies } from '../utils/analytics';
+import { getReminderFrequency, saveReminderFrequency } from '../utils/reminderSettings';
 
 interface SurveyFormsPageProps {
   surveys: CustomForm[];
@@ -121,7 +122,7 @@ export function SurveyFormsPage({
   // Notification configuration states
   const [modifyStep, setModifyStep] = useState<1 | 2>(1);
   const [notificationFrequency, setNotificationFrequency] = useState(() => {
-    return localStorage.getItem('admin_reminder_frequency') || '24';
+    return getReminderFrequency();
   });
 
   // Identify unique set of evaluated companies for this user
@@ -386,8 +387,7 @@ export function SurveyFormsPage({
     });
 
     // Save selected notification frequency
-    localStorage.setItem('admin_reminder_frequency', notificationFrequency);
-    window.dispatchEvent(new Event('storage'));
+    saveReminderFrequency(notificationFrequency);
 
     if (onUpdateSurveysBulk) {
       onUpdateSurveysBulk(updatedSurveysList);

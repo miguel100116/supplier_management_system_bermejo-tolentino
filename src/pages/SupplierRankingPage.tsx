@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Building2, ChevronDown, Eraser, GripVertical, History, Search, Trophy, X } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
 import { getRankingLog, logRankingChange, RankingLogEntry, RankingSnapshotSlot } from '../utils/supplierRankingLog';
@@ -43,6 +43,12 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
   const [logEntries, setLogEntries] = useState<RankingLogEntry[]>(() => getRankingLog());
   const [viewingEntry, setViewingEntry] = useState<RankingLogEntry | null>(null);
   const [showOngoingWarning, setShowOngoingWarning] = useState(false);
+
+  useEffect(() => {
+    const refresh = () => setLogEntries(getRankingLog());
+    window.addEventListener('supplier-ranking-history-updated', refresh);
+    return () => window.removeEventListener('supplier-ranking-history-updated', refresh);
+  }, []);
 
   const suppliers = useMemo(
     () => partnerCompanies.filter((c) => c.type === 'Supplier' && !c.isArchived).sort((a, b) => a.name.localeCompare(b.name)),

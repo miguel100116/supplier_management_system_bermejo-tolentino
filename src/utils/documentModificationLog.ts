@@ -15,6 +15,7 @@ export interface DocumentModificationEntry {
 }
 
 const STORAGE_KEY = 'document_register_modification_log_v1';
+const MIGRATION_KEY = 'document_register_modification_log_supabase_migrated_v1';
 const HISTORY_LIMIT = 300;
 
 export function logDocumentModification(entry: Omit<DocumentModificationEntry, 'id' | 'timestamp'>) {
@@ -27,10 +28,27 @@ export function logDocumentModification(entry: Omit<DocumentModificationEntry, '
     };
     const updated = [next, ...existing].slice(0, HISTORY_LIMIT);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    persistApplicationRecordsInBackground(
+      upsertApplicationRecords('document_modification', [next], (item) => item.id, { ownRecords: true }),
+    );
     window.dispatchEvent(new Event('document-modification-logged'));
   } catch (e) {
     // Best-effort logging only.
   }
+}
+
+export async function hydrateDocumentModificationsFromSupabase(canMigrate = false): Promise<void> {
+  let entries = await loadApplicationRecords<DocumentModificationEntry>('document_modification');
+  if (entries.length === 0 && canMigrate && localStorage.getItem(MIGRATION_KEY) !== 'true') {
+    entries = getDocumentModifications();
+    if (entries.length > 0) {
+      await upsertApplicationRecords('document_modification', entries, (entry) => entry.id, { ownRecords: true });
+    }
+  }
+  const ordered = entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, HISTORY_LIMIT);
+  if (entries.length > 0 || canMigrate) localStorage.setItem(MIGRATION_KEY, 'true');
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(ordered));
+  window.dispatchEvent(new Event('document-modification-logged'));
 }
 
 export function getDocumentModifications(): DocumentModificationEntry[] {
@@ -42,3 +60,8 @@ export function getDocumentModifications(): DocumentModificationEntry[] {
     return [];
   }
 }
+import {
+  loadApplicationRecords,
+  persistApplicationRecordsInBackground,
+  upsertApplicationRecords,
+} from '../services/applicationRepository';

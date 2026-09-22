@@ -72,10 +72,19 @@ export function PartnersFeedbackHubPage({
 
   // Sync auto-send check periodically
   useEffect(() => {
+    const refresh = () => {
+      setContacts(getPartnerContacts());
+      setSentReports(getSentReports());
+      setSettings(getFeedbackHubSettings());
+    };
+    window.addEventListener('feedback-hub-data-updated', refresh);
     const interval = setInterval(() => {
       setSentReports(getSentReports());
     }, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('feedback-hub-data-updated', refresh);
+    };
   }, []);
 
   // Save wrappers

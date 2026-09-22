@@ -11,6 +11,7 @@ export interface AdminActivityEntry {
 }
 
 const STORAGE_KEY = 'survey_admin_activity_v1';
+const MIGRATION_KEY = 'survey_admin_activity_supabase_migrated_v1';
 const HISTORY_LIMIT = 100;
 
 export function logAdminActivity(action: string, details?: string) {
@@ -24,10 +25,27 @@ export function logAdminActivity(action: string, details?: string) {
     };
     const updated = [next, ...existing].slice(0, HISTORY_LIMIT);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    persistApplicationRecordsInBackground(
+      upsertApplicationRecords('admin_activity', [next], (entry) => entry.id),
+    );
     window.dispatchEvent(new Event('admin-activity-updated'));
   } catch (e) {
     // Best-effort logging only.
   }
+}
+
+export async function hydrateAdminActivityFromSupabase(): Promise<void> {
+  let entries = await loadApplicationRecords<AdminActivityEntry>('admin_activity');
+  if (entries.length === 0 && localStorage.getItem(MIGRATION_KEY) !== 'true') {
+    entries = getAdminActivity();
+    if (entries.length > 0) {
+      await upsertApplicationRecords('admin_activity', entries, (entry) => entry.id);
+    }
+  }
+  const ordered = entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, HISTORY_LIMIT);
+  localStorage.setItem(MIGRATION_KEY, 'true');
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(ordered));
+  window.dispatchEvent(new Event('admin-activity-updated'));
 }
 
 export function getAdminActivity(): AdminActivityEntry[] {
@@ -39,3 +57,8 @@ export function getAdminActivity(): AdminActivityEntry[] {
     return [];
   }
 }
+import {
+  loadApplicationRecords,
+  persistApplicationRecordsInBackground,
+  upsertApplicationRecords,
+} from '../services/applicationRepository';

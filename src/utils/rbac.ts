@@ -25,6 +25,15 @@ export interface UserPermissions {
 }
 
 /**
+ * Account-level survey access is the permission boundary. A survey's own
+ * department/designation settings can further narrow which forms an employee
+ * may open, but must never add a type the account administrator removed.
+ */
+export function getEffectiveSurveyTypes(grantedSurveyTypes: SurveyType[]): SurveyType[] {
+  return [...new Set(grantedSurveyTypes)];
+}
+
+/**
  * Resolves the default permitted pages and survey types for a given designation (rank) and department.
  */
 export function getDefaultPermissions(designation: string, department: string): UserPermissions {

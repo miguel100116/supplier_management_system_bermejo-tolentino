@@ -18,6 +18,8 @@ import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from 
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { getSupabaseSessionEmail } from '../services/supabasePasswordAuth';
 import {
+  APPLICATION_RECORD_CHANGED_EVENT,
+  type ApplicationRecordType,
   deleteApplicationRecords,
   loadApplicationRecords,
   loadNotificationReadState,
@@ -448,6 +450,22 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   useEffect(() => {
     isMountedRef.current = true;
 
+    // When Supabase is configured, skip the localStorage-first boot entirely.
+    // The Supabase hydration useEffect below is the sole data source in that
+    // case. Loading from localStorage first and then overwriting it 1-3
+    // seconds later is what causes visible data inconsistency: users see
+    // stale local state before Supabase arrives. Starting empty and waiting
+    // for the real source avoids the flicker and ensures every user sees the
+    // same shared dataset immediately after sign-in.
+    if (isSupabaseConfigured) {
+      // Run one-time cleanup of any stale localStorage keys from older builds
+      // so they don't re-appear if Supabase is later removed/deconfigured.
+      localStorage.removeItem('survey_analytics_surveys_v6');
+      localStorage.removeItem('survey_analytics_responses_v6');
+      localStorage.removeItem(PARTNER_COMPANIES_STORAGE_KEY);
+      return;
+    }
+
     function initData() {
       try {
         setIsLoading(true);
@@ -468,7 +486,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         const savedSurveys = localStorage.getItem('survey_analytics_surveys_v6');
         if (savedSurveys) {
           loadedSurveys = JSON.parse(savedSurveys).map(normalizeCustomForm);
-          localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(loadedSurveys));
+          safeSetItem('survey_analytics_surveys_v6', JSON.stringify(loadedSurveys));
         } else {
           // Create 3 standard default surveys based on initial static questions
           const contractorQuestions = [
@@ -1241,7 +1259,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
           // Run default survey templates through the same normalization as
           // saved ones so they include the standard overall-feedback field.
           loadedSurveys = loadedSurveys.map(normalizeCustomForm);
-          localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(loadedSurveys));
+          safeSetItem('survey_analytics_surveys_v6', JSON.stringify(loadedSurveys));
         }
 
         // 2. Handle Partner Companies
@@ -1249,7 +1267,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         const savedCompanies = localStorage.getItem(PARTNER_COMPANIES_STORAGE_KEY);
         if (savedCompanies) {
           loadedCompanies = JSON.parse(savedCompanies).map(normalizePartnerCompany);
-          localStorage.setItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(loadedCompanies));
+          safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(loadedCompanies));
         } else {
           loadedCompanies = [];
         }
@@ -1261,7 +1279,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
           localStorage.removeItem('survey_analytics_responses_v5');
           localStorage.removeItem('survey_analytics_responses_v6');
           localStorage.removeItem('survey_analytics_full_dataset_active');
-          localStorage.setItem('survey_analytics_v6_cleared_by_agent_final', 'true');
+          safeSetItem('survey_analytics_v6_cleared_by_agent_final', 'true');
         }
 
         let loadedResponses: SurveyResponse[] = [];
@@ -1324,13 +1342,14 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   useEffect(() => {
     if (!isSupabaseConfigured || !currentUserEmail) return;
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
-    (async () => {
+    const hydrateFromSupabase = async () => {
+      setIsLoading(true);
+      setError(null);
       const sessionEmail = await getSupabaseSessionEmail();
       if (!sessionEmail || sessionEmail !== currentUserEmail.trim().toLowerCase()) return;
-      const [storedCompanies, storedSurveys, storedResponses, storedSeries, storedCategoryLabels, remoteNotificationState] = await Promise.all([
+      let [storedCompanies, storedSurveys, storedResponses, storedSeries, storedCategoryLabels, remoteNotificationState] = await Promise.all([
         loadApplicationRecords<PartnerCompany>('partner_company'),
         loadApplicationRecords<CustomForm>('survey'),
         loadApplicationRecords<SurveyResponse>('survey_response'),
@@ -1338,6 +1357,27 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         loadApplicationRecords<Record<SurveyType, string[]>>('category_labels'),
         loadNotificationReadState(currentUserEmail),
       ]);
+
+      const migrationKey = 'survey_shared_supabase_migrated_v1';
+      if (isAdmin && localStorage.getItem(migrationKey) !== 'true') {
+        if (storedSeries.length === 0) {
+          try {
+            const localSeries = JSON.parse(localStorage.getItem('survey_archive_series_v1') ?? '[]') as ArchiveSeries[];
+            if (localSeries.length > 0) {
+              await upsertApplicationRecords('archive_series', localSeries, (series) => series.id);
+              storedSeries = localSeries;
+            }
+          } catch {
+            // Invalid legacy cache is ignored; the empty remote value wins.
+          }
+        }
+        if (storedCategoryLabels.length === 0) {
+          const localLabels = getStoredCategoryLabels();
+          await upsertApplicationRecords('category_labels', [localLabels], () => 'global');
+          storedCategoryLabels = [localLabels];
+        }
+        localStorage.setItem(migrationKey, 'true');
+      }
       const companies = storedCompanies.length > 0
         ? storedCompanies
         : await loadNormalizedPartnerCompanies();
@@ -1359,17 +1399,25 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         }
       }
       setPartnerCompanies(normalizedCompanies);
-      if (normalizedSurveys.length > 0) setSurveys(normalizedSurveys);
+      setSurveys(normalizedSurveys);
       setResponses(normalizedResponses);
       setArchiveSeries(storedSeries);
-      if (storedCategoryLabels[0]) setCategoryLabels(storedCategoryLabels[0]);
+      const hydratedCategoryLabels = storedCategoryLabels[0] ?? {
+        Courier: [...DEFAULT_CATEGORIES.Courier],
+        Supplier: [...DEFAULT_CATEGORIES.Supplier],
+        Subcontractor: [...DEFAULT_CATEGORIES.Subcontractor],
+      };
+      setCategoryLabels(hydratedCategoryLabels);
       setNotifications(groupResponsesToNotifications(normalizedResponses).slice(0, INITIAL_NOTIFICATION_SEED));
       safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(normalizedCompanies));
-      if (normalizedSurveys.length > 0) localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(normalizedSurveys));
+      safeSetItem('survey_analytics_surveys_v6', JSON.stringify(normalizedSurveys));
       safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(normalizedResponses)));
       safeSetItem('survey_archive_series_v1', JSON.stringify(storedSeries));
-      if (storedCategoryLabels[0]) localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(storedCategoryLabels[0]));
-    })()
+      safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(hydratedCategoryLabels));
+    };
+
+    const runHydration = () => {
+      void hydrateFromSupabase()
       .catch((loadError) => {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : 'Unable to load shared Supabase data.');
@@ -1378,11 +1426,27 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
+    };
+
+    const refreshChangedRecord = (event: Event) => {
+      const recordType = (event as CustomEvent<{ recordType?: ApplicationRecordType }>).detail?.recordType;
+      if (!recordType || ![
+        'partner_company', 'survey', 'survey_response', 'archive_series',
+        'category_labels', 'notification_read_state',
+      ].includes(recordType)) return;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(runHydration, 100);
+    };
+
+    runHydration();
+    window.addEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
 
     return () => {
       cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
     };
-  }, [currentUserEmail]);
+  }, [currentUserEmail, isAdmin]);
 
   // Create a new survey form
   const createSurvey = (newForm: Omit<CustomForm, 'id' | 'createdAt'>) => {
@@ -1396,7 +1460,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
 
     const updatedSurveys = [surveyWithId, ...surveys];
     setSurveys(updatedSurveys);
-    localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(updatedSurveys));
+    safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updatedSurveys));
     persistRemote(replaceApplicationRecords('survey', updatedSurveys, (survey) => survey.id));
     return surveyWithId;
   };
@@ -1406,7 +1470,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     const normalizedForm = normalizeCustomForm(updatedForm);
     setSurveys((currentSurveys) => {
       const updated = currentSurveys.map((s) => s.id === normalizedForm.id ? normalizedForm : s);
-      localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(updated));
+      safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
       persistRemote(replaceApplicationRecords('survey', updated, (survey) => survey.id));
       return updated;
     });
@@ -1418,7 +1482,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     const map = new Map(updatedSurveysList.map((s) => [s.id, normalizeCustomForm(s)]));
     setSurveys((currentSurveys) => {
       const updated = currentSurveys.map((s) => map.has(s.id) ? map.get(s.id)! : s);
-      localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(updated));
+      safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
       persistRemote(replaceApplicationRecords('survey', updated, (survey) => survey.id));
       return updated;
     });
@@ -1441,7 +1505,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
 
     setCategoryLabels((current) => {
       const updated = { ...current, [surveyType]: current[surveyType].map((label, i) => (i === slotIndex ? trimmed : label)) };
-      localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(updated));
+      safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(updated));
       persistRemote(upsertApplicationRecords('category_labels', [updated], () => 'global'));
       return updated;
     });
@@ -1452,7 +1516,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         if (!s.questions.some((q) => q.questionCategory === oldLabel)) return s;
         return { ...s, questions: s.questions.map((q) => (q.questionCategory === oldLabel ? { ...q, questionCategory: trimmed } : q)) };
       });
-      localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(updated));
+      safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
       persistRemote(replaceApplicationRecords('survey', updated, (survey) => survey.id));
       return updated;
     });
@@ -1481,7 +1545,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   const deleteSurvey = (surveyId: string) => {
     const updatedSurveys = surveys.filter((s) => s.id !== surveyId);
     setSurveys(updatedSurveys);
-    localStorage.setItem('survey_analytics_surveys_v6', JSON.stringify(updatedSurveys));
+    safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updatedSurveys));
     persistRemote(replaceApplicationRecords('survey', updatedSurveys, (survey) => survey.id));
 
     // Also optionally clean up custom responses submitted specifically to this survey?

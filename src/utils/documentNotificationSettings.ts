@@ -94,6 +94,7 @@ export const DEFAULT_NOTIFICATION_RULES: DocNotificationRule[] = [
 ];
 
 const STORAGE_KEY = 'document_register_notification_settings_v1';
+const MIGRATION_STORAGE_KEY = 'document_register_notification_settings_supabase_migrated_v1';
 const SETTINGS_CHANGED_EVENT = 'document-notification-settings-changed';
 
 export function getNotificationSettings(): DocNotificationRule[] {
@@ -135,12 +136,15 @@ export function restoreDefaultNotificationSettings(): DocNotificationRule[] {
   return DEFAULT_NOTIFICATION_RULES;
 }
 
-export async function hydrateNotificationSettingsFromSupabase(): Promise<void> {
-  const rules = await loadApplicationRecords<DocNotificationRule>('document_notification_rule');
-  if (rules.length > 0) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
-    window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
+export async function hydrateNotificationSettingsFromSupabase(canMigrate = false): Promise<void> {
+  let rules = await loadApplicationRecords<DocNotificationRule>('document_notification_rule');
+  if (rules.length === 0 && canMigrate && localStorage.getItem(MIGRATION_STORAGE_KEY) !== 'true') {
+    rules = getNotificationSettings();
+    await replaceApplicationRecords('document_notification_rule', rules, (rule) => rule.docName);
   }
+  if (rules.length > 0 || canMigrate) localStorage.setItem(MIGRATION_STORAGE_KEY, 'true');
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(rules.length > 0 ? rules : DEFAULT_NOTIFICATION_RULES));
+  window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
 }
 
 export { SETTINGS_CHANGED_EVENT as NOTIFICATION_SETTINGS_CHANGED_EVENT };

@@ -8,6 +8,7 @@ import {
   markNotificationRead,
   subscribeNotificationState,
 } from '../utils/employeeNotificationState';
+import { getReminderFrequency } from '../utils/reminderSettings';
 
 interface EmployeeNotificationBellProps {
   userEmail: string;
@@ -68,7 +69,7 @@ export function EmployeeNotificationBell({
   const unreadCount = notifications.filter((item) => !readIds.has(item.id)).length;
 
   // Retrieve admin notification frequency configuration from localStorage
-  const freqHours = localStorage.getItem('admin_reminder_frequency') || '24';
+  const freqHours = getReminderFrequency();
   const frequencyLabel =
     freqHours === '4'
       ? '4 hours'
