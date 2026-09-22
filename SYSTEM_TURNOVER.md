@@ -9,8 +9,8 @@ This system is in active pre-production development, not a fully deployed produc
 
 - The project's first commit was on July 18, 2026 — roughly three weeks of history as of this document.
 - The dedicated staging project uses Supabase email/password authentication and normalized company/form reference data.
-- Authenticated `@mgenesis.com` users load and save profiles, permissions, surveys, Partner Companies/documents, evaluations, archives, categories, Feedback Hub records, and document-notification settings through staging Supabase with RLS.
-- Device-specific drafts/preferences and lightweight audit/export logs remain local. Microsoft login and Graph email remain unavailable without Azure access.
+- Authenticated `@mgenesis.com` users load and save shared business data, configuration, operational history, compliance/ranking snapshots, and per-user notification state through staging Supabase with RLS and Realtime invalidation.
+- Device-specific drafts/preferences remain local. Microsoft login and Graph email remain unavailable without Azure access.
 
 Every section below reflects the system's actual current state, verified directly against the source code as of this handoff — not aspirational or planned behavior. Where something is not yet in place, that is stated explicitly rather than assumed.
 
@@ -242,7 +242,7 @@ Every item below was verified directly against the current source code, not infe
 |---|---|---|---|
 | 1 | Supabase email/password is the staging login because Azure access is unavailable. | Microsoft login and Graph email cannot be used. | Keep Azure features disabled unless an approved Entra registration becomes available. |
 | 2 | Password-reset UI is not implemented. | A staging user cannot self-recover from the application. | Use Supabase Dashboard authentication tools until a reset flow is added. |
-| 3 | Core shared business records and Feedback Hub configuration are Supabase-backed, but audit/export logs remain localStorage-based. | Those lightweight history records are not shared across devices. | Migrate them only if cross-device auditing becomes an approved requirement. |
+| 3 | Supabase leaked-password protection is disabled in staging and requires the Pro plan or above. | Known leaked passwords are not rejected by the hosted Auth service. | Enable leaked-password protection in Supabase Auth settings before production if the target plan supports it. |
 | 4 | New confirmed users default to Employee; Admin edits require an approved `app_profiles` promotion. | A first-time user can submit evaluations but cannot edit shared registry/configuration data. | Promote an approved user in the Supabase dashboard after account confirmation. |
 | 5 | The old `supabase/schema.sql` draft contains anonymous test policies and is not applied. | Applying it as-is would weaken access controls. | Use only reviewed versioned migrations. |
 | 6 | A live-chat feature (Admin Chat Widget, Live Chat page, Employee Notifications Hub, chat service) was built across several commits and is now deleted in the working tree, but the deletion is not yet committed. | Whoever continues this project should confirm the removal is intentional before it is committed, since it removes real functionality. | Confirm with the project owner, then commit the removal explicitly (or restore the feature) rather than leaving it as an uncommitted change. |

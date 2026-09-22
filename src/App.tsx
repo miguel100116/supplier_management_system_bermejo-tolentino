@@ -12,11 +12,16 @@ import { signIntoSupabaseWithMicrosoft, signOutSupabase } from './services/authB
 import { isSupabaseConfigured, supabase } from './services/supabaseClient';
 import { getSupabaseSessionEmail } from './services/supabasePasswordAuth';
 import {
+  APPLICATION_PROFILES_CHANGED_EVENT,
+  APPLICATION_RECORD_CHANGED_EVENT,
+  type ApplicationRecordType,
   loadApplicationRecords,
   loadProfiles,
   replaceApplicationRecords,
   replaceProfiles,
+  subscribeToApplicationChanges,
 } from './services/applicationRepository';
+import { hydrateChangedSharedStore, hydrateSharedClientStores } from './services/sharedStoreHydration';
 import { NotificationLogsPage } from './pages/NotificationLogsPage';
 import { EmployeeNotificationLogsPage } from './pages/EmployeeNotificationLogsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -43,9 +48,7 @@ import { logAdminActivity } from './utils/adminActivityLog';
 import { useSurveyData } from './hooks/useSurveyData';
 import { applyFilters, initialFilters } from './utils/analytics';
 import { FilterState, SurveyType, CustomForm, SurveyResponse } from './types/survey';
-import { PageModuleKey, getDefaultPermissions, hasPageAccess, getDepartmentDefaultPermissions } from './utils/rbac';
-import { hydrateFeedbackHubFromSupabase } from './utils/feedbackHubStore';
-import { hydrateNotificationSettingsFromSupabase } from './utils/documentNotificationSettings';
+import { PageModuleKey, getDefaultPermissions, getEffectiveSurveyTypes, hasPageAccess, getDepartmentDefaultPermissions } from './utils/rbac';
 import { clearSessionActivity, recordSessionActivity, useIdleSessionTimeout } from './hooks/useIdleSessionTimeout';
 import { formatSessionTimeRemaining } from './utils/sessionTimeout';
 
@@ -335,7 +338,10 @@ export default function App() {
     };
   }, [profile, departmentPermissions]);
 
-  const isAdmin = profile?.role === 'Admin' || userPermissions.pages.includes('account-management');
+  // Only the persisted system role confers administrator privileges. Page
+  // permissions may expose a destination, but must never elevate a user to
+  // unrestricted navigation, data, or administrative actions.
+  const isAdmin = profile?.role === 'Admin';
   // Assignable independently of full Admin - lets a role be granted document
   // renewal rights (Partner Companies + Document Register) without also
   // granting Account Management / full system access.
@@ -384,6 +390,12 @@ export default function App() {
   } = useSurveyData(accounts, account, isAdmin);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
+  // Keep navigation inside the SPA context-aware. Detail and editor views
+  // should return to the module that opened them, rather than always
+  // resetting people to Dashboard.
+  const pageHistoryRef = useRef<PageKey[]>([]);
+  const previousPageRef = useRef<PageKey | null>(null);
+  const isNavigatingBackRef = useRef(false);
   const [isSupabaseHydrating, setIsSupabaseHydrating] = useState(isSupabaseConfigured);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -422,6 +434,26 @@ export default function App() {
       run();
     }
   };
+
+  const goToPreviousPage = () => {
+    const previousPage = pageHistoryRef.current.at(-1) ?? 'dashboard';
+    if (previousPage === activePage) return;
+
+    navigateFrom(previousPage, () => {
+      pageHistoryRef.current.pop();
+      isNavigatingBackRef.current = true;
+      setActivePage(previousPage);
+    });
+  };
+
+  useEffect(() => {
+    const previousPage = previousPageRef.current;
+    if (previousPage && previousPage !== activePage && !isNavigatingBackRef.current) {
+      pageHistoryRef.current.push(previousPage);
+    }
+    previousPageRef.current = activePage;
+    isNavigatingBackRef.current = false;
+  }, [activePage]);
   const [editingSurveyId, setEditingSurveyId] = useState<string | null>(null);
 
   // Deep-link into Partner Companies' detail/edit panel for one specific
@@ -460,9 +492,8 @@ export default function App() {
   // never revokes what Account Management already allows - it only extends access when
   // an admin explicitly shares a specific form with a department/role.
   const effectiveSurveyTypes = useMemo<SurveyType[]>(() => {
-    const set = new Set<SurveyType>([...userPermissions.surveyTypes, ...formGrantedSurveyTypes]);
-    return Array.from(set);
-  }, [userPermissions.surveyTypes, formGrantedSurveyTypes]);
+    return getEffectiveSurveyTypes(userPermissions.surveyTypes);
+  }, [userPermissions.surveyTypes]);
 
   const canExport = useMemo(() => {
     if (!profile) return false;
@@ -554,15 +585,7 @@ export default function App() {
   }, [partnerCompanies, effectiveSurveyTypes]);
 
   const filteredResponses = useMemo(() => applyFilters(scopedAccessibleResponses, filters), [scopedAccessibleResponses, filters]);
-  const analyticsFilteredResponses = useMemo(
-    () => applyFilters(
-      dataScope === 'all-time' ? historyResponsesRaw :
-      dataScope === 'custom' ? customScopedResponsesRaw :
-      responses,
-      filters
-    ),
-    [dataScope, historyResponsesRaw, customScopedResponsesRaw, responses, filters]
-  );
+  const analyticsFilteredResponses = useMemo(() => applyFilters(scopedAccessibleResponses, filters), [scopedAccessibleResponses, filters]);
   
   const activeSurveyTypes = filters.surveyType.length ? filters.surveyType : effectiveSurveyTypes;
 
@@ -699,28 +722,58 @@ export default function App() {
     ])
       .then(([remoteProfiles, remoteDepartmentPermissions]) => {
         if (cancelled) return;
-        if (remoteProfiles.length > 0) {
-          setAccounts(remoteProfiles);
-        }
+        setAccounts(remoteProfiles);
+        localStorage.setItem('survey_accounts_v1', JSON.stringify(remoteProfiles));
         const permissionMap = Object.fromEntries(
           remoteDepartmentPermissions.map((record) => [
             record.department,
             { pages: record.pages, surveyTypes: record.surveyTypes },
           ]),
         );
-        if (remoteDepartmentPermissions.length > 0) {
-          setDepartmentPermissions(permissionMap);
-          localStorage.setItem('survey_department_permissions_v1', JSON.stringify(permissionMap));
-        }
+        setDepartmentPermissions(permissionMap);
+        localStorage.setItem('survey_department_permissions_v1', JSON.stringify(permissionMap));
       })
       .catch((loadError) => {
         if (!cancelled) {
           setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to load access settings.');
         }
+      })
+      .finally(() => {
+        if (!cancelled) setIsSupabaseHydrating(false);
       });
     return () => {
       cancelled = true;
     };
+  }, [account]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !account) return;
+    return subscribeToApplicationChanges();
+  }, [account]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !account) return;
+    const refreshProfiles = () => {
+      void Promise.all([
+        loadProfiles(),
+        loadApplicationRecords<PersistedDepartmentPermission>('department_permission'),
+      ]).then(([remoteProfiles, remoteDepartmentPermissions]) => {
+        setAccounts(remoteProfiles);
+        localStorage.setItem('survey_accounts_v1', JSON.stringify(remoteProfiles));
+        const permissionMap = Object.fromEntries(
+          remoteDepartmentPermissions.map((record) => [
+            record.department,
+            { pages: record.pages, surveyTypes: record.surveyTypes },
+          ]),
+        );
+        setDepartmentPermissions(permissionMap);
+        localStorage.setItem('survey_department_permissions_v1', JSON.stringify(permissionMap));
+      }).catch((loadError) => {
+        setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to refresh access settings.');
+      });
+    };
+    window.addEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshProfiles);
+    return () => window.removeEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshProfiles);
   }, [account]);
 
   useEffect(() => {
@@ -733,20 +786,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !account) return;
-    void hydrateNotificationSettingsFromSupabase().catch((loadError) => {
-      setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to load document settings.');
-    });
-  }, [account]);
-
-  useEffect(() => {
     if (!isSupabaseConfigured || !account || !profile) return;
     const canUseFeedbackHub = profile.role === 'Admin' || profile.designation !== 'Rank & File';
-    if (!canUseFeedbackHub) return;
-    void hydrateFeedbackHubFromSupabase().catch((loadError) => {
-      setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to load Feedback Hub data.');
+    const access = { userEmail: account, isAdmin, canUseFeedbackHub };
+    void hydrateSharedClientStores(access).catch((loadError) => {
+      setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to load shared Supabase data.');
     });
-  }, [account, profile]);
+
+    const refreshSharedStore = (event: Event) => {
+      const recordType = (event as CustomEvent<{ recordType?: ApplicationRecordType }>).detail?.recordType;
+      if (!recordType) return;
+      void hydrateChangedSharedStore(recordType, access).catch((loadError) => {
+        setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to refresh shared Supabase data.');
+      });
+    };
+    window.addEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshSharedStore);
+    return () => window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshSharedStore);
+  }, [account, profile, isAdmin]);
 
   const handleLogin = (email: string, auth?: MicrosoftAuth) => {
     recordSessionActivity(email);
@@ -894,9 +950,9 @@ export default function App() {
     analytics: (
       <AnalyticsPage
         responses={analyticsFilteredResponses}
-        allResponses={dataScope === 'all-time' ? historyResponsesRaw : dataScope === 'custom' ? customScopedResponsesRaw : responses}
+        allResponses={dataScope === 'all-time' ? userAccessibleAllTimeResponses : dataScope === 'custom' ? userAccessibleCustomResponses : userAccessibleResponses}
         partnerCompanies={partnerCompanies}
-        activeSurveyTypes={allSurveyTypes}
+        activeSurveyTypes={effectiveSurveyTypes}
         filters={filters}
         setFilters={setFilters}
         dataScope={dataScope}
@@ -987,7 +1043,7 @@ export default function App() {
       <CreateSurveyPage
         onBack={() => {
           setEditingSurveyId(null);
-          setActivePage('dashboard');
+          goToPreviousPage();
         }}
         surveyToEdit={editingSurveyId ? surveys.find(s => s.id === editingSurveyId) : undefined}
         categoryLabels={categoryLabels}
@@ -1028,7 +1084,7 @@ export default function App() {
           responses={userAccessibleResponses}
           partnerCompanies={userAccessiblePartnerCompanies}
           userEmail={account || ''}
-          onBack={() => setActivePage('dashboard')}
+          onBack={goToPreviousPage}
           onDelete={(id) => {
             deleteSurvey(id);
             setActivePage('dashboard');
@@ -1052,7 +1108,7 @@ export default function App() {
         defaultRespondentType={profile?.designation}
         responses={userAccessibleResponses}
         onSubmitted={handleSurveySubmit}
-        onCancel={() => setActivePage('view-form')}
+        onCancel={goToPreviousPage}
       />
     ),
     archive: (

@@ -42,7 +42,7 @@ At its heart, the system replaces scattered paper evaluation forms and standalon
 
 It is a role-aware platform: what each employee sees — which modules, which data — is computed automatically from their organizational rank and department, and can be fine-tuned by an administrator.
 
-> **Status note:** This system is in **active pre-production development**. Staging uses Supabase email/password authentication and shared persistence for profiles, permissions, surveys, Partner Companies, evaluation responses, archives, category labels, Feedback Hub records, and document-notification settings. Device-specific drafts and display preferences remain local. Microsoft login and Graph email remain unavailable without Azure access.
+> **Status note:** This system is in **active pre-production development**. Staging uses Supabase email/password authentication and Supabase as the durable source for shared business records, configuration, operational history, and per-user notification state. Device-specific drafts and display preferences remain local. Microsoft login and Graph email remain unavailable without Azure access.
 
 ---
 
@@ -169,7 +169,7 @@ The application is a **single-page React app** with a thin Express server used o
 | **Email** | Microsoft Graph (`Mail.Send`, delegated) |
 | **Exports** | jsPDF + jspdf-autotable (PDF), xlsx (Excel), papaparse (CSV), pptxgenjs (PPTX), docx |
 
-**Key design decision — the data source seam:** Authenticated staging sessions load the shared Partner Company registry, evaluation responses, surveys, archives, and configuration through the Supabase application repository used by `useSurveyData.ts`. The normalized CSV tables remain the immutable import/audit layer, while `application_records` is the editable UI-facing store. Local storage is limited to authenticated startup caching and device-specific state; the frontend no longer generates or bundles mock business records.
+**Key design decision — the data source seam:** Authenticated staging sessions load shared business records, configuration, operational history, and per-user state through the Supabase application repository. The normalized CSV tables remain the immutable import/audit layer, while `application_records` is the editable UI-facing store. Realtime table changes trigger an RLS-protected refetch. Local storage is limited to authenticated startup caching and device-specific state; the frontend no longer generates or bundles mock business records.
 
 ---
 
@@ -204,11 +204,11 @@ Supplier_Management_System/
 
 ## 7. Data Storage & Persistence
 
-**Current state:** Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub contacts/queue/settings, and document-notification rules through Supabase. `localStorage` is retained as an authenticated startup cache and for intentionally device-specific state such as in-progress survey drafts and layout preferences.
+**Current state:** Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub data, notification/reminder settings, compliance snapshots, ranking history, activity/modification logs, export history, and employee notification state through Supabase. Existing eligible browser records are migrated once, after which the remote record set is authoritative. `localStorage` is retained as an authenticated startup cache and for intentionally device-specific state such as in-progress survey drafts and layout preferences.
 
 > **Implication:** Authenticated shared business data is available across devices through staging Supabase. Clearing browser storage removes only the local cache and device-specific drafts/preferences; it does not delete the shared backend records.
 
-**Staging backend:** The normalized migrations under [`supabase/migrations`](supabase/migrations) are applied to the dedicated staging project. Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the editable frontend store. RLS scopes evaluation rows by profile and permits employees to insert only their own submissions; shared configuration and registry writes are Admin-only. The older [`supabase/schema.sql`](supabase/schema.sql) remains an unapplied draft.
+**Staging backend:** The normalized migrations under [`supabase/migrations`](supabase/migrations) are applied to the dedicated staging project. Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the editable frontend store and are published to Supabase Realtime. RLS scopes evaluation rows by profile, permits employees to insert only their own submissions and operational entries, and restricts shared configuration/registry writes by role. Authorization helpers live in an unexposed `private` schema. The older [`supabase/schema.sql`](supabase/schema.sql) remains an unapplied draft.
 
 ---
 
@@ -253,7 +253,7 @@ Copy `.env.example` to `.env` and configure at least one real authentication pro
 
 | Variable | Purpose |
 |---|---|
-| `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase project connection (publishable key is not a secret; access control lives in RLS). |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase project connection. The Express host also exposes these public values through `/api/config`, so they may be supplied at runtime rather than baked into the client bundle. |
 | `VITE_AZURE_CLIENT_ID` / `VITE_AZURE_TENANT_ID` | Microsoft Entra ID app registration — required for Microsoft sign-in and Graph email. |
 | `VITE_AZURE_REDIRECT_URI` | Optional; defaults to `window.location.origin`. |
 
@@ -285,7 +285,7 @@ NODE_ENV=production npm run start
 The app has previously been deployed to **Vercel**. Before deploying to the real company environment:
 
 1. Configure the approved Supabase URL and publishable key; never put a secret/service-role key in a `VITE_*` variable.
-2. Decide whether audit/export history must be shared across devices; it remains local because it is currently lightweight client-side telemetry.
+2. Apply the reviewed versioned migrations, verify RLS/Realtime publication, and configure the same public Supabase values in the deployment environment.
 3. Configure Azure only if Microsoft login or Graph email is restored as a requirement.
 
 ---
@@ -334,7 +334,7 @@ This system is **pre-production**. The most important open items (verified again
 | # | Issue | Recommendation |
 |---|---|---|
 | 1 | Supabase email/password is active in staging, but password-reset UI is not implemented. | Use the Supabase dashboard for staging recovery until a reset flow is added. |
-| 2 | Core business modules and Feedback Hub configuration are Supabase-backed, but audit/export logs remain local. | Migrate those logs only if cross-device auditing becomes an approved requirement. |
+| 2 | Supabase's leaked-password protection remains disabled in staging and is available only on the Pro plan and above. | Enable it in Auth settings before production if the target project plan supports it. |
 | 3 | The first confirmed account defaults to Employee unless it uses the bootstrap `admin@mgenesis.com` identity. | Promote an approved user in `app_profiles` from the Supabase dashboard before testing Admin edits. |
 | 4 | The old draft `supabase/schema.sql` contains temporary anonymous policies and is not the applied staging schema. | Use versioned migrations only; never apply the draft file as-is. |
 | 5 | Microsoft login and Graph email are unavailable without Azure access. | Keep them disabled or obtain an approved Entra app registration later. |

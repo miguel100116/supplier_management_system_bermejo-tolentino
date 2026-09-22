@@ -1,7 +1,25 @@
+import {
+  loadApplicationRecords,
+  persistApplicationRecordsInBackground,
+  upsertApplicationRecords,
+} from '../services/applicationRepository';
+
 const EVENT_NAME = 'survey-reminders-changed';
 
+interface PersistedEmployeeNotificationState {
+  id: string;
+  userEmail: string;
+  readIds: string[];
+  deletedIds: string[];
+  updatedAt: string;
+}
+
+function normalizedEmail(userEmail: string): string {
+  return userEmail.trim().toLowerCase();
+}
+
 function storageKey(userEmail: string, kind: 'read' | 'deleted') {
-  return `survey_reminders_${kind}_${userEmail.trim().toLowerCase()}`;
+  return `survey_reminders_${kind}_${normalizedEmail(userEmail)}`;
 }
 
 function loadIds(userEmail: string, kind: 'read' | 'deleted'): Set<string> {
@@ -17,6 +35,39 @@ function loadIds(userEmail: string, kind: 'read' | 'deleted'): Set<string> {
 
 function saveIds(userEmail: string, kind: 'read' | 'deleted', ids: Set<string>) {
   localStorage.setItem(storageKey(userEmail, kind), JSON.stringify(Array.from(ids)));
+  const email = normalizedEmail(userEmail);
+  const state: PersistedEmployeeNotificationState = {
+    id: email,
+    userEmail: email,
+    readIds: Array.from(kind === 'read' ? ids : loadIds(email, 'read')),
+    deletedIds: Array.from(kind === 'deleted' ? ids : loadIds(email, 'deleted')),
+    updatedAt: new Date().toISOString(),
+  };
+  persistApplicationRecordsInBackground(
+    upsertApplicationRecords('employee_notification_state', [state], (item) => item.id, { ownRecords: true }),
+  );
+  window.dispatchEvent(new Event(EVENT_NAME));
+}
+
+export async function hydrateEmployeeNotificationStateFromSupabase(userEmail: string): Promise<void> {
+  const email = normalizedEmail(userEmail);
+  const migrationKey = `survey_reminders_supabase_migrated_v1:${email}`;
+  let states = await loadApplicationRecords<PersistedEmployeeNotificationState>('employee_notification_state');
+  let state = states.find((candidate) => candidate.userEmail === email);
+  if (!state && localStorage.getItem(migrationKey) !== 'true') {
+    state = {
+      id: email,
+      userEmail: email,
+      readIds: Array.from(loadIds(email, 'read')),
+      deletedIds: Array.from(loadIds(email, 'deleted')),
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertApplicationRecords('employee_notification_state', [state], (item) => item.id, { ownRecords: true });
+    states = [state];
+  }
+  localStorage.setItem(migrationKey, 'true');
+  localStorage.setItem(storageKey(email, 'read'), JSON.stringify(state?.readIds ?? []));
+  localStorage.setItem(storageKey(email, 'deleted'), JSON.stringify(state?.deletedIds ?? []));
   window.dispatchEvent(new Event(EVENT_NAME));
 }
 

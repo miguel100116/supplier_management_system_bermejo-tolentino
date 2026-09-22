@@ -9,6 +9,7 @@ import {
 const CONTACTS_STORAGE_KEY = 'partner_feedback_contacts_v2';
 const REPORTS_STORAGE_KEY = 'partner_feedback_sent_reports_v2';
 const SETTINGS_STORAGE_KEY = 'partner_feedback_settings_v2';
+const MIGRATION_STORAGE_KEY = 'partner_feedback_supabase_migrated_v1';
 
 export const DEFAULT_FEEDBACK_SETTINGS: FeedbackHubSettings = {
   defaultTimerMinutes: 30,
@@ -93,12 +94,30 @@ export function saveFeedbackHubSettings(settings: FeedbackHubSettings): void {
 }
 
 export async function hydrateFeedbackHubFromSupabase(): Promise<void> {
-  const [contacts, reports, settings] = await Promise.all([
+  let [contacts, reports, settings] = await Promise.all([
     loadApplicationRecords<PartnerContact>('feedback_contact'),
     loadApplicationRecords<QueuedReportEmail>('feedback_report'),
     loadApplicationRecords<FeedbackHubSettings>('feedback_settings'),
   ]);
-  if (contacts.length > 0) localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(contacts));
-  if (reports.length > 0) localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(reports));
-  if (settings[0]) localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings[0]));
+
+  if (contacts.length === 0 && reports.length === 0 && settings.length === 0
+      && localStorage.getItem(MIGRATION_STORAGE_KEY) !== 'true') {
+    const localContacts = getPartnerContacts();
+    const localReports = getSentReports();
+    const localSettings = getFeedbackHubSettings();
+    await Promise.all([
+      replaceApplicationRecords('feedback_contact', localContacts, (contact) => contact.id),
+      replaceApplicationRecords('feedback_report', localReports, (report) => report.id),
+      upsertApplicationRecords('feedback_settings', [localSettings], () => 'global'),
+    ]);
+    contacts = localContacts;
+    reports = localReports;
+    settings = [localSettings];
+  }
+
+  localStorage.setItem(MIGRATION_STORAGE_KEY, 'true');
+  localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(contacts));
+  localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(reports));
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings[0] ?? DEFAULT_FEEDBACK_SETTINGS));
+  window.dispatchEvent(new Event('feedback-hub-data-updated'));
 }

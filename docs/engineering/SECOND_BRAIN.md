@@ -1,6 +1,6 @@
 # Supplier Management System — Engineering Second Brain
 
-Last verified: 2026-09-18
+Last verified: 2026-09-21
 
 This document preserves durable engineering context for maintainers and coding agents. It is a map, not a substitute for reading the relevant code. Verify details before making consequential changes.
 
@@ -28,31 +28,30 @@ Canonical product documentation:
 
 - Supabase email/password authentication is active for staging. Microsoft Entra ID code remains present but is unavailable without Azure tenant access.
 - Microsoft Graph delegated email sending.
-- Supabase client, response mirror, SQL schema, seed administration, and row-level-security policies.
-- Supabase CLI local configuration is initialized in `supabase/config.toml` and linked to the dedicated `supplier-management-staging` project (`adxwaxhnqxpmgjvsxgug`). The additive normalized migration and reviewed data import were applied there on 2026-09-16. Remote lint passed; repeat import and reconciliation preserved the expected counts with zero duplicates and zero broken relationships. A 2026-09-18 read-only audit confirmed that all four repository CSV hashes, normalized counts, imported company identities, and imported response values match staging and its UI-facing application records; 86 later non-CSV response rows remain preserved. Production remains untouched.
+- Supabase client, canonical application repository, SQL migrations, seed administration, Realtime invalidation, and row-level-security policies.
+- Supabase CLI local configuration is initialized in `supabase/config.toml` and linked to the dedicated `supplier-management-staging` project (`adxwaxhnqxpmgjvsxgug`). The additive normalized migration and reviewed data import were applied there on 2026-09-16. Remote lint passed; repeat import and reconciliation preserved the expected counts with zero duplicates and zero broken relationships. A 2026-09-18 read-only audit confirmed that all four repository CSV hashes, normalized counts, imported company identities, and imported response values match staging and its UI-facing application records; 86 later non-CSV response rows remain preserved. On 2026-09-21 the shared-state and consolidated-RLS migrations were applied without changing imported row counts; `application_records` and `app_profiles` are now in the Realtime publication. Production remains untouched.
 - CSV/XLSX imports and PDF, PPTX, Word, CSV, and spreadsheet exports.
 
 ### Current persistence model
 
-- Authenticated staging users load and save profiles, department permissions, surveys, Partner Companies/documents, evaluation responses, archives, category labels, Feedback Hub contacts/reports/settings, and document-notification rules through Supabase.
+- Authenticated staging users load and save profiles, permissions, surveys, Partner Companies/documents, responses, archives, category labels, Feedback Hub data, notification/reminder configuration, compliance snapshots, ranking/activity/modification/export history, and employee notification state through Supabase.
 - Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the canonical editable frontend store.
-- Browser `localStorage` remains an authenticated startup cache and stores device-specific drafts/preferences plus lightweight audit/export logs that have not yet been approved for cross-device sharing.
-- This is unsuitable as the long-term multi-user system of record because clients can diverge and browser data lacks centralized durability and auditing.
-- Any migration away from browser storage must define one canonical backend source, compatibility behavior, validation, rollout, and recovery.
+- Browser `localStorage` remains an authenticated startup cache and stores intentionally device-specific drafts/preferences. Eligible historical browser records are uploaded once when the remote set is empty; remote empty sets are authoritative after migration.
+- Supabase Realtime events invalidate the relevant client store and cause an RLS-protected refetch; event payloads are not trusted as application data.
 
 ### Authorization
 
 - UI access is derived from role, designation, department, and overrides.
 - Supabase password identity and session restoration are integrated in the frontend; localStorage is not trusted as identity when Supabase is configured.
-- The applied database schema enables RLS. Shared reference records are readable by confirmed `@mgenesis.com` users; application configuration/registry writes are Admin-only; employees may insert only their own evaluation rows; response reads are scoped by role, department, or ownership.
+- The applied database schema enables RLS. Shared reference records are readable by confirmed `@mgenesis.com` users; configuration/registry writes are role-restricted; users may insert only their own evaluations and permitted operational records; response reads are scoped by role, department, or ownership. Security-definer authorization helpers live in the unexposed `private` schema, and policy checks are consolidated to one policy per operation.
 - `supabase/schema.sql` currently contains clearly labeled temporary anonymous response policies. They are a production blocker if enabled.
 
 ## Current repository health
 
-Verified on 2026-09-17:
+Verified on 2026-09-21:
 
 - `npm run lint` succeeds and runs TypeScript checks for both application and import scripts; ESLint is not configured.
-- `npm test` passes 30 focused tests covering Feedback Hub report data, application persistence identifiers, normalized Partner Company/document mapping, and the Supabase import pipeline; broader component, integration, and end-to-end coverage is not yet established.
+- `npm test` passes 45 focused tests covering Feedback Hub report data, application persistence identifiers, browser-to-Supabase migration behavior, normalized Partner Company/document mapping, and the Supabase import pipeline; broader component, integration, and end-to-end coverage is not yet established.
 - No repository CI workflow is present.
 - The TypeScript source under `src/` is roughly 65,000 lines across about 100 files.
 - Major concentration points include `src/hooks/useSurveyData.ts`, `src/App.tsx`, several page components above 1,000 lines, and a very large generated/static partner seed file.
@@ -62,7 +61,7 @@ Verified on 2026-09-17:
 
 ## Architectural pressure points
 
-1. **Source of truth** — browser-first persistence and best-effort backend mirroring can cause inconsistent multi-user data.
+1. **Migration completion** — production still requires an explicitly authorized migration/deployment and post-cutover reconciliation; staging alone is not production proof.
 2. **Large orchestration units** — central hooks and pages mix state, business rules, persistence, and presentation, increasing regression risk.
 3. **Business-rule duplication** — scoring, RBAC, filtering, reporting, and status rules need canonical domain modules.
 4. **Boundary validation** — CSV/XLSX, browser storage, auth claims, Supabase rows, and API responses require runtime validation.
@@ -76,7 +75,7 @@ These are engineering guidelines, not a completed design decision:
 - Move incrementally toward feature-oriented modules under `src/features/`.
 - Keep pure domain rules independent of React and infrastructure.
 - Put external systems and browser APIs behind typed adapters.
-- Make Supabase or another approved backend the single durable source of truth before production rollout.
+- Keep Supabase as the single durable source for shared data and restrict browser persistence to cache/device-only state.
 - Establish a test pyramid using a TypeScript-compatible unit/component runner plus a small end-to-end suite.
 - Establish pull-request CI with clean install, type check, lint, tests, production build, and security checks.
 - Remove generated caches and sensitive/business exports from source control, with curated anonymized fixtures where tests require data.
@@ -229,13 +228,25 @@ Consequences: A new browser no longer invents companies, accounts, evaluations, 
 
 Evidence: `src/App.tsx`, `src/pages/LoginPage.tsx`, `src/hooks/useSurveyData.ts`, `src/utils/feedbackHubStore.ts`, `src/pages/PartnersFeedbackHubPage.tsx`, `.env.example`
 
+### 2026-09-21 - Complete shared-state cutover and Realtime invalidation
+
+Status: accepted and applied to staging
+
+Context: Several operational stores still wrote only to browser storage, category labels could diverge between cache and remote data, empty remote sets were not always treated as authoritative, and clients did not learn about writes made by another session.
+
+Decision: Persist all shared business/configuration/history state in typed `application_records`; retain local storage only as an authenticated cache or for device-only state. Migrate eligible legacy cache records once when the remote set is empty. Publish the two canonical application tables to Realtime and refetch through RLS on change. Consolidate RLS to one policy per operation and move security-definer authorization helpers to the unexposed `private` schema. Supply public Supabase runtime configuration through the Express `/api/config` endpoint when available.
+
+Consequences: Staging sessions converge on Supabase values across devices, including operational histories and notification settings. An empty remote set can clear stale cache data. Realtime messages are invalidation signals rather than trusted record payloads. The two migrations preserved normalized and application record counts. The remaining Supabase security advisor item is leaked-password protection, a hosted Auth option requiring Pro or above. Production was not changed.
+
+Evidence: `src/services/applicationRepository.ts`, `src/services/sharedStoreHydration.ts`, `src/hooks/useSurveyData.ts`, `src/App.tsx`, `server.ts`, `supabase/migrations/20260921011822_centralize_shared_state.sql`, `supabase/migrations/20260921013124_consolidate_application_rls.sql`
+
 ## Active modernization state
 
 - Agent governance: established by `AGENTS.md`.
 - Automated test harness: focused Feedback Hub company-report tests established; repository-wide coverage remains incomplete.
 - CI/CD workflow: not established.
 - Feature-module refactor: not started by this governance change.
-- Backend source-of-truth migration: core shared business modules, Feedback Hub data, and document-notification rules use the staging application store with RLS; audit/export logs remain local pending an explicit sharing requirement.
+- Backend source-of-truth migration: complete for shared state in staging; production migration/deployment still requires explicit authorization and environment-specific verification.
 - Repository artifact cleanup: not started by this governance change.
 
 ## Handoff template

@@ -24,6 +24,7 @@ import {
   subscribeNotificationState,
 } from '../utils/employeeNotificationState';
 import { StateMessage } from '../components/StateMessage';
+import { getReminderFrequency } from '../utils/reminderSettings';
 
 interface EmployeeNotificationLogsPageProps {
   userEmail: string;
@@ -83,7 +84,7 @@ export function EmployeeNotificationLogsPage({
     [notifications, readIds.size],
   );
 
-  const freqHours = localStorage.getItem('admin_reminder_frequency') || '24';
+  const freqHours = getReminderFrequency();
   const frequencyLabel =
     freqHours === '4'
       ? '4 hours'

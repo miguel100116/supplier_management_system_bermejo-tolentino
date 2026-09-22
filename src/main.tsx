@@ -6,7 +6,11 @@ import './styles.css';
 async function startApp() {
   try {
     const response = await fetch('/api/config');
-    if (response.ok) configureMsal(await response.json());
+    if (response.ok) {
+      const runtimeConfig = await response.json();
+      window.__SMS_RUNTIME_CONFIG__ = runtimeConfig;
+      configureMsal(runtimeConfig);
+    }
   } catch {
     // Static hosting may not provide /api/config; build-time env remains valid.
   }

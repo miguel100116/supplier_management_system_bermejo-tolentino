@@ -18,6 +18,8 @@ import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from 
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { getSupabaseSessionEmail } from '../services/supabasePasswordAuth';
 import {
+  APPLICATION_RECORD_CHANGED_EVENT,
+  type ApplicationRecordType,
   deleteApplicationRecords,
   loadApplicationRecords,
   loadNotificationReadState,
@@ -272,7 +274,6 @@ interface CompressedSubmission {
 }
 
 function safeSetItem(key: string, value: string): boolean {
-  if (isSupabaseConfigured) return true;
   try {
     localStorage.setItem(key, value);
     return true;
@@ -1341,13 +1342,14 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   useEffect(() => {
     if (!isSupabaseConfigured || !currentUserEmail) return;
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
-    (async () => {
+    const hydrateFromSupabase = async () => {
+      setIsLoading(true);
+      setError(null);
       const sessionEmail = await getSupabaseSessionEmail();
       if (!sessionEmail || sessionEmail !== currentUserEmail.trim().toLowerCase()) return;
-      const [storedCompanies, storedSurveys, storedResponses, storedSeries, storedCategoryLabels, remoteNotificationState] = await Promise.all([
+      let [storedCompanies, storedSurveys, storedResponses, storedSeries, storedCategoryLabels, remoteNotificationState] = await Promise.all([
         loadApplicationRecords<PartnerCompany>('partner_company'),
         loadApplicationRecords<CustomForm>('survey'),
         loadApplicationRecords<SurveyResponse>('survey_response'),
@@ -1355,6 +1357,27 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         loadApplicationRecords<Record<SurveyType, string[]>>('category_labels'),
         loadNotificationReadState(currentUserEmail),
       ]);
+
+      const migrationKey = 'survey_shared_supabase_migrated_v1';
+      if (isAdmin && localStorage.getItem(migrationKey) !== 'true') {
+        if (storedSeries.length === 0) {
+          try {
+            const localSeries = JSON.parse(localStorage.getItem('survey_archive_series_v1') ?? '[]') as ArchiveSeries[];
+            if (localSeries.length > 0) {
+              await upsertApplicationRecords('archive_series', localSeries, (series) => series.id);
+              storedSeries = localSeries;
+            }
+          } catch {
+            // Invalid legacy cache is ignored; the empty remote value wins.
+          }
+        }
+        if (storedCategoryLabels.length === 0) {
+          const localLabels = getStoredCategoryLabels();
+          await upsertApplicationRecords('category_labels', [localLabels], () => 'global');
+          storedCategoryLabels = [localLabels];
+        }
+        localStorage.setItem(migrationKey, 'true');
+      }
       const companies = storedCompanies.length > 0
         ? storedCompanies
         : await loadNormalizedPartnerCompanies();
@@ -1376,17 +1399,25 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         }
       }
       setPartnerCompanies(normalizedCompanies);
-      if (normalizedSurveys.length > 0) setSurveys(normalizedSurveys);
+      setSurveys(normalizedSurveys);
       setResponses(normalizedResponses);
       setArchiveSeries(storedSeries);
-      if (storedCategoryLabels[0]) setCategoryLabels(storedCategoryLabels[0]);
+      const hydratedCategoryLabels = storedCategoryLabels[0] ?? {
+        Courier: [...DEFAULT_CATEGORIES.Courier],
+        Supplier: [...DEFAULT_CATEGORIES.Supplier],
+        Subcontractor: [...DEFAULT_CATEGORIES.Subcontractor],
+      };
+      setCategoryLabels(hydratedCategoryLabels);
       setNotifications(groupResponsesToNotifications(normalizedResponses).slice(0, INITIAL_NOTIFICATION_SEED));
       safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(normalizedCompanies));
-      if (normalizedSurveys.length > 0) safeSetItem('survey_analytics_surveys_v6', JSON.stringify(normalizedSurveys));
+      safeSetItem('survey_analytics_surveys_v6', JSON.stringify(normalizedSurveys));
       safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(normalizedResponses)));
       safeSetItem('survey_archive_series_v1', JSON.stringify(storedSeries));
-      if (storedCategoryLabels[0]) safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(storedCategoryLabels[0]));
-    })()
+      safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(hydratedCategoryLabels));
+    };
+
+    const runHydration = () => {
+      void hydrateFromSupabase()
       .catch((loadError) => {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : 'Unable to load shared Supabase data.');
@@ -1395,11 +1426,27 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
+    };
+
+    const refreshChangedRecord = (event: Event) => {
+      const recordType = (event as CustomEvent<{ recordType?: ApplicationRecordType }>).detail?.recordType;
+      if (!recordType || ![
+        'partner_company', 'survey', 'survey_response', 'archive_series',
+        'category_labels', 'notification_read_state',
+      ].includes(recordType)) return;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(runHydration, 100);
+    };
+
+    runHydration();
+    window.addEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
 
     return () => {
       cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
     };
-  }, [currentUserEmail]);
+  }, [currentUserEmail, isAdmin]);
 
   // Create a new survey form
   const createSurvey = (newForm: Omit<CustomForm, 'id' | 'createdAt'>) => {

@@ -18,7 +18,17 @@ export type ApplicationRecordType =
   | 'feedback_report'
   | 'feedback_settings'
   | 'document_notification_rule'
-  | 'notification_read_state';
+  | 'notification_read_state'
+  | 'admin_activity'
+  | 'document_modification'
+  | 'export_history'
+  | 'supplier_ranking_history'
+  | 'employee_notification_state'
+  | 'reminder_settings'
+  | 'compliance_snapshot';
+
+export const APPLICATION_RECORD_CHANGED_EVENT = 'supabase-application-record-changed';
+export const APPLICATION_PROFILES_CHANGED_EVENT = 'supabase-application-profiles-changed';
 
 export function persistApplicationRecordsInBackground(operation: Promise<void>): void {
   void operation.catch((error) => {
@@ -137,6 +147,7 @@ export async function replaceApplicationRecords<T>(
   recordType: ApplicationRecordType,
   values: T[],
   getId: (value: T) => string,
+  options?: { ownRecords?: boolean },
 ): Promise<void> {
   requireConfigured();
   const { data, error } = await supabase
@@ -148,8 +159,44 @@ export async function replaceApplicationRecords<T>(
   const removedIds = (data ?? [])
     .map((row) => row.record_id as string)
     .filter((id) => !nextIds.has(id));
-  await upsertApplicationRecords(recordType, values, getId);
+  await upsertApplicationRecords(recordType, values, getId, options);
   await deleteApplicationRecords(recordType, removedIds);
+}
+
+export function subscribeToApplicationChanges(): () => void {
+  if (!isSupabaseConfigured || typeof window === 'undefined') return () => undefined;
+
+  const channel = supabase
+    .channel(`application-data-${crypto.randomUUID()}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'application_records' },
+      (payload) => {
+        const row = (payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old) as {
+          record_type?: ApplicationRecordType;
+        };
+        if (!row.record_type) return;
+        window.dispatchEvent(new CustomEvent(APPLICATION_RECORD_CHANGED_EVENT, {
+          detail: { recordType: row.record_type },
+        }));
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'app_profiles' },
+      () => window.dispatchEvent(new Event(APPLICATION_PROFILES_CHANGED_EVENT)),
+    )
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        window.dispatchEvent(new CustomEvent('supabase-persistence-error', {
+          detail: 'Live Supabase synchronization is temporarily unavailable. Saved data will refresh after reconnecting.',
+        }));
+      }
+    });
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 }
 
 export async function loadNotificationReadState(userEmail: string): Promise<NotificationReadState | null> {
