@@ -20,6 +20,7 @@ export interface SectionScore {
 }
 
 export interface CompanyComposite {
+  companyId?: string;
   company: string;
   surveyType: SurveyType;
   compositeScore: number; // 0-100, normalized so every survey type shares one axis
@@ -77,13 +78,13 @@ function getMaxRatingForResponse(questionId: string): number {
  * form. Courier and Supplier are already 100-point forms; Subcontractor
  * is converted from 32 points to the same 100-point scale.
  */
-export function computeCompanyComposite(
+function computeCompanyCompositeFromResponses(
   company: string,
   surveyType: SurveyType,
-  responses: SurveyResponse[],
+  companyResponses: SurveyResponse[],
+  companyId?: string,
 ): CompanyComposite | null {
   const weights = weightMap(surveyType);
-  const companyResponses = responses.filter((r) => r.company === company && r.surveyType === surveyType);
   if (!companyResponses.length) return null;
 
   const sectionMap = new Map<string, { earned: number; possible: number; responses: number }>();
@@ -160,6 +161,7 @@ export function computeCompanyComposite(
     : 0;
 
   return {
+    companyId,
     company,
     surveyType,
     compositeScore,
@@ -179,6 +181,72 @@ export function computeCompanyComposite(
   };
 }
 
+export function computeCompanyComposite(
+  company: string,
+  surveyType: SurveyType,
+  responses: SurveyResponse[],
+): CompanyComposite | null {
+  return computeCompanyCompositeFromResponses(
+    company,
+    surveyType,
+    responses.filter((response) => response.company === company && response.surveyType === surveyType),
+  );
+}
+
+function legacyCompanyKey(company: string): string {
+  return company.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
+}
+
+/**
+ * Builds one current metric per company. Stable registry IDs are preferred so
+ * evaluations remain together after a display-name change. Older rows without
+ * an ID fall back to a conservative trim/case comparison; legal suffixes and
+ * punctuation are intentionally preserved to avoid merging distinct partners.
+ */
+export function getCompanyComposites(responses: SurveyResponse[], surveyType: SurveyType): CompanyComposite[] {
+  const groups = new Map<string, { companyId?: string; responses: SurveyResponse[] }>();
+  const idKeysByLegacyName = new Map<string, Set<string>>();
+  const relevantResponses = responses.filter((response) => response.surveyType === surveyType);
+
+  relevantResponses.forEach((response) => {
+    if (!response.companyId) return;
+    const key = `id:${response.companyId}`;
+    const group = groups.get(key) ?? { companyId: response.companyId, responses: [] };
+    group.responses.push(response);
+    groups.set(key, group);
+
+    const nameKey = legacyCompanyKey(response.company);
+    const matchingIds = idKeysByLegacyName.get(nameKey) ?? new Set<string>();
+    matchingIds.add(key);
+    idKeysByLegacyName.set(nameKey, matchingIds);
+  });
+
+  relevantResponses.forEach((response) => {
+    if (response.companyId) return;
+    const nameKey = legacyCompanyKey(response.company);
+    const matchingIds = idKeysByLegacyName.get(nameKey);
+    const key = matchingIds?.size === 1
+      ? [...matchingIds][0]
+      : `name:${nameKey}`;
+    const group = groups.get(key) ?? { responses: [] };
+    group.responses.push(response);
+    groups.set(key, group);
+  });
+
+  return [...groups.values()].flatMap((group) => {
+    const latest = [...group.responses].sort((left, right) =>
+      right.submissionDate.localeCompare(left.submissionDate),
+    )[0];
+    const composite = computeCompanyCompositeFromResponses(
+      latest.company.trim(),
+      surveyType,
+      group.responses,
+      group.companyId,
+    );
+    return composite ? [composite] : [];
+  });
+}
+
 /**
  * Every company of a given survey type, ranked by volume-weighted rankScore
  * (highest first) so a company with one or two evaluations can't outrank one
@@ -186,10 +254,7 @@ export function computeCompanyComposite(
  * each company's actual rating - is left untouched for display.
  */
 export function getLeaderboard(responses: SurveyResponse[], surveyType: SurveyType): CompanyComposite[] {
-  const companies = [...new Set(responses.filter((r) => r.surveyType === surveyType).map((r) => r.company))];
-  const composites = companies
-    .map((company) => computeCompanyComposite(company, surveyType, responses))
-    .filter((c): c is CompanyComposite => c !== null);
+  const composites = getCompanyComposites(responses, surveyType);
 
   // Companies with no scoreable data (every submission was all-N/A) have
   // nothing to rank - keep them out of the peer mean and the score sort
@@ -225,10 +290,7 @@ export function getLeaderboard(responses: SurveyResponse[], surveyType: SurveyTy
  * same displayRank using standard competition ranking (1, 1, 3…).
  */
 export function getPureAverageLeaderboard(responses: SurveyResponse[], surveyType: SurveyType): CompanyComposite[] {
-  const companies = [...new Set(responses.filter((r) => r.surveyType === surveyType).map((r) => r.company))];
-  const composites = companies
-    .map((company) => computeCompanyComposite(company, surveyType, responses))
-    .filter((c): c is CompanyComposite => c !== null);
+  const composites = getCompanyComposites(responses, surveyType);
 
   const scored = composites.filter((c) => c.hasScore);
   const unscored = composites.filter((c) => !c.hasScore);

@@ -953,9 +953,7 @@ export default function App() {
     analytics: (
       <AnalyticsPage
         responses={analyticsFilteredResponses}
-        allResponses={dataScope === 'all-time' ? userAccessibleAllTimeResponses : dataScope === 'custom' ? userAccessibleCustomResponses : userAccessibleResponses}
-        partnerCompanies={partnerCompanies}
-        activeSurveyTypes={effectiveSurveyTypes}
+        activeSurveyTypes={activeSurveyTypes}
         filters={filters}
         setFilters={setFilters}
         dataScope={dataScope}
