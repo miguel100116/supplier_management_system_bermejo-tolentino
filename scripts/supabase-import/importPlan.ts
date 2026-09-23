@@ -174,6 +174,14 @@ function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+// Git may materialize tracked CSVs with CRLF on Windows even when the
+// reviewed repository bytes use LF. Verify the canonical text content so a
+// checkout-only line-ending conversion does not look like a client-data
+// change; every other byte remains covered by the pinned SHA-256 digest.
+function canonicalCsvContents(contents: Buffer): Buffer {
+  return Buffer.from(contents.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+}
+
 function uuidBytes(uuid: string): Buffer {
   return Buffer.from(uuid.replaceAll('-', ''), 'hex');
 }
@@ -378,7 +386,8 @@ export function buildImportPlan(projectRoot: string, aliases: CompanyAliasInput[
 
   const masterPath = resolve(projectRoot, FILES.master.fileName);
   const masterContents = readFileSync(masterPath);
-  if (sha256(masterContents) !== FILES.master.fileSha256) {
+  const canonicalMasterContents = canonicalCsvContents(masterContents);
+  if (sha256(canonicalMasterContents) !== FILES.master.fileSha256) {
     throw new Error(`${FILES.master.fileName}: full-file checksum differs from the reviewed production source.`);
   }
   const masterRows = parseCsv(masterPath);
@@ -479,7 +488,7 @@ export function buildImportPlan(projectRoot: string, aliases: CompanyAliasInput[
       });
     }
   }
-  sourceFiles.push(sourceFileRow(FILES.master.sourceKey, FILES.master.fileName, masterContents, masterNamedRows));
+  sourceFiles.push(sourceFileRow(FILES.master.sourceKey, FILES.master.fileName, canonicalMasterContents, masterNamedRows));
 
   const companies = [...companiesByKey.values()];
   const companiesByNormalized = new Map<string, string[]>();
@@ -553,7 +562,8 @@ export function buildImportPlan(projectRoot: string, aliases: CompanyAliasInput[
     const file = FILES[surveyType];
     const filePath = resolve(projectRoot, file.fileName);
     const contents = readFileSync(filePath);
-    if (sha256(contents) !== file.fileSha256) {
+    const canonicalContents = canonicalCsvContents(contents);
+    if (sha256(canonicalContents) !== file.fileSha256) {
       throw new Error(`${file.fileName}: full-file checksum differs from the reviewed production source.`);
     }
     const rows = parseCsv(filePath);
@@ -564,7 +574,7 @@ export function buildImportPlan(projectRoot: string, aliases: CompanyAliasInput[
     const sourceFileId = stableUuid(`source-file:${file.sourceKey}`);
     const dataRows = rows.slice(1).filter((row) => row.some((cell) => cleanText(cell)));
     const businessRows = dataRows.filter((row) => cleanText(row[spec.nameCol]));
-    sourceFiles.push(sourceFileRow(file.sourceKey, file.fileName, contents, businessRows.length));
+    sourceFiles.push(sourceFileRow(file.sourceKey, file.fileName, canonicalContents, businessRows.length));
     forms.push({ code: surveyType, source_file_id: sourceFileId, source_name: file.fileName });
 
     const questionIdByKey = new Map<string, string>();
