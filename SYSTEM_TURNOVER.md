@@ -54,7 +54,7 @@ Every account's default module access and visible survey data types are computed
 | Executive | Dashboard, Analytics, Reports, Present, Notification Logs (a reduced, summary-focused set) |
 | Admin (role) | Every module, regardless of designation, including Account Management, Renew Compliance Documents, and Import Evaluation Responses |
 
-*Data-scoping for survey responses (defined in the draft Supabase schema — see [Known Issue #3](#24-known-issues--workarounds)): Admin, Executive, and Director see every response; Supervisory sees their own department's responses; Rank & File sees only their own submissions. Analytics remains company-wide and aggregate-only for every rank.*
+*Data-scoping for survey responses is enforced by the applied versioned RLS migrations: Admin, Executive, and Director see every response; Supervisory sees their own department's responses; Rank & File sees only their own submissions. The product intends Analytics to remain company-wide and aggregate-only for every rank, but lower-rank sessions currently hydrate from these already-scoped raw rows. A protected aggregate RPC/view is still required; see `docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md`.*
 
 ### 1.2 Admin Account Details
 
@@ -248,6 +248,9 @@ Every item below was verified directly against the current source code, not infe
 | 6 | A live-chat feature (Admin Chat Widget, Live Chat page, Employee Notifications Hub, chat service) was built across several commits and is now deleted in the working tree, but the deletion is not yet committed. | Whoever continues this project should confirm the removal is intentional before it is committed, since it removes real functionality. | Confirm with the project owner, then commit the removal explicitly (or restore the feature) rather than leaving it as an uncommitted change. |
 | 7 | `EFAS_Project_Charter.docx` (in the project root, tracked since the initial commit) is a corrupted Word file — its ZIP central directory offset is invalid. | It cannot be opened by Word, pandoc, or standard ZIP tooling; whatever project-charter content it held is currently inaccessible. | Locate a valid backup copy if one exists, or treat the content as lost and re-document the project charter separately. |
 | 8 | No User Manual, Quick Reference Guide, Known Issues log, or Release Notes existed in the repository before this handoff. | New team members previously had no onboarding documentation. | This document is the first pass at all four — keep it updated as the system changes. |
+| 9 | Lower-rank Analytics is intended to be company-wide, but its input is the raw `survey_response` projection restricted by RLS. | Supervisory users see only their department and Rank & File users see only their own records, so their charts cannot be company-wide. | Add a protected aggregate RPC/view; do not widen access to raw responses. See `docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md`. |
+| 10 | The UI can grant `renew-documents` to a non-Admin, while `partner_company` updates are Admin-only in RLS. | A delegated document renewal can appear optimistically in the browser and then fail to persist. | Add a narrowly validated renewal RPC or a server-side effective-permission rule before relying on delegated renewal. |
+| 11 | Managerial and Director defaults expose Archive Center, while existing response UPDATE/DELETE operations are Admin-only in RLS. | Archive, restore, and permanent-delete mutations fail remotely for those non-Admin roles. | Decide whether Archive Center is Admin-only or implement an authorized server-side archive operation. |
 
 ### 2.5 Release Notes
 

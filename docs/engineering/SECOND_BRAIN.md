@@ -36,6 +36,7 @@ Canonical product documentation:
 
 - Authenticated staging users load and save profiles, permissions, surveys, Partner Companies/documents, responses, archives, category labels, Feedback Hub data, notification/reminder configuration, compliance snapshots, ranking/activity/modification/export history, and employee notification state through Supabase.
 - Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the canonical editable frontend store.
+- Analytics provenance is explicit as of 2026-09-22: client CSV rows use `dataSource=client_csv`, approved live form submissions use `production_submission`, and staging form submissions use `test_submission`. Official Analytics includes only the first two. Legacy normalized/default-form and UI-import IDs are recognized as client data; legacy pre-production `RESP-*` rows remain stored but are classified as test data. `VITE_DEPLOYMENT_ENV` defaults to staging and must be set to production only for the approved live deployment.
 - Browser `localStorage` remains an authenticated startup cache and stores intentionally device-specific drafts/preferences. Eligible historical browser records are uploaded once when the remote set is empty; remote empty sets are authoritative after migration.
 - Supabase Realtime events invalidate the relevant client store and cause an RLS-protected refetch; event payloads are not trusted as application data.
 
@@ -51,7 +52,7 @@ Canonical product documentation:
 Verified on 2026-09-21:
 
 - `npm run lint` succeeds and runs TypeScript checks for both application and import scripts; ESLint is not configured.
-- `npm test` passes 45 focused tests covering Feedback Hub report data, application persistence identifiers, browser-to-Supabase migration behavior, normalized Partner Company/document mapping, and the Supabase import pipeline; broader component, integration, and end-to-end coverage is not yet established.
+- `npm test` covers focused domain, persistence-contract, import, mapping, and authorization helpers; broader component, integration, and end-to-end coverage is not yet established. Use the current command output as the source for the exact test count.
 - No repository CI workflow is present.
 - The TypeScript source under `src/` is roughly 65,000 lines across about 100 files.
 - Major concentration points include `src/hooks/useSurveyData.ts`, `src/App.tsx`, several page components above 1,000 lines, and a very large generated/static partner seed file.
@@ -240,12 +241,84 @@ Consequences: Staging sessions converge on Supabase values across devices, inclu
 
 Evidence: `src/services/applicationRepository.ts`, `src/services/sharedStoreHydration.ts`, `src/hooks/useSurveyData.ts`, `src/App.tsx`, `server.ts`, `supabase/migrations/20260921011822_centralize_shared_state.sql`, `supabase/migrations/20260921013124_consolidate_application_rls.sql`
 
+### 2026-09-22 - Shared module back navigation
+
+Status: accepted
+
+Context: Detail, create, edit, and form-filling views previously inferred navigation history after rendering, so a Back action could lose its origin and fall through to Dashboard.
+
+Decision: Route module changes through one in-memory navigation boundary in `App.tsx`. Page-level Back and Cancel controls use the same history and explicit survey-module fallback where required. Internal wizard-step controls remain local to their current module.
+
+Consequences: Back returns users to the immediately preceding module instead of Dashboard. Navigation history is session-local and deliberately resets at login or an authorization redirect.
+
+Evidence: `src/App.tsx`
+
+### 2026-09-22 - Shared operational table filters
+
+Status: accepted
+
+Context: Operational tables used unrelated search and sort controls, and several had no alphabetical or date filtering. Document expiration is meaningful only where compliance documents exist.
+
+Decision: Use `TableFilterBar` and the pure helpers in `tableFilters.ts` for operational listing tables. Each table exposes only fields present in its data: alphabetical and date sorting/date ranges where applicable, plus document-expiration states in Partner Companies. Document Tracker retains its more detailed field/condition/value filter builder, including document status and days-left conditions. Generated report previews, survey rating matrices, and fixed ranking-slot grids are not treated as filterable record lists.
+
+Consequences: Table controls now share responsive styling, reset behavior, local-date range semantics, and result counts without inventing expiration filters for tables that do not contain document data.
+
+Evidence: `src/components/TableFilterBar.tsx`, `src/utils/tableFilters.ts`, operational table consumers under `src/pages/` and `src/components/feedback-hub/`
+
+### 2026-09-22 - Analytics ranking consistency boundary
+
+Status: accepted
+
+Context: Analytics ranking logic was duplicated in the page, and the best/least-performing chart always used volume weighting even when users selected Pure Average. It could therefore sort by one value while displaying another.
+
+Decision: Keep company-ranking preparation in `src/features/analytics/domain/rankings.ts`. Every ranking consumer must pass the selected ranking mode, and charts must display the same score used for ordering. Scope calculations to the already filtered response slice and exclude all-N/A composites from ranked results.
+
+Consequences: Champion cards, leaderboards, and best/least-performing charts consistently honor survey filters and ranking mode. Focused domain tests cover pure versus weighted ordering, displayed score selection, active survey types, and ranking direction.
+
+Evidence: `src/features/analytics/domain/rankings.ts`, `src/features/analytics/domain/rankings.test.ts`, `src/pages/AnalyticsPage.tsx`
+
+### 2026-09-22 - Analytics presentation hierarchy
+
+Status: accepted
+
+Context: Analytics exposed useful information but presented overview metrics, detailed company tools, trends, and question breakdowns with similar visual weight. The ordering made the page harder to scan and left the response total and performance extremes isolated in full-width rows.
+
+Decision: Preserve the existing analytics data and interactions while organizing the page into four presentation groups: Overview, Trends & Comparisons, Company Exploration, and Question Detail. Keep period/ranking controls in a labeled toolbar, balance the primary partner summary with response and range cards, and use responsive grids that collapse to one column without fixed-width content.
+
+Consequences: The same analytics remain available with clearer progressive disclosure, less unused space, and more consistent control labeling. Presentation components live under `src/features/analytics/components/`; calculation ownership remains unchanged in the Analytics domain and utility layers.
+
+Evidence: `src/pages/AnalyticsPage.tsx`, `src/features/analytics/components/AnalyticsSection.tsx`, `src/features/analytics/components/AnalyticsToolbar.tsx`, `src/features/analytics/components/PerformanceHighlights.tsx`
+
+### 2026-09-23 - Versioned active-company snapshots
+
+Status: accepted and applied to staging on 2026-09-23
+
+Context: Partner Companies needs an Admin-only view of the companies present in each official Courier, Supplier, and Subcontractor evaluation export. This list is distinct from the Partner Companies master-list registry and from calculated leaderboard rankings.
+
+Decision: Store each category upload as an immutable `active_company_snapshot` application record containing its source filename, upload timestamp, actor, and deduplicated company names. Seed the first three snapshots from the repository's official Microsoft Forms CSV exports. New CSV/Excel uploads append snapshots independently per survey type; the latest timestamp is current while older snapshots remain selectable.
+
+Consequences: Admins upload the three files from Partner Companies → Register New Partner → Upload Master List, then inspect and backtrack the lists from the Partner Companies action bar. The existing consolidated application-record RLS keeps this record type Admin-only because it is not included in any employee-readable exception. Migration `202609230001_active_company_snapshots.sql` is applied to staging; production remains unchanged and requires separate authorization.
+
+Evidence: `src/features/active-companies/`, `src/pages/PartnerCompaniesPage.tsx`, `supabase/migrations/202609230001_active_company_snapshots.sql`
+
+### 2026-09-23 - Frontend–Supabase semantic alignment audit
+
+Status: structurally aligned with documented production blockers
+
+Context: The frontend persistence paths, application-record types, Realtime invalidation, and database RLS needed one verified map after shared-state centralization and the Active Companies relocation.
+
+Decision: Treat `docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md` as the canonical connection map. Export one runtime `APPLICATION_RECORD_TYPES` tuple and test it against the latest versioned database constraint. Refresh department permissions and active-company snapshots on their Realtime invalidation events.
+
+Consequences: Record-type drift now fails a focused test, and those two stores converge across open clients. Three authorization gaps remain explicit production blockers: secure company-wide aggregate Analytics for lower ranks, delegated document renewal, and non-Admin archive mutations. Do not weaken raw-row RLS to solve them.
+
+Evidence: `docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`, `src/App.tsx`, `src/features/active-companies/components/ActiveCompaniesModal.tsx`
+
 ## Active modernization state
 
 - Agent governance: established by `AGENTS.md`.
-- Automated test harness: focused Feedback Hub company-report tests established; repository-wide coverage remains incomplete.
+- Automated test harness: focused Feedback Hub company-report and Analytics ranking tests established; repository-wide coverage remains incomplete.
 - CI/CD workflow: not established.
-- Feature-module refactor: not started by this governance change.
+- Feature-module refactor: started incrementally for Feedback Hub reporting and Analytics ranking/presentation seams; large legacy pages remain.
 - Backend source-of-truth migration: complete for shared state in staging; production migration/deployment still requires explicit authorization and environment-specific verification.
 - Repository artifact cleanup: not started by this governance change.
 
