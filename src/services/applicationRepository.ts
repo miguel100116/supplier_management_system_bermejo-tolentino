@@ -7,25 +7,29 @@ import {
 } from '../utils/notificationReadState';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
-export type ApplicationRecordType =
-  | 'partner_company'
-  | 'survey'
-  | 'survey_response'
-  | 'archive_series'
-  | 'department_permission'
-  | 'category_labels'
-  | 'feedback_contact'
-  | 'feedback_report'
-  | 'feedback_settings'
-  | 'document_notification_rule'
-  | 'notification_read_state'
-  | 'admin_activity'
-  | 'document_modification'
-  | 'export_history'
-  | 'supplier_ranking_history'
-  | 'employee_notification_state'
-  | 'reminder_settings'
-  | 'compliance_snapshot';
+export const APPLICATION_RECORD_TYPES = [
+  'partner_company',
+  'survey',
+  'survey_response',
+  'archive_series',
+  'department_permission',
+  'category_labels',
+  'feedback_contact',
+  'feedback_report',
+  'feedback_settings',
+  'document_notification_rule',
+  'notification_read_state',
+  'admin_activity',
+  'document_modification',
+  'export_history',
+  'supplier_ranking_history',
+  'employee_notification_state',
+  'reminder_settings',
+  'compliance_snapshot',
+  'active_company_snapshot',
+] as const;
+
+export type ApplicationRecordType = typeof APPLICATION_RECORD_TYPES[number];
 
 export const APPLICATION_RECORD_CHANGED_EVENT = 'supabase-application-record-changed';
 export const APPLICATION_PROFILES_CHANGED_EVENT = 'supabase-application-profiles-changed';

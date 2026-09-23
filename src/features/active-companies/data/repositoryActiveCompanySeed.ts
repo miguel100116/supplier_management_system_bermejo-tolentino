@@ -1,0 +1,75 @@
+import type { ActiveCompanySnapshot } from '../domain/activeCompanySnapshots';
+
+// Generated from the distinct company-name column in the three official
+// Microsoft Forms CSV exports retained at the repository root. The focused
+// seed test compares these values with those files so source changes cannot
+// silently leave this temporary display fallback stale.
+export const REPOSITORY_ACTIVE_COMPANY_SEED: ActiveCompanySnapshot[] = [
+  {
+    id: 'courier-repository-seed-2026-09-23',
+    surveyType: 'Courier',
+    uploadedAt: '2026-09-23T00:00:00.000Z',
+    uploadedBy: 'repository-seed',
+    sourceFileName: 'Microgenesis Courier Evaluation Form.csv',
+    companies: [
+      'Airspeed International Corp',
+      'Alphacon Logistics International Corp',
+      'Cloverxpress Freight Inc',
+      'Lite Xpress International Inc',
+      'Road2go Trucking Services OPC',
+      'RZ1 Freight Express Corporation',
+      'Yello X Supply Chain Solutions',
+    ],
+  },
+  {
+    id: 'supplier-repository-seed-2026-09-23',
+    surveyType: 'Supplier',
+    uploadedAt: '2026-09-23T00:00:00.000Z',
+    uploadedBy: 'repository-seed',
+    sourceFileName: 'Microgenesis Supplier Evaluation Form.csv',
+    companies: [
+      'ACW Distribution (Phils), Inc',
+      'AptSecure Technologies Inc',
+      'Apuma, March Maanap',
+      'Ardent Networks Inc',
+      'Banbros Commercial, Incorporated',
+      'Bridge Distribution, Inc',
+      'Exclusive Networks-Ph Inc',
+      'M-Security Tech Philippines, Inc',
+      'Mec Computer Corporation',
+      'PAX8 Philippines Inc',
+      'Sencolink Technologies Inc',
+      'Softwareone Philippines Corporation',
+      'Streamline Works Inc',
+      'Touchstream Digital, Inc',
+      'Versatech International Inc',
+      'VSTECS Phils. Inc',
+      'Westcon Group Philippines',
+      'Westcon Solutions Philippines Inc',
+      'Wordtext Systems, Inc',
+      'Wyntech Corp',
+    ],
+  },
+  {
+    id: 'subcontractor-repository-seed-2026-09-23',
+    surveyType: 'Subcontractor',
+    uploadedAt: '2026-09-23T00:00:00.000Z',
+    uploadedBy: 'repository-seed',
+    sourceFileName: 'Microgenesis Subcontractor Evaluation Form.csv',
+    companies: [
+      'Alvarez, Greg Yap',
+      'Cara Electrical and Network Solutions Inc',
+      'Datalec Technology Corporation',
+      'Glimpse-DC Electronics Industries Inc',
+      'J & C Obenita Construction OPC',
+      'MTeknik Technologies Solutions, Inc',
+      'Pagpaguitan, Andy Lamberte',
+      'Paragon Electromech Development Corporation',
+      'Polinar, Lucilo Dispo',
+      'Skyconvergence Inc',
+      'Techvision ICT Solutions, Inc',
+      'Unikkon Network Philippines Inc',
+      'ZIMOSystem Solutions Inc',
+    ],
+  },
+];

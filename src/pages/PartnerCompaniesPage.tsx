@@ -51,6 +51,10 @@ import { findMissingProfileFields, MISSING_FIELD_LABELS, MissingProfileField } f
 import { ImportResult } from '../utils/masterListImport';
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { logDocumentModification } from '../utils/documentModificationLog';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { isWithinDateRange } from '../utils/tableFilters';
+import { ActiveCompaniesModal } from '../features/active-companies/components/ActiveCompaniesModal';
+import { ActiveCompanyUploadCards } from '../features/active-companies/components/ActiveCompanyUploadCards';
 
 const MISSING_FIELD_ICONS: Record<MissingProfileField, typeof MapPin> = {
   address: MapPin,
@@ -185,11 +189,15 @@ export function PartnerCompaniesPage({
   // Local/Foreign sub-filter, only meaningful while activeTab === 'Supplier'
   const [originFilter, setOriginFilter] = useState<'All' | 'Local' | 'Foreign'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [registeredFrom, setRegisteredFrom] = useState('');
+  const [registeredTo, setRegisteredTo] = useState('');
+  const [documentFilter, setDocumentFilter] = useState<'all' | 'current' | 'expiring' | 'expired' | 'missing'>('all');
   const [viewMode, setViewMode] = useState<'general' | 'simplified'>('general');
   const [isCategorySummaryOpen, setIsCategorySummaryOpen] = useState(true);
   const [importReplace, setImportReplace] = useState(false);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [registerModalTab, setRegisterModalTab] = useState<'manual' | 'upload'>('manual');
+  const [isActiveCompaniesOpen, setIsActiveCompaniesOpen] = useState(false);
 
   // Detail Modal State
   const [selectedCompany, setSelectedCompany] = useState<PartnerCompany | null>(null);
@@ -247,7 +255,7 @@ export function PartnerCompaniesPage({
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState('');
 
-  type SortKey = 'name' | 'type' | 'createdAt' | 'docStatus';
+  type SortKey = 'name' | 'type' | 'registeredAt' | 'docStatus';
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>(null);
 
   const adminPasscode = 'admin'; // Main passcode requested, mgenesis2026 as backup
@@ -528,6 +536,20 @@ export function PartnerCompaniesPage({
       );
     }
 
+    baseList = baseList.filter((company) =>
+      isWithinDateRange(company.registeredAt || company.createdAt, registeredFrom, registeredTo)
+    );
+
+    if (documentFilter !== 'all') {
+      baseList = baseList.filter((company) => {
+        const summary = computeCompanyDocumentSummary(company, effectiveNow);
+        if (documentFilter === 'current') return summary.status === 'Current';
+        if (documentFilter === 'expiring') return summary.status === 'Expiring Soon';
+        if (documentFilter === 'expired') return summary.status === 'Expired';
+        return summary.status === 'Missing';
+      });
+    }
+
     if (sortConfig) {
       // docStatus has no direct field on PartnerCompany - rank by the primary
       // branch's Status value (same one shown/edited in the Document Tracker).
@@ -536,8 +558,16 @@ export function PartnerCompaniesPage({
         return status ? BRANCH_STATUS_SEVERITY[status] : -2;
       };
       baseList = [...baseList].sort((a, b) => {
-        const valA = sortConfig.key === 'docStatus' ? docSeverity(a) : (a[sortConfig.key] || '');
-        const valB = sortConfig.key === 'docStatus' ? docSeverity(b) : (b[sortConfig.key] || '');
+        const valA = sortConfig.key === 'docStatus'
+          ? docSeverity(a)
+          : sortConfig.key === 'registeredAt'
+          ? (a.registeredAt || a.createdAt || '')
+          : (a[sortConfig.key] || '');
+        const valB = sortConfig.key === 'docStatus'
+          ? docSeverity(b)
+          : sortConfig.key === 'registeredAt'
+          ? (b.registeredAt || b.createdAt || '')
+          : (b[sortConfig.key] || '');
         if (valA < valB) {
           return sortConfig.direction === 'asc' ? -1 : 1;
         }
@@ -548,13 +578,13 @@ export function PartnerCompaniesPage({
       });
     }
     return baseList;
-  }, [classifiedCompanies, incompleteCompanies, statusTab, activeTab, originFilter, searchQuery, sortConfig, effectiveNow]);
+  }, [classifiedCompanies, incompleteCompanies, statusTab, activeTab, originFilter, searchQuery, sortConfig, effectiveNow, registeredFrom, registeredTo, documentFilter]);
 
   // Jump back to page 1 whenever a filter/search/sort narrows or reshuffles
   // the result set - otherwise the user can land on a now-empty page.
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusTab, activeTab, originFilter, searchQuery, sortConfig]);
+  }, [statusTab, activeTab, originFilter, searchQuery, sortConfig, registeredFrom, registeredTo, documentFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredCompanies.length / COMPANIES_PAGE_SIZE));
   // Clamp defensively (e.g. the list shrinks from a delete while on a later
@@ -888,7 +918,7 @@ export function PartnerCompaniesPage({
 
         {/* Register Button (admin only) - opens a modal with Manual Entry / Upload Excel tabs */}
         {isAdmin && (
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {onPreviewMasterListImport && (
               <input
                 ref={importFileInputRef}
@@ -899,12 +929,21 @@ export function PartnerCompaniesPage({
               />
             )}
             <button
+              onClick={() => setIsActiveCompaniesOpen(true)}
+              className="secondary-button min-h-10 w-full gap-1.5 px-4 text-xs font-bold sm:w-auto"
+              type="button"
+            >
+              <Building size={15} aria-hidden="true" />
+              <span>Active Companies by Type</span>
+              <ChevronRight size={14} className="text-slate-400" aria-hidden="true" />
+            </button>
+            <button
               onClick={() => {
                 setErrorMessage('');
                 setRegisterModalTab('manual');
                 setIsRegisterOpen(true);
               }}
-              className="bg-[#0063a9] hover:bg-[#00528c] text-white flex items-center justify-center gap-1.5 py-2.5 px-5 text-xs font-bold rounded-lg shadow-xs transition duration-150 cursor-pointer"
+              className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-[#0063a9] px-5 py-2.5 text-xs font-bold text-white shadow-xs transition duration-150 hover:bg-[#00528c] sm:w-auto"
               type="button"
             >
               <Plus size={16} />
@@ -953,6 +992,54 @@ export function PartnerCompaniesPage({
           </button>
         </div>
       </div>
+
+      <TableFilterBar
+        sortOptions={[
+          { value: 'name-asc', label: 'Company: A–Z' },
+          { value: 'name-desc', label: 'Company: Z–A' },
+          { value: 'registeredAt-desc', label: 'Registered: newest first' },
+          { value: 'registeredAt-asc', label: 'Registered: oldest first' },
+          { value: 'docStatus-desc', label: 'Documents: most urgent first' },
+        ]}
+        sortValue={sortConfig ? `${sortConfig.key}-${sortConfig.direction}` : 'name-asc'}
+        onSortChange={(value) => {
+          const separator = value.lastIndexOf('-');
+          setSortConfig({
+            key: value.slice(0, separator) as SortKey,
+            direction: value.slice(separator + 1) as 'asc' | 'desc',
+          });
+        }}
+        resultCount={filteredCompanies.length}
+        dateFrom={registeredFrom}
+        dateTo={registeredTo}
+        onDateFromChange={setRegisteredFrom}
+        onDateToChange={setRegisteredTo}
+        dateLabel="Registration date"
+        onReset={() => {
+          setSearchQuery('');
+          setActiveTab('All');
+          setOriginFilter('All');
+          setRegisteredFrom('');
+          setRegisteredTo('');
+          setDocumentFilter('all');
+          setSortConfig({ key: 'name', direction: 'asc' });
+        }}
+      >
+        <label className="min-w-[180px] flex-1 sm:flex-none">
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Document expiration</span>
+          <select
+            value={documentFilter}
+            onChange={(event) => setDocumentFilter(event.target.value as typeof documentFilter)}
+            className="field !mt-0 w-full py-2 text-xs sm:w-[190px]"
+          >
+            <option value="all">All document states</option>
+            <option value="current">Current</option>
+            <option value="expiring">Expiring soon</option>
+            <option value="expired">Expired / for update</option>
+            <option value="missing">Missing required docs</option>
+          </select>
+        </label>
+      </TableFilterBar>
 
       {filteredCompanies.length === 0 ? (
         <div className="panel py-20 text-center text-slate-400">
@@ -2020,6 +2107,8 @@ export function PartnerCompaniesPage({
                   only genuinely new or newly-accredited companies are added.
                 </div>
 
+                <ActiveCompanyUploadCards userEmail={currentUserEmail} />
+
                 <label
                   className={`flex items-start gap-2.5 rounded-xl border p-3 cursor-pointer transition ${
                     importReplace
@@ -2058,6 +2147,7 @@ export function PartnerCompaniesPage({
                   {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
                   <span>{isImporting ? 'Importing…' : importReplace ? 'Choose File & Replace Registry' : 'Choose Excel File (.xlsx)'}</span>
                 </button>
+
                 <div className="flex items-center justify-end border-t border-slate-100 dark:border-slate-800 pt-4">
                   <button
                     onClick={() => setIsRegisterOpen(false)}
@@ -2217,6 +2307,11 @@ export function PartnerCompaniesPage({
         </div>,
         document.body
       )}
+
+      <ActiveCompaniesModal
+        isOpen={isActiveCompaniesOpen}
+        onClose={() => setIsActiveCompaniesOpen(false)}
+      />
 
       {/* Master List Import Review Modal - shows what would change before
           anything is saved; nothing is written to the registry until the
