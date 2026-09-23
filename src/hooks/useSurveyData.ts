@@ -12,6 +12,7 @@ import {
 } from '../utils/rawEvaluationImport';
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { computeCompanyDocumentSummary, computeDocumentStatus, EXPIRING_SOON_DAYS } from '../utils/compliance';
+import { parseDeploymentEnvironment, submissionSourceForEnvironment } from '../features/analytics/domain/responseProvenance';
 import { getRequiredDocumentKeys } from '../utils/documentRequirements';
 import { getNotificationSettings, NOTIFICATION_SETTINGS_CHANGED_EVENT } from '../utils/documentNotificationSettings';
 import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from '../services/normalizedPartnerCompanies';
@@ -250,6 +251,8 @@ interface CompressedSubmission {
   i: string; // responseId
   ui?: string; // surveyId
   ci?: string; // companyId
+  ds?: SurveyResponse['dataSource']; // analytics provenance
+  ib?: string; // importBatchId
   t: SurveyType; // surveyType
   r: string; // respondentType
   st?: string; // startTime
@@ -299,6 +302,8 @@ function compressResponses(responses: SurveyResponse[]): CompressedSubmission[] 
       };
       if (resp.surveyId !== undefined) comp.ui = resp.surveyId;
       if (resp.companyId !== undefined) comp.ci = resp.companyId;
+      if (resp.dataSource !== undefined) comp.ds = resp.dataSource;
+      if (resp.importBatchId !== undefined) comp.ib = resp.importBatchId;
       if (resp.startTime !== undefined) comp.st = resp.startTime;
       if (resp.department !== undefined) comp.d = resp.department;
       if (resp.address !== undefined) comp.ad = resp.address;
@@ -351,6 +356,8 @@ function decompressResponses(compressed: any[]): SurveyResponse[] {
       };
       if (item.ui !== undefined) resp.surveyId = item.ui;
       if (item.ci !== undefined) resp.companyId = item.ci;
+      if (item.ds !== undefined) resp.dataSource = item.ds;
+      if (item.ib !== undefined) resp.importBatchId = item.ib;
       if (item.st !== undefined) resp.startTime = item.st;
       if (item.d !== undefined) resp.department = item.d;
       if (item.ad !== undefined) resp.address = item.ad;
@@ -1493,7 +1500,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   // response's stored questionCategory, active or archived - that carries
   // the old label is rewritten to the new one in the same pass, so the
   // rename is immediately visible everywhere that groups by questionCategory
-  // (bar charts, N/A frequency, reports) without leaving old-label data
+  // (bar charts and reports) without leaving old-label data
   // behind as an orphaned bucket. The radar chart (which groups by
   // questionWeights.ts's own section labels, not questionCategory) picks up
   // the rename separately via getLiveCategoryLabel, which reads the same
@@ -1583,6 +1590,9 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
 
     const newResponses: SurveyResponse[] = answers.map((ans) => ({
       responseId,
+      dataSource: submissionSourceForEnvironment(parseDeploymentEnvironment(
+        window.__SMS_RUNTIME_CONFIG__?.deploymentEnvironment || import.meta.env.VITE_DEPLOYMENT_ENV,
+      )),
       surveyId: targetSurvey.id,
       companyId,
       surveyType: targetSurvey.surveyType,

@@ -1,5 +1,6 @@
 export type SurveyType = 'Courier' | 'Supplier' | 'Subcontractor';
 export type Rating = number | 'N/A';
+export type SurveyResponseSource = 'client_csv' | 'production_submission' | 'test_submission';
 export type SurveyAccessRole = 'Rank & File' | 'Supervisory' | 'Managerial' | 'Director' | 'Executive';
 
 // A PartnerCompany's type widens SurveyType with 'Uncategorized' — the state
@@ -86,6 +87,11 @@ export interface PartnerCompany {
 
 export interface SurveyResponse {
   responseId: string;
+  // Provenance controls whether a response belongs in official analytics.
+  // Optional for records written before provenance tracking was introduced;
+  // those are classified conservatively by responseProvenance.ts.
+  dataSource?: SurveyResponseSource;
+  importBatchId?: string;
   // Stable source identifiers used by report generation. Optional for rows
   // saved by older builds, which predate these fields.
   surveyId?: string;

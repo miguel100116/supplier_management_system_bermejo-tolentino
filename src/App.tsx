@@ -22,6 +22,7 @@ import {
   subscribeToApplicationChanges,
 } from './services/applicationRepository';
 import { hydrateChangedSharedStore, hydrateSharedClientStores } from './services/sharedStoreHydration';
+import { isOfficialAnalyticsResponse } from './features/analytics/domain/responseProvenance';
 import { NotificationLogsPage } from './pages/NotificationLogsPage';
 import { EmployeeNotificationLogsPage } from './pages/EmployeeNotificationLogsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -588,7 +589,14 @@ export default function App() {
   }, [partnerCompanies, effectiveSurveyTypes]);
 
   const filteredResponses = useMemo(() => applyFilters(scopedAccessibleResponses, filters), [scopedAccessibleResponses, filters]);
-  const analyticsFilteredResponses = useMemo(() => applyFilters(scopedAccessibleResponses, filters), [scopedAccessibleResponses, filters]);
+  const officialAnalyticsResponses = useMemo(
+    () => scopedAccessibleResponses.filter(isOfficialAnalyticsResponse),
+    [scopedAccessibleResponses],
+  );
+  const analyticsFilteredResponses = useMemo(
+    () => applyFilters(officialAnalyticsResponses, filters),
+    [officialAnalyticsResponses, filters],
+  );
   
   const activeSurveyTypes = filters.surveyType.length ? filters.surveyType : effectiveSurveyTypes;
 
