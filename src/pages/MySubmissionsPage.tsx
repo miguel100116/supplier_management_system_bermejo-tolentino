@@ -40,6 +40,13 @@ export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmis
     return filteredSubmissions.slice(start, start + SUBMISSIONS_PAGE_SIZE);
   }, [filteredSubmissions, currentPage]);
 
+  // Show a compact block of up to ten directly selectable page numbers.
+  const visiblePageNumbers = useMemo(() => {
+    const firstPage = Math.floor((currentPage - 1) / SUBMISSIONS_PAGE_SIZE) * SUBMISSIONS_PAGE_SIZE + 1;
+    const lastPage = Math.min(firstPage + SUBMISSIONS_PAGE_SIZE - 1, totalPages);
+    return Array.from({ length: lastPage - firstPage + 1 }, (_, index) => firstPage + index);
+  }, [currentPage, totalPages]);
+
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
@@ -161,9 +168,23 @@ export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmis
                   <ChevronLeft size={15} />
                   Previous
                 </button>
-                <span className="min-w-20 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  Page {currentPage} of {totalPages}
-                </span>
+                <div className="flex items-center gap-1" aria-label="Page numbers">
+                  {visiblePageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => changePage(page)}
+                      aria-current={page === currentPage ? 'page' : undefined}
+                      className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-2 text-xs font-semibold transition ${
+                        page === currentPage
+                          ? 'border-[#0063a9] bg-[#0063a9] text-white'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => changePage(currentPage + 1)}

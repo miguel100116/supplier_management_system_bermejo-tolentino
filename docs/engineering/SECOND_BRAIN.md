@@ -42,6 +42,7 @@ Canonical product documentation:
 ### Authorization
 
 - UI access is derived from role, designation, department, and overrides.
+- Analytics is restricted to the Admin system role; employee dashboards show evaluation progress instead.
 - Supabase password identity and session restoration are integrated in the frontend; localStorage is not trusted as identity when Supabase is configured.
 - The applied database schema enables RLS. Shared reference records are readable by confirmed `@mgenesis.com` users; configuration/registry writes are role-restricted; users may insert only their own evaluations and permitted operational records; response reads are scoped by role, department, or ownership. Security-definer authorization helpers live in the unexposed `private` schema, and policy checks are consolidated to one policy per operation.
 - `supabase/schema.sql` currently contains clearly labeled temporary anonymous response policies. They are a production blocker if enabled.

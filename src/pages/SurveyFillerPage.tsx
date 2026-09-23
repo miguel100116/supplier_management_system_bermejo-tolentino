@@ -148,6 +148,11 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     return allCompaniesOfThisType.length > 0 && matchingCompanies.length === 0;
   }, [allCompaniesOfThisType, matchingCompanies]);
 
+  const selectedCompanyAddress = useMemo(() => {
+    const selectedCompany = matchingCompanies.find((candidate) => candidate.name === company);
+    return selectedCompany?.branches?.find((branch) => branch.address?.trim())?.address?.trim() ?? '';
+  }, [matchingCompanies, company]);
+
   // This employee's most recent full submission for the currently selected survey
   // type (regardless of which company it was for). Lets a new evaluation start
   // from what they typically rate this survey type instead of always defaulting
@@ -204,6 +209,16 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     }
   }, [matchingCompanies]);
 
+  useEffect(() => {
+    setAddress(selectedCompanyAddress);
+  }, [selectedCompanyAddress]);
+
+  useEffect(() => {
+    if (step === 2) {
+      document.getElementById('survey-filler-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [step]);
+
   useImperativeHandle(ref, () => ({
     attemptExit: (onAllowed: () => void) => {
       if (step === 2) {
@@ -222,7 +237,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     setError('');
 
     if (!company.trim() && !hasEvaluatedAll) {
-      setError('Please provide your organization or company name.');
+      setError('Please select a registered partner company.');
       return;
     }
 
@@ -262,7 +277,6 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     const initialRatings: Record<string, any> = {};
     const initialComments: Record<string, string> = {};
     activeSurvey?.questions.forEach((q) => {
-      const qMax = getQuestionMaxPoints(activeSurvey.surveyType, q.questionId);
       const previousAnswer = copyPreviousAnswers ? lastSubmissionForType?.answers.get(q.questionId) : undefined;
 
       if (draftRatings[q.questionId] !== undefined) {
@@ -292,7 +306,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
         } else if (q.inputType === 'typed-rating') {
           initialRatings[q.questionId] = previousAnswer !== undefined ? previousAnswer : '';
         } else {
-          initialRatings[q.questionId] = previousAnswer !== undefined ? previousAnswer : qMax; // fall back to maximum scale value
+          initialRatings[q.questionId] = previousAnswer !== undefined ? previousAnswer : '';
         }
       }
 
@@ -545,6 +559,8 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
               : `Invalid input. Must be a whole number between ${min} and ${max}.`;
           }
         }
+      } else if (!valStr) {
+        errors[q.questionId] = 'This field is required. Please select a rating.';
       }
     });
 
@@ -661,6 +677,18 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     setStep(1);
   };
 
+  const renderValidationError = (questionId: string) => {
+    const message = validationErrors[questionId];
+    if (!message) return null;
+
+    return (
+      <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-rose-500">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500" />
+        {message}
+      </p>
+    );
+  };
+
   if (!activeSurvey && surveys.length === 0) {
     return (
       <div className="panel mx-auto max-w-2xl p-6 text-center sm:p-12" id="survey-filler-empty">
@@ -673,33 +701,6 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
 
   return (
     <div className="max-w-3xl mx-auto space-y-6" id="survey-filler-container">
-      {/* Top Navigation Header */}
-      <div className="flex items-center justify-between pb-2">
-        {step === 1 ? (
-          onCancel && (
-            <button
-              onClick={onCancel}
-              className="secondary-button flex items-center gap-2 text-xs py-1.5 px-3"
-              type="button"
-            >
-              <ArrowLeft size={14} />
-              <span>Back to Form Management</span>
-            </button>
-          )
-        ) : step === 2 ? (
-          <button
-            onClick={() => setStep(1)}
-            className="secondary-button flex items-center gap-2 text-xs py-1.5 px-3"
-            type="button"
-          >
-            <ArrowLeft size={14} />
-            <span>Return</span>
-          </button>
-        ) : (
-          <div />
-        )}
-      </div>
-
       {/* Step Progress bar */}
       <div className="flex items-center justify-between gap-2 px-1 sm:px-2">
         <div className="flex items-center gap-1.5 text-xs font-semibold">
@@ -828,15 +829,14 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                       ))}
                     </select>
                   ) : (
-                    <input
+                    <select
                       id="filler-company"
-                      type="text"
-                      className="field"
-                      placeholder="e.g. Apex Buildworks Co."
-                      value={company}
-                      onChange={(e) => setCompany(e.target.value)}
-                      required
-                    />
+                      className="field text-xs font-semibold"
+                      value=""
+                      disabled
+                    >
+                      <option>No registered partner companies are available</option>
+                    </select>
                   )}
                 </div>
 
@@ -849,7 +849,11 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                     placeholder="Enter Company Address"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
+                    readOnly={Boolean(selectedCompanyAddress)}
                   />
+                  {selectedCompanyAddress && (
+                    <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Filled from the selected partner company's registered address.</p>
+                  )}
                 </div>
 
                 {activeSurvey && (activeSurvey.surveyType === 'Courier' || activeSurvey.surveyType === 'Supplier') && (
@@ -900,17 +904,6 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
             )}
 
             <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 dark:border-slate-800 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
-              {onCancel ? (
-                <button
-                  type="button"
-                  onClick={onCancel}
-                  className="secondary-button w-full min-[420px]:w-auto"
-                >
-                  Back to Form Management
-                </button>
-              ) : (
-                <div />
-              )}
               {!hasEvaluatedAll && (
                 <button
                   type="submit"
@@ -966,7 +959,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                 }
 
                 const maxVal = getQuestionMaxPoints(activeSurvey.surveyType, q.questionId);
-                const currentRating = ratings[q.questionId] !== undefined ? ratings[q.questionId] : maxVal;
+                const currentRating = ratings[q.questionId];
 
                 return (
                   <div key={q.questionId} className="space-y-3">
@@ -981,10 +974,10 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                     <div
                       id={`q-container-${q.questionId}`}
                       data-question-order={idx}
-                      className={`panel p-5 space-y-4 shadow-sm hover:shadow-md transition duration-200 border-l-4 ${
+                      className={`panel border border-dotted p-5 space-y-4 shadow-sm hover:shadow-md transition duration-200 ${
                         validationErrors[q.questionId]
-                          ? 'border-l-rose-500 bg-rose-50/10 ring-1 ring-rose-300 dark:border-l-rose-500 dark:bg-rose-950/5 dark:ring-rose-900/30'
-                          : 'border-l-[#0063a9] dark:border-l-blue-400'
+                          ? 'border-solid border-rose-400 bg-rose-50/10 ring-1 ring-rose-300 dark:bg-rose-950/5 dark:ring-rose-900/30'
+                          : 'border-[#0063a9] dark:border-blue-400'
                       }`}
                     >
                       <div className="space-y-1">
@@ -1004,7 +997,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                         <div>
                           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-2">Choose an option:</span>
                           <select
-                            className="field w-full text-xs font-semibold"
+                            className={`field w-full text-xs font-semibold ${validationErrors[q.questionId] ? 'border-rose-400 focus:ring-rose-200' : ''}`}
                             value={ratings[q.questionId] !== undefined ? ratings[q.questionId].toString() : ''}
                             onChange={(e) => {
                               handleRatingChange(q.questionId, e.target.value);
@@ -1022,6 +1015,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                               <option key={opt} value={opt}>{opt}</option>
                             ))}
                           </select>
+                          {renderValidationError(q.questionId)}
                         </div>
                       ) : q.inputType === 'text' ? (
                         <div>
@@ -1029,7 +1023,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                           <input
                             type="text"
                             placeholder="Enter your answer"
-                            className="field w-full"
+                            className={`field w-full ${validationErrors[q.questionId] ? 'border-rose-400 focus:ring-rose-200' : ''}`}
                             value={ratings[q.questionId] !== undefined ? ratings[q.questionId].toString() : ''}
                             onChange={(e) => {
                               handleRatingChange(q.questionId, e.target.value);
@@ -1042,6 +1036,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                               }
                             }}
                           />
+                          {renderValidationError(q.questionId)}
                         </div>
                       ) : q.inputType === 'checkbox' ? (
                         <div>
@@ -1071,6 +1066,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                               )
                             })}
                           </div>
+                          {renderValidationError(q.questionId)}
                         </div>
                       ) : q.inputType === 'date-range' ? (
                         <div>
@@ -1100,12 +1096,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                                }}
                              />
                            </div>
-                           {validationErrors[q.questionId] && (
-                             <p className="text-xs text-rose-500 font-semibold mt-1.5 flex items-center gap-1">
-                               <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                               {validationErrors[q.questionId]}
-                             </p>
-                           )}
+                           {renderValidationError(q.questionId)}
                         </div>
                       ) : q.inputType === 'matrix' && q.subQuestions ? (
                         <div className="overflow-x-auto w-full">
@@ -1152,6 +1143,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                               })}
                             </tbody>
                           </table>
+                          {renderValidationError(q.questionId)}
                         </div>
                       ) : q.inputType === 'typed-rating' ? (
                         <div>
@@ -1178,12 +1170,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                               }
                             }}
                           />
-                          {validationErrors[q.questionId] && (
-                            <p className="text-xs text-rose-500 font-semibold mt-1 flex items-center gap-1">
-                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                              {validationErrors[q.questionId]}
-                            </p>
-                          )}
+                          {renderValidationError(q.questionId)}
                         </div>
                       ) : (
                         <div>
@@ -1222,8 +1209,11 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                                     key={r}
                                     id={`rating-btn-${q.questionId}-${r}`}
                                     type="button"
-                                    tabIndex={isSelected ? 0 : -1}
-                                    onClick={() => handleRatingChange(q.questionId, r)}
+                                    tabIndex={isSelected || ((currentRating === '' || currentRating === undefined) && r === 0) ? 0 : -1}
+                                    onClick={() => {
+                                      handleRatingChange(q.questionId, r);
+                                      if (validationErrors[q.questionId]) setValidationErrors((previous) => { const next = { ...previous }; delete next[q.questionId]; return next; });
+                                    }}
                                     onKeyDown={(e) => handleRatingKeyDown(e, q.questionId, idx, optionValues)}
                                     className={`flex-1 min-w-[42px] h-11 rounded-lg border text-sm font-bold flex flex-col items-center justify-center transition duration-150 cursor-pointer ${btnStyle}`}
                                   >
@@ -1241,7 +1231,10 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                                   id={`rating-btn-${q.questionId}-N/A`}
                                   type="button"
                                   tabIndex={currentRating === 'N/A' ? 0 : -1}
-                                  onClick={() => handleRatingChange(q.questionId, 'N/A')}
+                                  onClick={() => {
+                                    handleRatingChange(q.questionId, 'N/A');
+                                    if (validationErrors[q.questionId]) setValidationErrors((previous) => { const next = { ...previous }; delete next[q.questionId]; return next; });
+                                  }}
                                   onKeyDown={(e) => handleRatingKeyDown(e, q.questionId, idx, optionValues)}
                                   className={`min-w-16 h-11 rounded-lg border text-sm font-bold flex flex-col items-center justify-center transition duration-150 cursor-pointer ${
                                     currentRating === 'N/A'
@@ -1255,6 +1248,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                               );
                             })()}
                           </div>
+                          {renderValidationError(q.questionId)}
                           <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
                             Tip: with a rating focused, press 0–{maxVal} or the arrow keys to change it, then Enter to jump to the next question.
                           </p>

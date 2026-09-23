@@ -104,11 +104,11 @@ Access is **computed**, not hand-assigned per user. Every account has three attr
 
 | Designation | Default modules granted |
 |---|---|
-| Rank & File | Dashboard, Analytics, Survey Forms, Partner Companies, Document Tracker, Notifications |
+| Rank & File | Dashboard, Survey Forms, Partner Companies, Document Tracker, Notifications |
 | Supervisory | All Rank & File modules + Feedback Hub and Reports |
 | Managerial | All Supervisory modules + Survey Explorer, Present, and Archive Center |
 | Director | Same default set as Managerial |
-| Executive | Dashboard, Analytics, Reports, Present, Notifications (a reduced, summary-focused set) |
+| Executive | Dashboard, Reports, Present, Notifications (a reduced, summary-focused set) |
 | **Admin (role)** | **Every module**, including Account Management, Renew Compliance Documents, and Import Evaluation Responses |
 
 An Admin can **override** access per individual account ("Custom Overrides"), or set a bulk access **ceiling** for an entire department ("Department Access"), from the Account Management page.
@@ -122,7 +122,7 @@ Beyond *which modules* a user sees, the system controls *which response data* th
 | Admin / Executive / Director | Every response (within their permitted survey types) |
 | Supervisory | Only their own department's responses |
 | Rank & File | Only their own submissions |
-| **Analytics (everyone)** | **Always company-wide and aggregate-only**, regardless of rank |
+| **Analytics (Admin only)** | **Always company-wide and aggregate-only** |
 
 A **Data Scope** toggle (shared across Dashboard and Analytics) further switches between *Current* (active period), *All-Time* (active + all archived periods), and *Custom* (specific archived series).
 

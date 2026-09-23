@@ -48,14 +48,12 @@ export function getDefaultPermissions(designation: string, department: string): 
   let pages: PageModuleKey[] = [];
 
   if (rank === 'Rank & File') {
-    pages = ['dashboard', 'analytics', 'survey-forms', 'partner-companies', 'document-register', 'notifications'];
+    pages = ['dashboard', 'survey-forms', 'partner-companies', 'document-register', 'notifications'];
   } else if (rank === 'Supervisory') {
-    // Supervisor gets Dashboard, Analytics, Survey Forms, Partner Companies, Partners Feedback Hub, and optionally Reports for basic exports
-    pages = ['dashboard', 'analytics', 'survey-forms', 'partner-companies', 'document-register', 'partners-feedback-hub', 'reports', 'notifications'];
+    pages = ['dashboard', 'survey-forms', 'partner-companies', 'document-register', 'partners-feedback-hub', 'reports', 'notifications'];
   } else if (rank === 'Managerial') {
     pages = [
       'dashboard',
-      'analytics',
       'survey-forms',
       'partner-companies',
       'document-register',
@@ -69,7 +67,6 @@ export function getDefaultPermissions(designation: string, department: string): 
   } else if (rank === 'Director') {
     pages = [
       'dashboard',
-      'analytics',
       'survey-forms',
       'partner-companies',
       'document-register',
@@ -81,7 +78,7 @@ export function getDefaultPermissions(designation: string, department: string): 
       'notifications'
     ];
   } else if (rank === 'Executive') {
-    pages = ['dashboard', 'analytics', 'reports', 'present', 'notifications'];
+    pages = ['dashboard', 'reports', 'present', 'notifications'];
   } else {
     // Default fallback or Admin
     pages = [
@@ -114,13 +111,12 @@ export function getDepartmentDefaultPermissions(department: string): UserPermiss
 
   let pages: PageModuleKey[] = [];
   if (dept === 'Executive Office') {
-    pages = ['dashboard', 'analytics', 'reports', 'present', 'notifications'];
+    pages = ['dashboard', 'reports', 'present', 'notifications'];
   } else if (dept === 'Business Solutions Manager') {
     pages = [
       'dashboard',
       'survey-forms',
       'explorer',
-      'analytics',
       'reports',
       'present',
       'partner-companies',
@@ -133,7 +129,6 @@ export function getDepartmentDefaultPermissions(department: string): UserPermiss
     // AP - Trade, Logistics, Procurement Group, TASS
     pages = [
       'dashboard',
-      'analytics',
       'survey-forms',
       'partner-companies',
       'document-register',
@@ -162,6 +157,10 @@ export function hasPageAccess(
   if (isAdmin && pageKey !== 'fill-form' && pageKey !== 'view-form' && pageKey !== 'create-form') {
     return true; // Admin has full access by default
   }
+
+  // Analytics is a company-wide aggregate view and is never available to an
+  // employee, including accounts with legacy custom permissions.
+  if (pageKey === 'analytics') return false;
 
   // Custom sub-views mapping
   if (pageKey === 'create-form') {

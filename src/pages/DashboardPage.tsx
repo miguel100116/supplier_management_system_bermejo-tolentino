@@ -459,7 +459,7 @@ export function DashboardPage({
       {/* ----------------------------------------------------
           DASHBOARD HEADER & CONTROL BAR
           ---------------------------------------------------- */}
-      {headerPortalTarget && createPortal(
+      {isAdmin && headerPortalTarget && createPortal(
         <div className="flex flex-wrap items-center gap-2.5 shrink-0 justify-end w-full sm:w-auto">
           {onChangeDataScope && (
             <div className="flex rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-1" title="Choose whether stats reflect only the current period or every archived period combined">
@@ -632,7 +632,7 @@ export function DashboardPage({
       {/* ----------------------------------------------------
           ACTIVE WIDGETS GRID
           ---------------------------------------------------- */}
-      {activeWidgets.length === 0 ? (
+      {isAdmin && (activeWidgets.length === 0 ? (
         <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white p-5 text-center dark:border-slate-800 dark:bg-slate-900 sm:p-8">
           <div className="w-16 h-16 bg-blue-50 dark:bg-blue-950/20 rounded-full flex items-center justify-center mb-4 text-blue-500">
             <Sparkles size={32} />
@@ -980,12 +980,12 @@ export function DashboardPage({
             })}
           </AnimatePresence>
         </div>
-      )}
+      ))}
 
       {/* ----------------------------------------------------
           ADD WIDGET MODAL DIALOG
           ---------------------------------------------------- */}
-      {isAddOpen && (
+      {isAdmin && isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}

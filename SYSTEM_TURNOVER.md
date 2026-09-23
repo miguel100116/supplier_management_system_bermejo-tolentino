@@ -47,14 +47,14 @@ Every account's default module access and visible survey data types are computed
 
 | Designation | Default modules granted |
 |---|---|
-| Rank & File | Dashboard, Analytics, Survey Forms, Partner Companies, Document Tracker, Notification Logs |
+| Rank & File | Dashboard, Survey Forms, Partner Companies, Document Tracker, Notification Logs |
 | Supervisory | All Rank & File modules, plus Partners Feedback Hub and Reports |
 | Managerial | All Supervisory modules, plus Survey Explorer, Present, and Archive Center |
 | Director | Same default module set as Managerial |
-| Executive | Dashboard, Analytics, Reports, Present, Notification Logs (a reduced, summary-focused set) |
+| Executive | Dashboard, Reports, Present, Notification Logs (a reduced, summary-focused set) |
 | Admin (role) | Every module, regardless of designation, including Account Management, Renew Compliance Documents, and Import Evaluation Responses |
 
-*Data-scoping for survey responses (defined in the draft Supabase schema — see [Known Issue #3](#24-known-issues--workarounds)): Admin, Executive, and Director see every response; Supervisory sees their own department's responses; Rank & File sees only their own submissions. Analytics remains company-wide and aggregate-only for every rank.*
+*Data-scoping for survey responses (defined in the draft Supabase schema — see [Known Issue #3](#24-known-issues--workarounds)): Admin, Executive, and Director see every response; Supervisory sees their own department's responses; Rank & File sees only their own submissions. Analytics is Admin-only and remains company-wide and aggregate-only.*
 
 ### 1.2 Admin Account Details
 
@@ -186,11 +186,11 @@ A condensed cheat-sheet of who gets what, by default:
 
 | Designation | Default modules granted |
 |---|---|
-| Rank & File | Dashboard, Analytics, Survey Forms, Partner Companies, Document Tracker, Notification Logs |
+| Rank & File | Dashboard, Survey Forms, Partner Companies, Document Tracker, Notification Logs |
 | Supervisory | All Rank & File modules, plus Partners Feedback Hub and Reports |
 | Managerial | All Supervisory modules, plus Survey Explorer, Present, and Archive Center |
 | Director | Same default module set as Managerial |
-| Executive | Dashboard, Analytics, Reports, Present, Notification Logs (a reduced, summary-focused set) |
+| Executive | Dashboard, Reports, Present, Notification Logs (a reduced, summary-focused set) |
 | Admin (role) | Every module, regardless of designation, including Account Management, Renew Compliance Documents, and Import Evaluation Responses |
 
 - To add a user: Account Management → Add Account (Admin only).
@@ -221,7 +221,7 @@ A condensed cheat-sheet of who gets what, by default:
 | 2 | Admin | Publishes the form (status: Running). |
 | 3 | Employee / Partner | Fills out the form if their department/rank/company is in scope. |
 | 4 | System | Records one response row per answered question and updates the Notification Bell and Notification Logs. |
-| 5 | All eligible users | See the new data reflected in Dashboard, Analytics (company-wide for everyone), and — for their own scope — Survey Explorer and Reports. |
+| 5 | Admins | See the new data reflected in Dashboard, Analytics (company-wide), and — for their own scope — Survey Explorer and Reports. |
 | 6 | Admin | Archives a completed survey's responses into an Archive Series once it is no longer active. |
 | 7 | Authorized users | Browse or restore archived submissions from the Archive Center. |
 

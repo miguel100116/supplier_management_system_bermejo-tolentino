@@ -11,3 +11,7 @@ test('account-management page access does not turn an employee into an administr
   assert.equal(hasPageAccess(['account-management'], 'analytics', false), false);
   assert.equal(hasPageAccess(['account-management'], 'analytics', true), true);
 });
+
+test('analytics remains unavailable to employees with a legacy custom permission', () => {
+  assert.equal(hasPageAccess(['analytics'], 'analytics', false), false);
+});
