@@ -15,6 +15,8 @@ import type { ArchiveImportResult } from '../utils/archiveResponseTransfer';
 import { ChartCard } from '../components/ChartCard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { seriesTrend, companySeriesTrend } from '../utils/analytics';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 
 interface ArchivePageProps {
   surveys: CustomForm[];
@@ -46,6 +48,9 @@ export function ArchivePage({
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<'surveys' | 'responses'>('surveys');
   const [searchQuery, setSearchQuery] = useState('');
+  const [tableSort, setTableSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('date-desc');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [confirmSurvey, setConfirmSurvey] = useState<CustomForm | null>(null);
   const [confirmResponseGroup, setConfirmResponseGroup] = useState<{ responseId: string; company: string; type: string } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -145,22 +150,34 @@ export function ArchivePage({
 
   // Filter lists based on search
   const filteredArchivedSurveys = useMemo(() => {
-    if (!searchQuery.trim()) return archivedSurveys;
     const needle = searchQuery.toLowerCase();
-    return archivedSurveys.filter(
-      (s) => s.title.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)
-    );
-  }, [archivedSurveys, searchQuery]);
+    return archivedSurveys
+      .filter((s) =>
+        (!needle.trim() || s.title.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)) &&
+        isWithinDateRange(s.createdAt, dateFrom, dateTo)
+      )
+      .sort((a, b) => {
+        if (tableSort === 'name-asc') return compareText(a.title, b.title);
+        if (tableSort === 'name-desc') return compareText(b.title, a.title);
+        if (tableSort === 'date-asc') return compareDate(a.createdAt, b.createdAt);
+        return compareDate(b.createdAt, a.createdAt);
+      });
+  }, [archivedSurveys, searchQuery, tableSort, dateFrom, dateTo]);
 
   const filteredGroupedResponses = useMemo(() => {
-    if (!searchQuery.trim()) return groupedArchivedResponses;
     const needle = searchQuery.toLowerCase();
-    return groupedArchivedResponses.filter(
-      (g) =>
-        g.label.toLowerCase().includes(needle) ||
-        g.surveyTypes.some((t) => t.toLowerCase().includes(needle))
-    );
-  }, [groupedArchivedResponses, searchQuery]);
+    return groupedArchivedResponses
+      .filter((g) =>
+        (!needle.trim() || g.label.toLowerCase().includes(needle) || g.surveyTypes.some((t) => t.toLowerCase().includes(needle))) &&
+        isWithinDateRange(g.sortKey, dateFrom, dateTo)
+      )
+      .sort((a, b) => {
+        if (tableSort === 'name-asc') return compareText(a.label, b.label);
+        if (tableSort === 'name-desc') return compareText(b.label, a.label);
+        if (tableSort === 'date-asc') return compareDate(a.sortKey, b.sortKey);
+        return compareDate(b.sortKey, a.sortKey);
+      });
+  }, [groupedArchivedResponses, searchQuery, tableSort, dateFrom, dateTo]);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
@@ -428,6 +445,29 @@ export function ArchivePage({
             </div>
           </div>
         </div>
+
+        <TableFilterBar
+          sortOptions={[
+            { value: 'date-desc', label: 'Date: newest first' },
+            { value: 'date-asc', label: 'Date: oldest first' },
+            { value: 'name-asc', label: 'Name: A–Z' },
+            { value: 'name-desc', label: 'Name: Z–A' },
+          ]}
+          sortValue={tableSort}
+          onSortChange={setTableSort}
+          resultCount={activeTab === 'surveys' ? filteredArchivedSurveys.length : filteredGroupedResponses.length}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateFromChange={setDateFrom}
+          onDateToChange={setDateTo}
+          dateLabel={activeTab === 'surveys' ? 'Created date' : 'Archived date'}
+          onReset={() => {
+            setSearchQuery('');
+            setTableSort('date-desc');
+            setDateFrom('');
+            setDateTo('');
+          }}
+        />
 
         {importError && (
           <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 text-xs font-semibold flex items-center gap-2 dark:bg-rose-950/20 dark:border-rose-900">

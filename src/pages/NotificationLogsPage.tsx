@@ -3,6 +3,8 @@ import { Bell, Inbox, Search } from 'lucide-react';
 import { ResponseNotification, SurveyType } from '../types/survey';
 import { formatLogDate, formatLogTime, formatRelativeTime } from '../utils/time';
 import { StateMessage } from '../components/StateMessage';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { isWithinDateRange } from '../utils/tableFilters';
 
 interface NotificationLogsPageProps {
   notifications: ResponseNotification[];
@@ -31,6 +33,9 @@ export function NotificationLogsPage({
 }: NotificationLogsPageProps) {
   const [surveyType, setSurveyType] = useState<'All' | SurveyType>('All');
   const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [activityType, setActivityType] = useState<'all' | 'submission' | 'document'>('all');
 
   type SortField = 'submissionDate' | 'surveyType' | 'company' | 'respondentEmail' | 'department' | 'designation';
   type SortOrder = 'asc' | 'desc';
@@ -46,6 +51,10 @@ export function NotificationLogsPage({
   const filtered = useMemo(() => {
     return enriched.filter((item) => {
       if (surveyType !== 'All' && item.surveyType !== surveyType) return false;
+      if (!isWithinDateRange(item.submissionDate, dateFrom, dateTo)) return false;
+      const isDocumentAlert = item.designation === 'Document Alert';
+      if (activityType === 'document' && !isDocumentAlert) return false;
+      if (activityType === 'submission' && isDocumentAlert) return false;
 
       if (search.trim()) {
         const needle = search.trim().toLowerCase();
@@ -55,7 +64,7 @@ export function NotificationLogsPage({
 
       return true;
     });
-  }, [enriched, surveyType, search]);
+  }, [enriched, surveyType, search, dateFrom, dateTo, activityType]);
 
   const sortedAndFiltered = useMemo(() => {
     const result = [...filtered];
@@ -157,6 +166,51 @@ export function NotificationLogsPage({
               />
             </div>
           </label>
+        </div>
+
+        <div className="mb-5">
+          <TableFilterBar
+            sortOptions={[
+              { value: 'date-desc', label: 'Date: newest first' },
+              { value: 'date-asc', label: 'Date: oldest first' },
+              { value: 'company-asc', label: 'Company: A–Z' },
+              { value: 'company-desc', label: 'Company: Z–A' },
+            ]}
+            sortValue={sortField === 'company' ? `company-${sortOrder}` : `date-${sortOrder}`}
+            onSortChange={(value) => {
+              const [field, order] = value.split('-') as ['date' | 'company', SortOrder];
+              setSortField(field === 'date' ? 'submissionDate' : 'company');
+              setSortOrder(order);
+            }}
+            resultCount={sortedAndFiltered.length}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+            dateLabel="Activity date"
+            onReset={() => {
+              setSearch('');
+              setSurveyType('All');
+              setActivityType('all');
+              setDateFrom('');
+              setDateTo('');
+              setSortField('submissionDate');
+              setSortOrder('desc');
+            }}
+          >
+            <label className="min-w-[160px] flex-1 sm:flex-none">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Activity type</span>
+              <select
+                value={activityType}
+                onChange={(event) => setActivityType(event.target.value as typeof activityType)}
+                className="field !mt-0 w-full py-2 text-xs sm:w-[170px]"
+              >
+                <option value="all">All activity</option>
+                <option value="submission">Survey submissions</option>
+                <option value="document">Document alerts</option>
+              </select>
+            </label>
+          </TableFilterBar>
         </div>
 
         {sortedAndFiltered.length === 0 ? (

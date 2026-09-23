@@ -5,6 +5,8 @@ import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
 import { getAllCompaniesOfType, getSurveyEvaluationCompanies } from '../utils/analytics';
 import { getReminderFrequency, saveReminderFrequency } from '../utils/reminderSettings';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 
 interface SurveyFormsPageProps {
   surveys: CustomForm[];
@@ -92,6 +94,9 @@ export function SurveyFormsPage({
 }: SurveyFormsPageProps) {
   const [surveyType, setSurveyType] = useState<'All' | SurveyType>('All');
   const [search, setSearch] = useState('');
+  const [tableSort, setTableSort] = useState<'title-asc' | 'title-desc' | 'deadline-asc' | 'deadline-desc' | 'created-desc'>('title-asc');
+  const [deadlineFrom, setDeadlineFrom] = useState('');
+  const [deadlineTo, setDeadlineTo] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // State for bulk modification
@@ -227,7 +232,7 @@ export function SurveyFormsPage({
   );
 
   const filteredSurveys = useMemo(() => {
-    return surveys.filter((survey) => {
+    const matching = surveys.filter((survey) => {
       // If Archived, it must not be seen in the table
       if (survey.status === 'Archived') return false;
 
@@ -239,9 +244,18 @@ export function SurveyFormsPage({
         if (!haystack.includes(needle)) return false;
       }
 
+      if (!isWithinDateRange(survey.deadlineDate, deadlineFrom, deadlineTo)) return false;
+
       return true;
     });
-  }, [surveys, surveyType, search]);
+    return matching.sort((a, b) => {
+      if (tableSort === 'title-desc') return compareText(b.title, a.title);
+      if (tableSort === 'deadline-asc') return compareDate(a.deadlineDate, b.deadlineDate);
+      if (tableSort === 'deadline-desc') return compareDate(b.deadlineDate, a.deadlineDate);
+      if (tableSort === 'created-desc') return compareDate(b.createdAt, a.createdAt);
+      return compareText(a.title, b.title);
+    });
+  }, [surveys, surveyType, search, tableSort, deadlineFrom, deadlineTo]);
 
   const handleToggleSelect = (id: string) => {
     setSelectedSurveyIds((prev) => {
@@ -617,6 +631,33 @@ export function SurveyFormsPage({
               />
             </div>
           </label>
+        </div>
+
+        <div className="mb-5">
+          <TableFilterBar
+            sortOptions={[
+              { value: 'title-asc', label: 'Title: A–Z' },
+              { value: 'title-desc', label: 'Title: Z–A' },
+              { value: 'deadline-asc', label: 'Deadline: earliest first' },
+              { value: 'deadline-desc', label: 'Deadline: latest first' },
+              { value: 'created-desc', label: 'Created: newest first' },
+            ]}
+            sortValue={tableSort}
+            onSortChange={setTableSort}
+            resultCount={filteredSurveys.length}
+            dateFrom={deadlineFrom}
+            dateTo={deadlineTo}
+            onDateFromChange={setDeadlineFrom}
+            onDateToChange={setDeadlineTo}
+            dateLabel="Deadline range"
+            onReset={() => {
+              setSearch('');
+              setSurveyType('All');
+              setTableSort('title-asc');
+              setDeadlineFrom('');
+              setDeadlineTo('');
+            }}
+          />
         </div>
 
         {filteredSurveys.length === 0 ? (
