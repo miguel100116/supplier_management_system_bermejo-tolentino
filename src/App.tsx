@@ -390,12 +390,9 @@ export default function App() {
   } = useSurveyData(accounts, account, isAdmin);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
-  // Keep navigation inside the SPA context-aware. Detail and editor views
-  // should return to the module that opened them, rather than always
-  // resetting people to Dashboard.
+  // SPA navigation has no URL history. Keep an explicit module history so
+  // page-level Back and Cancel controls return to where the user came from.
   const pageHistoryRef = useRef<PageKey[]>([]);
-  const previousPageRef = useRef<PageKey | null>(null);
-  const isNavigatingBackRef = useRef(false);
   const [isSupabaseHydrating, setIsSupabaseHydrating] = useState(isSupabaseConfigured);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -435,25 +432,31 @@ export default function App() {
     }
   };
 
-  const goToPreviousPage = () => {
-    const previousPage = pageHistoryRef.current.at(-1) ?? 'dashboard';
-    if (previousPage === activePage) return;
+  const navigateTo = (targetPage: PageKey) => {
+    if (targetPage === activePage) return;
 
-    navigateFrom(previousPage, () => {
-      pageHistoryRef.current.pop();
-      isNavigatingBackRef.current = true;
-      setActivePage(previousPage);
+    navigateFrom(targetPage, () => {
+      pageHistoryRef.current.push(activePage);
+      setActivePage(targetPage);
     });
   };
 
-  useEffect(() => {
-    const previousPage = previousPageRef.current;
-    if (previousPage && previousPage !== activePage && !isNavigatingBackRef.current) {
-      pageHistoryRef.current.push(previousPage);
-    }
-    previousPageRef.current = activePage;
-    isNavigatingBackRef.current = false;
-  }, [activePage]);
+  const resetNavigationTo = (targetPage: PageKey) => {
+    pageHistoryRef.current = [];
+    setActivePage(targetPage);
+  };
+
+  const goToPreviousPage = (fallbackPage?: PageKey) => {
+    const previousPage = pageHistoryRef.current.at(-1) ?? fallbackPage;
+    if (!previousPage || previousPage === activePage) return;
+
+    navigateFrom(previousPage, () => {
+      if (pageHistoryRef.current.at(-1) === previousPage) {
+        pageHistoryRef.current.pop();
+      }
+      setActivePage(previousPage);
+    });
+  };
   const [editingSurveyId, setEditingSurveyId] = useState<string | null>(null);
 
   // Deep-link into Partner Companies' detail/edit panel for one specific
@@ -652,7 +655,7 @@ export default function App() {
     const currentIsAllowed = hasPageAccess(userPermissions.pages, activePage, isAdmin);
     if (!currentIsAllowed) {
       const fallback = flatNavLeaves[0]?.key || 'dashboard';
-      setActivePage(fallback as PageKey);
+      resetNavigationTo(fallback as PageKey);
     }
   }, [activePage, userPermissions.pages, flatNavLeaves, account, isAdmin]);
 
@@ -808,7 +811,7 @@ export default function App() {
     recordSessionActivity(email);
     setAccount(email);
     localStorage.setItem('user_account', email);
-    setActivePage('dashboard');
+    resetNavigationTo('dashboard');
     // Best-effort: exchange the Microsoft ID token for a Supabase session so
     // Postgres RLS can enforce access. A failure here (e.g. Azure provider not
     // yet enabled in Supabase) is logged but does not block the user - their
@@ -909,7 +912,7 @@ export default function App() {
         partnerCompanies={userAccessiblePartnerCompanies}
         accounts={accounts}
         currentUser={profile}
-        onNavigatePage={(p) => setActivePage(p as PageKey)}
+        onNavigatePage={(p) => navigateTo(p as PageKey)}
         onMarkSurveyComplete={(id) => {
           const survey = surveys.find((candidate) => candidate.id === id);
           if (survey) updateSurvey({ ...survey, status: 'Completed' });
@@ -937,12 +940,12 @@ export default function App() {
         onArchiveResponses={archiveResponsesForSurveys}
         onSelectSurvey={(id) => {
           setSelectedSurveyId(id);
-          setActivePage('view-form');
+          navigateTo('view-form');
         }}
-        onNavigateToCreate={() => setActivePage('create-form')}
+        onNavigateToCreate={() => navigateTo('create-form')}
         onFillForm={(id) => {
           setSelectedSurveyId(id);
-          setActivePage('fill-form');
+          navigateTo('fill-form');
         }}
         isAdmin={isAdmin}
       />
@@ -983,7 +986,7 @@ export default function App() {
       <MySubmissionsPage
         responses={userAccessibleAllTimeResponses}
         userEmail={account || ''}
-        onFillForm={() => setActivePage('fill-form')}
+        onFillForm={() => navigateTo('fill-form')}
       />
     ),
     'profile-settings': profile && (
@@ -996,7 +999,7 @@ export default function App() {
         onToggleDarkMode={() => setDarkMode((value) => !value)}
         onLogout={handleLogout}
         responses={userAccessibleAllTimeResponses}
-        onViewAllSubmissions={() => setActivePage('my-submissions')}
+        onViewAllSubmissions={() => navigateTo('my-submissions')}
       />
     ),
     settings: profile && (
@@ -1007,7 +1010,7 @@ export default function App() {
         department={profile.department}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((value) => !value)}
-        onOpenImportEvaluations={() => setActivePage('import-evaluations')}
+        onOpenImportEvaluations={() => navigateTo('import-evaluations')}
         onResetSystemData={handleResetAllData}
         onLogout={handleLogout}
         accountsCount={accounts.length}
@@ -1034,7 +1037,7 @@ export default function App() {
           responses={responses}
           onFillForm={(id) => {
             setSelectedSurveyId(id);
-            setActivePage('fill-form');
+            navigateTo('fill-form');
           }}
         />
       )
@@ -1043,7 +1046,7 @@ export default function App() {
       <CreateSurveyPage
         onBack={() => {
           setEditingSurveyId(null);
-          goToPreviousPage();
+          goToPreviousPage('survey-forms');
         }}
         surveyToEdit={editingSurveyId ? surveys.find(s => s.id === editingSurveyId) : undefined}
         categoryLabels={categoryLabels}
@@ -1056,12 +1059,12 @@ export default function App() {
               createdAt: currentSurvey?.createdAt || new Date().toISOString(),
             });
             setEditingSurveyId(null);
-            setActivePage('view-form');
+            navigateTo('view-form');
           } else {
             const newSurvey = createSurvey(surveyData);
             if (newSurvey) {
               setSelectedSurveyId(newSurvey.id);
-              setActivePage('view-form');
+              navigateTo('view-form');
             }
           }
         }}
@@ -1074,7 +1077,7 @@ export default function App() {
           <div className="panel p-8 text-center text-slate-500">
             <ShieldAlert size={36} className="mx-auto mb-2 text-rose-500" />
             <p className="font-semibold">Survey not found or was deleted.</p>
-            <button onClick={() => setActivePage('dashboard')} className="primary-button mt-4">Return to Dashboard</button>
+            <button onClick={() => goToPreviousPage('survey-forms')} className="primary-button mt-4">Return to Surveys</button>
           </div>
         );
       }
@@ -1084,14 +1087,14 @@ export default function App() {
           responses={userAccessibleResponses}
           partnerCompanies={userAccessiblePartnerCompanies}
           userEmail={account || ''}
-          onBack={goToPreviousPage}
+          onBack={() => goToPreviousPage('survey-forms')}
           onDelete={(id) => {
             deleteSurvey(id);
-            setActivePage('dashboard');
+            goToPreviousPage('survey-forms');
           }}
           onEdit={(id) => {
             setEditingSurveyId(id);
-            setActivePage('create-form');
+            navigateTo('create-form');
           }}
           isAdmin={isAdmin}
         />
@@ -1108,7 +1111,7 @@ export default function App() {
         defaultRespondentType={profile?.designation}
         responses={userAccessibleResponses}
         onSubmitted={handleSurveySubmit}
-        onCancel={goToPreviousPage}
+        onCancel={() => goToPreviousPage('survey-forms')}
       />
     ),
     archive: (
@@ -1159,10 +1162,8 @@ export default function App() {
         activePage={activePage as any}
         onPageChange={(page) => {
           const targetPage = page as PageKey;
-          navigateFrom(targetPage, () => {
-            setActivePage(targetPage);
-            if (targetPage === 'notifications') markNotificationsRead();
-          });
+          navigateTo(targetPage);
+          if (targetPage === 'notifications') markNotificationsRead();
         }}
         title={activeTitle}
         pageHeading={pageHeading}
@@ -1186,7 +1187,7 @@ export default function App() {
                   responses={responses}
                   onFillForm={(id) => {
                     setSelectedSurveyId(id);
-                    setActivePage('fill-form');
+                    navigateTo('fill-form');
                   }}
                   onViewAll={() => setIsNotificationModalOpen(true)}
                   variant="header"
@@ -1304,7 +1305,7 @@ export default function App() {
                     onFillForm={(id) => {
                       setIsNotificationModalOpen(false);
                       setSelectedSurveyId(id);
-                      setActivePage('fill-form');
+                      navigateTo('fill-form');
                     }}
                   />
                 )
@@ -1405,7 +1406,7 @@ export default function App() {
                   onToggleDarkMode={() => setDarkMode((value) => !value)}
                   onOpenImportEvaluations={() => {
                     setIsSettingsModalOpen(false);
-                    setActivePage('import-evaluations');
+                    navigateTo('import-evaluations');
                   }}
                   onResetSystemData={handleResetAllData}
                   onLogout={handleLogout}
@@ -1425,7 +1426,7 @@ export default function App() {
                   responses={userAccessibleAllTimeResponses}
                   onViewAllSubmissions={() => {
                     setIsSettingsModalOpen(false);
-                    setActivePage('my-submissions');
+                    navigateTo('my-submissions');
                   }}
                 />
               )}
