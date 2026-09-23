@@ -764,7 +764,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !account) return;
-    const refreshProfiles = () => {
+    const refreshAccessSettings = () => {
       void Promise.all([
         loadProfiles(),
         loadApplicationRecords<PersistedDepartmentPermission>('department_permission'),
@@ -783,8 +783,16 @@ export default function App() {
         setAccountPersistenceError(loadError instanceof Error ? loadError.message : 'Unable to refresh access settings.');
       });
     };
-    window.addEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshProfiles);
-    return () => window.removeEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshProfiles);
+    const refreshDepartmentPermissions = (event: Event) => {
+      const recordType = (event as CustomEvent<{ recordType?: ApplicationRecordType }>).detail?.recordType;
+      if (recordType === 'department_permission') refreshAccessSettings();
+    };
+    window.addEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshAccessSettings);
+    window.addEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshDepartmentPermissions);
+    return () => {
+      window.removeEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshAccessSettings);
+      window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshDepartmentPermissions);
+    };
   }, [account]);
 
   useEffect(() => {
