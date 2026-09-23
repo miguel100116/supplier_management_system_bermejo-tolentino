@@ -32,7 +32,7 @@
 
 ## 1. Overview
 
-The **Supplier Management System** is an internal web application built for **mgenesis** to evaluate, rank, and monitor the company's external business partners — its couriers, inventory suppliers, and on-site subcontractors.
+The **Supplier Management System** is an internal web application built for **Microgenesis** to evaluate, rank, and monitor the company's external business partners — its couriers, inventory suppliers, and on-site subcontractors.
 
 At its heart, the system replaces scattered paper evaluation forms and standalone Microsoft Forms surveys with a single, unified platform where employees can:
 
