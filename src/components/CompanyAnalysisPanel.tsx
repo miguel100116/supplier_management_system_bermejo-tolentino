@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
-import { Search, X, GitCompareArrows, RadarIcon, BarChart3 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Search, GitCompareArrows, RadarIcon, BarChart3 } from 'lucide-react';
 import { useIsMobile } from '../hooks/useIsMobile';
 import {
   Bar,
@@ -22,6 +22,7 @@ import {
 import { ArchiveSeries, SurveyResponse, SurveyType } from '../types/survey';
 import { surveyTypeDisplayLabel } from '../data/questionWeights';
 import { getCompanyTrend, getCompanyTrendBySeries, getLeaderboard, getPeerAverageTrend, getPeerAverageTrendBySeries, getSectionPeerAverages } from '../utils/scoring';
+import { CompanyCombobox } from '../features/analytics/components/CompanyCombobox';
 
 interface CompanyAnalysisPanelProps {
   responses: SurveyResponse[];
@@ -74,14 +75,10 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
   const [surveyType, setSurveyType] = useState<SurveyType>('Courier');
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Comparison company (replaces "Peer average" on both the section chart and the trend chart when set)
   const [compareCompany, setCompareCompany] = useState<string | null>(null);
   const [compareQuery, setCompareQuery] = useState('');
-  const [isCompareOpen, setIsCompareOpen] = useState(false);
-  const compareInputRef = useRef<HTMLInputElement>(null);
 
   const [chartView, setChartView] = useState<'radar' | 'bar'>('radar');
 
@@ -243,8 +240,6 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
 
   const handleSelectCompany = (company: string) => {
     setSelectedCompany(company);
-    setQuery(company);
-    setIsSearchOpen(false);
     // A company can't be compared to itself
     if (compareCompany === company) {
       setCompareCompany(null);
@@ -254,22 +249,14 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
 
   const handleClearSelection = () => {
     setSelectedCompany(null);
-    setQuery('');
-    inputRef.current?.focus();
-    setIsSearchOpen(true);
   };
 
   const handleSelectCompareCompany = (company: string) => {
     setCompareCompany(company);
-    setCompareQuery(company);
-    setIsCompareOpen(false);
   };
 
   const handleClearCompareSelection = () => {
     setCompareCompany(null);
-    setCompareQuery('');
-    compareInputRef.current?.focus();
-    setIsCompareOpen(true);
   };
 
   if (!responses.length) return null;
@@ -277,176 +264,68 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
   return (
     <section className="panel space-y-4">
       <div className="flex flex-col gap-4">
-        <div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
           <h3 className="text-base font-semibold">Company Analysis</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
             Search for a specific company to see its section breakdown and score trend over time.
           </p>
-        </div>
+          </div>
 
-        <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800 w-full">
-          <div className="segmented-control flex-1 w-full md:w-auto grid grid-cols-3">
+          <fieldset className="min-w-0 lg:shrink-0">
+            <legend className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Partner type</legend>
+            <div className="segmented-control grid w-full grid-cols-3 lg:w-auto">
             {surveyTypes.map((type) => (
               <button
                 key={type}
                 type="button"
                 className={`py-2 text-center w-full flex-1 ${surveyType === type ? 'segmented-active font-bold text-[#0063a9] dark:text-blue-400 shadow-sm' : ''}`}
+                aria-pressed={surveyType === type}
                 onClick={() => {
                   setSurveyType(type);
                   setSelectedCompany(null);
                   setQuery('');
-                  setIsSearchOpen(false);
                   setCompareCompany(null);
                   setCompareQuery('');
-                  setIsCompareOpen(false);
                 }}
               >
                 {surveyTypeDisplayLabel[type]}
               </button>
             ))}
-          </div>
+            </div>
+          </fieldset>
         </div>
 
         {/* Both search boxes are centered and shown side by side, visible before any selection is made */}
-        <div className="flex flex-col md:flex-row gap-4 justify-center items-stretch md:items-start w-full">
-          {/* Company search / combobox */}
-          <div className="relative w-full md:w-[22rem] md:max-w-sm">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={isSearchOpen ? query : (selectedCompany || query)}
-                onFocus={() => {
-                  setIsSearchOpen(true);
-                  if (selectedCompany) setQuery('');
-                }}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setIsSearchOpen(true);
-                  if (selectedCompany) setSelectedCompany(null);
-                }}
-                placeholder={`Search ${surveyTypeDisplayLabel[surveyType].toLowerCase()} companies...`}
-                className="w-full pl-9 pr-9 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-[#0063a9] dark:focus:border-blue-500 transition-colors"
-              />
-              {(selectedCompany || query) && (
-                <button
-                  type="button"
-                  onClick={handleClearSelection}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                  aria-label="Clear selection"
-                >
-                  <X size={15} />
-                </button>
-              )}
-            </div>
-
-            {isSearchOpen && (
-              <div className="absolute z-20 mt-1.5 w-full max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg py-1">
-                {filteredOptions.length === 0 ? (
-                  <p className="px-3 py-3 text-sm text-slate-400 dark:text-slate-500 text-center">
-                    No matching companies.
-                  </p>
-                ) : (
-                  filteredOptions.map((company) => (
-                    <button
-                      key={company}
-                      type="button"
-                      onMouseDown={(e) => {
-                        // onMouseDown fires before the input's onBlur, so selection registers
-                        // before we ever close the dropdown.
-                        e.preventDefault();
-                        handleSelectCompany(company);
-                      }}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                        company === selectedCompany
-                          ? 'bg-blue-50 text-[#0063a9] dark:bg-blue-950/40 dark:text-blue-300 font-semibold'
-                          : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900'
-                      }`}
-                    >
-                      <span className="truncate">{company}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-
-            {/* Click-away backdrop to close the dropdown */}
-            {isSearchOpen && (
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setIsSearchOpen(false)}
-              />
-            )}
-          </div>
-
-          {/* Comparison company search / combobox - always visible, styled distinctly from the primary search */}
-          <div className="relative w-full md:w-[22rem] md:max-w-sm">
-            <div className="relative">
-              <GitCompareArrows size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                ref={compareInputRef}
-                type="text"
-                value={isCompareOpen ? compareQuery : (compareCompany || compareQuery)}
-                onFocus={() => {
-                  setIsCompareOpen(true);
-                  if (compareCompany) setCompareQuery('');
-                }}
-                onChange={(e) => {
-                  setCompareQuery(e.target.value);
-                  setIsCompareOpen(true);
-                  if (compareCompany) setCompareCompany(null);
-                }}
-                placeholder={`Compare with another ${surveyTypeDisplayLabel[surveyType].toLowerCase()}...`}
-                className="w-full pl-9 pr-9 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-orange-500 dark:focus:border-orange-400 transition-colors"
-              />
-              {(compareCompany || compareQuery) && (
-                <button
-                  type="button"
-                  onClick={handleClearCompareSelection}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                  aria-label="Clear comparison selection"
-                >
-                  <X size={15} />
-                </button>
-              )}
-            </div>
-
-            {isCompareOpen && (
-              <div className="absolute z-20 mt-1.5 w-full max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg py-1">
-                {filteredCompareOptions.length === 0 ? (
-                  <p className="px-3 py-3 text-sm text-slate-400 dark:text-slate-500 text-center">
-                    No matching companies.
-                  </p>
-                ) : (
-                  filteredCompareOptions.map((company) => (
-                    <button
-                      key={company}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        handleSelectCompareCompany(company);
-                      }}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                        company === compareCompany
-                          ? 'bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300 font-semibold'
-                          : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900'
-                      }`}
-                    >
-                      <span className="truncate">{company}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-
-            {isCompareOpen && (
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setIsCompareOpen(false)}
-              />
-            )}
-          </div>
+        <div className="grid w-full gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 md:grid-cols-2">
+          <CompanyCombobox
+            key={`${surveyType}-primary`}
+            idPrefix="company-search"
+            label={`Search ${surveyTypeDisplayLabel[surveyType]} companies`}
+            placeholder={`Search ${surveyTypeDisplayLabel[surveyType].toLowerCase()} companies...`}
+            icon={<Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+            tone="primary"
+            options={filteredOptions}
+            selectedValue={selectedCompany}
+            query={query}
+            onQueryChange={setQuery}
+            onSelect={handleSelectCompany}
+            onClearSelection={handleClearSelection}
+          />
+          <CompanyCombobox
+            key={`${surveyType}-compare`}
+            idPrefix="company-compare"
+            label={`Compare with another ${surveyTypeDisplayLabel[surveyType]} company`}
+            placeholder={`Compare with another ${surveyTypeDisplayLabel[surveyType].toLowerCase()}...`}
+            icon={<GitCompareArrows size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+            tone="compare"
+            options={filteredCompareOptions}
+            selectedValue={compareCompany}
+            query={compareQuery}
+            onQueryChange={setCompareQuery}
+            onSelect={handleSelectCompareCompany}
+            onClearSelection={handleClearCompareSelection}
+          />
         </div>
       </div>
 

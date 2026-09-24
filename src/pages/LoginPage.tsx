@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 import {
   signInWithSupabasePassword,
   signUpWithSupabasePassword,
+  requestSupabasePasswordReset,
 } from '../services/supabasePasswordAuth';
 
 // Passed up to App so it can establish the Supabase session (RLS) from the
@@ -16,7 +17,7 @@ export interface MicrosoftAuth {
 }
 
 interface LoginPageProps {
-  onLogin: (email: string, auth?: MicrosoftAuth) => void;
+  onLogin: (email: string, auth?: MicrosoftAuth) => Promise<void>;
 }
 
 // Ambient dot texture for the hero panel — kept extremely faint (2–5% via the
@@ -133,7 +134,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         setMsError('Access is restricted to verified @mgenesis.com accounts.');
         return;
       }
-      onLogin(normalized, { idToken: result.idToken, nonce: result.nonce });
+      await onLogin(normalized, { idToken: result.idToken, nonce: result.nonce });
     } catch (err) {
       setMsError(err instanceof Error ? err.message : 'Microsoft sign-in failed. Please try again.');
     } finally {
@@ -148,7 +149,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     setIsPasswordSubmitting(true);
     try {
       const authenticatedEmail = await signInWithSupabasePassword(email, password);
-      onLogin(authenticatedEmail);
+      await onLogin(authenticatedEmail);
     } catch (err) {
       setPasswordError(err instanceof Error ? err.message : 'Unable to sign in.');
     } finally {
@@ -163,12 +164,27 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     try {
       const result = await signUpWithSupabasePassword(email, password);
       if (result.signedIn) {
-        onLogin(result.email);
+        await onLogin(result.email);
       } else {
         setPasswordMessage('Check your company email, confirm the account, then return here to sign in.');
       }
     } catch (err) {
       setPasswordError(err instanceof Error ? err.message : 'Unable to create the account.');
+    } finally {
+      setIsPasswordSubmitting(false);
+    }
+  }
+
+  async function handlePasswordResetRequest() {
+    setPasswordError('');
+    setPasswordMessage('');
+    setIsPasswordSubmitting(true);
+    try {
+      const redirectTo = `${window.location.origin}${window.location.pathname}`;
+      await requestSupabasePasswordReset(email, redirectTo);
+      setPasswordMessage('If that company account exists, a password reset link has been sent.');
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : 'Unable to request a password reset.');
     } finally {
       setIsPasswordSubmitting(false);
     }
@@ -311,6 +327,14 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   className="w-full rounded-lg border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                 >
                   Create staging account
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePasswordResetRequest}
+                  disabled={isPasswordSubmitting || !email}
+                  className="w-full py-1.5 text-sm font-medium text-[#0063a9] transition hover:text-[#004f86] disabled:opacity-50"
+                >
+                  Forgot password?
                 </button>
               </form>
             )}

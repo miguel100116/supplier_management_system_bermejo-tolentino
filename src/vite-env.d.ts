@@ -7,5 +7,6 @@ interface Window {
     azureClientId?: string;
     azureTenantId?: string;
     azureRedirectUri?: string;
+    deploymentEnvironment?: string;
   };
 }

@@ -5,7 +5,6 @@ import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Leg
 import { BranchRecord, BranchStatus, ComplianceDocument, DocumentStatus, PartnerCompany, PartnerCompanyType, SupplierOrigin } from '../types/survey';
 import { branchAwareCompanyLabel, computeCompanyDocumentSummary, computeDocumentStatus, isNTBranch } from '../utils/compliance';
 import { getRequiredDocumentKeys, isExpiryDocument } from '../utils/documentRequirements';
-import { logAdminActivity } from '../utils/adminActivityLog';
 import { DocumentModificationEntry, getDocumentModifications, logDocumentModification } from '../utils/documentModificationLog';
 import { ComplianceSnapshot, getComplianceHistory, saveComplianceHistory } from '../utils/complianceHistory';
 import {
@@ -22,6 +21,13 @@ import { BRANCH_STATUS_OPTIONS, branchStatusBadgeClasses } from './PartnerCompan
 interface DocumentRegisterPageProps {
   partnerCompanies: PartnerCompany[];
   onUpdateCompany: (company: PartnerCompany) => void;
+  onRenewDocument: (
+    companyId: string,
+    branchId: string,
+    documentName: string,
+    expectedDocument: ComplianceDocument,
+    nextDocument: Pick<ComplianceDocument, 'provided' | 'expiryDate'>,
+  ) => Promise<PartnerCompany>;
   canRenewDocuments?: boolean;
   currentUserEmail?: string;
   isAdmin?: boolean;
@@ -373,13 +379,14 @@ function pickBranchForDoc(company: PartnerCompany, docName: string): BranchRecor
   }) ?? branches[0];
 }
 
-export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRenewDocuments, currentUserEmail = '', isAdmin = false }: DocumentRegisterPageProps) {
+export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRenewDocument, canRenewDocuments, currentUserEmail = '', isAdmin = false }: DocumentRegisterPageProps) {
   const isMobile = useIsMobile();
   const [categoryKey, setCategoryKey] = useState<string>('supplier-local');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'expired' | 'expiring' | 'missing'>('all');
   const [renewalTarget, setRenewalTarget] = useState<{ company: PartnerCompany; branchId: string; docName: string } | null>(null);
   const [renewalDate, setRenewalDate] = useState('');
+  const [mutationError, setMutationError] = useState('');
   // Flag docs (plain provided/not-provided checklist items, no expiry date):
   // clicking a cell opens a two-step flow. Step 'choose' lets the user pick
   // Missing/Complete explicitly (pre-selected to the current value) instead
@@ -996,25 +1003,14 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
   // Applies an explicit provided/not-provided value (never a blind flip) -
   // called only from the flag flow's step 2 Confirm button, once the user
   // has both picked a value in step 1 and confirmed the warning in step 2.
-  const applyFlagChange = (company: PartnerCompany, branch: BranchRecord, docName: string, provided: boolean) => {
+  const applyFlagChange = async (company: PartnerCompany, branch: BranchRecord, docName: string, provided: boolean) => {
     if (!canRenewDocuments) return;
-    const updatedBranches = (company.branches ?? []).map((b) =>
-      b.id === branch.id
-        ? { ...b, documents: { ...b.documents, [docName]: { provided, status: provided ? 'Current' as const : 'Missing' as const } } }
-        : b
-    );
-    onUpdateCompany({ ...company, branches: updatedBranches });
-    logAdminActivity(
-      'Updated compliance document',
-      `${docName} marked ${provided ? 'provided' : 'not provided'} for "${branchAwareCompanyLabel(company, branch)}"`
-    );
-    logDocumentModification({
-      actorEmail: currentUserEmail || 'unknown',
-      category: viewLabel,
-      companyName: branchAwareCompanyLabel(company, branch),
-      docName,
-      change: `Marked ${provided ? 'provided' : 'not provided'}`,
-    });
+    setMutationError('');
+    try {
+      await onRenewDocument(company.id, branch.id, docName, branch.documents?.[docName] ?? {}, { provided });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to update the compliance document.');
+    }
   };
 
   // Opens step 1 of the flag flow (see flagFlow state above), pre-selecting
@@ -1036,29 +1032,18 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
   // Clears a document back to Missing (no expiry, not provided) - called
   // only from the expiry-doc status popup's "Mark as Missing" warning step,
   // once its own Confirm button is clicked.
-  const markDocumentMissing = (company: PartnerCompany, branch: BranchRecord, docName: string) => {
+  const markDocumentMissing = async (company: PartnerCompany, branch: BranchRecord, docName: string) => {
     if (!canRenewDocuments) return;
-    const updatedBranches = (company.branches ?? []).map((b) =>
-      b.id === branch.id
-        ? { ...b, documents: { ...b.documents, [docName]: { provided: false } } }
-        : b
-    );
-    onUpdateCompany({ ...company, branches: updatedBranches });
-    logAdminActivity(
-      'Updated compliance document',
-      `${docName} marked Missing for "${branchAwareCompanyLabel(company, branch)}"`
-    );
-    logDocumentModification({
-      actorEmail: currentUserEmail || 'unknown',
-      category: viewLabel,
-      companyName: branchAwareCompanyLabel(company, branch),
-      docName,
-      change: 'Marked Missing',
-    });
+    setMutationError('');
+    try {
+      await onRenewDocument(company.id, branch.id, docName, branch.documents?.[docName] ?? {}, { provided: false });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to mark the document as missing.');
+    }
   };
 
   const updateBranchStatus = (company: PartnerCompany, branchId: string, status: BranchStatus) => {
-    if (!canRenewDocuments) return;
+    if (!isAdmin) return;
     const updatedBranches = (company.branches ?? []).map((b) =>
       b.id === branchId ? { ...b, status } : b
     );
@@ -1066,7 +1051,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
   };
 
   const updateSupplierRank = (company: PartnerCompany, branch: BranchRecord, supplierRank: string) => {
-    if (!canRenewDocuments) return;
+    if (!isAdmin) return;
     const previousRank = branch.supplierRank || 'unset';
     const updatedBranches = (company.branches ?? []).map((b) =>
       b.id === branch.id ? { ...b, supplierRank } : b
@@ -1081,29 +1066,28 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
     });
   };
 
-  const confirmRenewal = () => {
+  const confirmRenewal = async () => {
     if (!renewalTarget || !renewalDate) return;
     const { company, branchId, docName } = renewalTarget;
     const branch = (company.branches ?? []).find((b) => b.id === branchId);
-    const { status, daysLeft } = computeDocumentStatus({ expiryDate: renewalDate }, effectiveNow, docName);
-    const updatedBranches = (company.branches ?? []).map((b) =>
-      b.id === branchId
-        ? { ...b, documents: { ...b.documents, [docName]: { provided: true, expiryDate: renewalDate, status, daysLeft } } }
-        : b
-    );
-    onUpdateCompany({ ...company, branches: updatedBranches });
-    logAdminActivity(
-      'Renewed compliance document',
-      `${docName} renewed for "${branchAwareCompanyLabel(company, branch)}" — new expiry ${renewalDate}`
-    );
-    logDocumentModification({
-      actorEmail: currentUserEmail || 'unknown',
-      category: viewLabel,
-      companyName: branchAwareCompanyLabel(company, branch),
-      docName,
-      change: `Renewed — new expiry ${formatDate(renewalDate)}`,
-    });
-    setRenewalTarget(null);
+    if (!branch) {
+      setMutationError('The selected branch no longer exists. Refresh and retry.');
+      return;
+    }
+    setMutationError('');
+    try {
+      await onRenewDocument(
+        company.id,
+        branchId,
+        docName,
+        branch.documents?.[docName] ?? {},
+        { provided: true, expiryDate: renewalDate },
+      );
+      // The server RPC writes the audit entry atomically with the document change.
+      setRenewalTarget(null);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to renew the compliance document.');
+    }
   };
 
   // Every edit here saves immediately (same convention as the Compliance
@@ -1264,6 +1248,11 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
 
   return (
     <div className="space-y-6">
+      {mutationError && (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300">
+          {mutationError}
+        </div>
+      )}
       {headerPortalTarget && createPortal(
         <button
           type="button"
@@ -2031,8 +2020,8 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
                           <select
                             value={row.branch.status ?? ''}
                             onChange={(e) => updateBranchStatus(row.company, row.branch!.id, e.target.value as BranchStatus)}
-                            disabled={!canRenewDocuments}
-                            className={`rounded-md px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider border ${canRenewDocuments ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${
+                            disabled={!isAdmin}
+                            className={`rounded-md px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider border ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'} ${
                               row.branch.status ? branchStatusBadgeClasses(row.branch.status) : 'bg-slate-50 text-slate-400 border-slate-200 dark:bg-slate-900 dark:text-slate-500 dark:border-slate-700'
                             }`}
                           >
@@ -2047,7 +2036,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, canRen
                       </td>
                       <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                         {row.branch ? (
-                          canRenewDocuments ? (
+                          isAdmin ? (
                             <div className="relative inline-flex items-center">
                               <select
                                 value={row.branch.supplierRank ?? ''}

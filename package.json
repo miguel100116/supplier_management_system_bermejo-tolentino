@@ -9,7 +9,7 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
-    "test": "tsx --test src/features/feedback-hub/reporting/companyReportData.test.ts src/services/applicationRepository.test.ts src/services/normalizedPartnerCompanies.test.ts src/services/sharedPersistenceMigration.test.ts src/utils/feedbackHubStore.test.ts src/utils/notificationReadState.test.ts src/utils/rbac.test.ts src/utils/sessionTimeout.test.ts scripts/supabase-import/cliOptions.test.ts scripts/supabase-import/importPlan.test.ts scripts/supabase-import/sqlImport.test.ts scripts/supabase-import/writer.test.ts",
+    "test": "tsx --test src/features/active-companies/components/companyCellStyles.test.ts src/features/active-companies/domain/activeCompanySnapshots.test.ts src/features/active-companies/domain/activeCompanySeedMigration.test.ts src/features/analytics/domain/rankings.test.ts src/features/analytics/domain/responseProvenance.test.ts src/features/feedback-hub/reporting/companyReportData.test.ts src/services/applicationRepository.test.ts src/services/clientSecurityRegression.test.ts src/services/delegatedDocumentRenewalMigration.test.ts src/services/normalizedPartnerCompanies.test.ts src/services/sharedPersistenceMigration.test.ts src/services/supabasePasswordAuth.test.ts src/utils/archiveResponseTransfer.test.ts src/utils/exportDependencies.test.ts src/utils/feedbackHubStore.test.ts src/utils/notificationReadState.test.ts src/utils/rbac.test.ts src/utils/scoring.test.ts src/utils/sessionTimeout.test.ts src/utils/tableFilters.test.ts scripts/supabase-import/cliOptions.test.ts scripts/supabase-import/importPlan.test.ts scripts/supabase-import/sqlImport.test.ts scripts/supabase-import/writer.test.ts",
     "test:import": "tsx --test scripts/supabase-import/cliOptions.test.ts scripts/supabase-import/importPlan.test.ts scripts/supabase-import/sqlImport.test.ts scripts/supabase-import/writer.test.ts",
     "import:supabase": "tsx scripts/supabase-import/cli.ts",
     "import:staging": "tsx scripts/supabase-import/stagingImport.ts",
@@ -24,8 +24,8 @@
     "esbuild": "^0.28.1",
     "express": "^4.22.2",
     "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.2",
-    "jspdf-autotable": "^3.8.4",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.468.0",
     "motion": "^12.42.2",
     "papaparse": "^5.4.1",
@@ -38,7 +38,7 @@
     "tsx": "^4.23.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/express": "^4.17.25",
@@ -46,5 +46,8 @@
     "@types/papaparse": "^5.3.15",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1"
+  },
+  "overrides": {
+    "image-size": "2.0.4"
   }
 }

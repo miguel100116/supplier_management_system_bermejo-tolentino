@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { QuestionDefinition, ResponseNotification, SurveyResponse, SurveyType, CustomForm, Rating, PartnerCompany, PartnerCompanyType, BranchRecord, ArchiveSeries, SupplierOrigin } from '../types/survey';
+import { QuestionDefinition, ResponseNotification, SurveyResponse, SurveyType, CustomForm, Rating, PartnerCompany, PartnerCompanyType, BranchRecord, ArchiveSeries, SupplierOrigin, ComplianceDocument } from '../types/survey';
 import { surveyQuestions } from '../data/questions';
 import { importMasterListFromFile, ImportResult } from '../utils/masterListImport';
 import { importArchivedResponsesFromFile, ArchiveImportResult } from '../utils/archiveResponseTransfer';
@@ -12,6 +12,7 @@ import {
 } from '../utils/rawEvaluationImport';
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { computeCompanyDocumentSummary, computeDocumentStatus, EXPIRING_SOON_DAYS } from '../utils/compliance';
+import { parseDeploymentEnvironment, submissionSourceForEnvironment } from '../features/analytics/domain/responseProvenance';
 import { getRequiredDocumentKeys } from '../utils/documentRequirements';
 import { getNotificationSettings, NOTIFICATION_SETTINGS_CHANGED_EVENT } from '../utils/documentNotificationSettings';
 import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from '../services/normalizedPartnerCompanies';
@@ -24,6 +25,7 @@ import {
   loadApplicationRecords,
   loadNotificationReadState,
   replaceApplicationRecords,
+  renewPartnerDocument,
   saveNotificationReadState,
   surveyResponseRecordId,
   upsertApplicationRecords,
@@ -250,6 +252,8 @@ interface CompressedSubmission {
   i: string; // responseId
   ui?: string; // surveyId
   ci?: string; // companyId
+  ds?: SurveyResponse['dataSource']; // analytics provenance
+  ib?: string; // importBatchId
   t: SurveyType; // surveyType
   r: string; // respondentType
   st?: string; // startTime
@@ -299,6 +303,8 @@ function compressResponses(responses: SurveyResponse[]): CompressedSubmission[] 
       };
       if (resp.surveyId !== undefined) comp.ui = resp.surveyId;
       if (resp.companyId !== undefined) comp.ci = resp.companyId;
+      if (resp.dataSource !== undefined) comp.ds = resp.dataSource;
+      if (resp.importBatchId !== undefined) comp.ib = resp.importBatchId;
       if (resp.startTime !== undefined) comp.st = resp.startTime;
       if (resp.department !== undefined) comp.d = resp.department;
       if (resp.address !== undefined) comp.ad = resp.address;
@@ -351,6 +357,8 @@ function decompressResponses(compressed: any[]): SurveyResponse[] {
       };
       if (item.ui !== undefined) resp.surveyId = item.ui;
       if (item.ci !== undefined) resp.companyId = item.ci;
+      if (item.ds !== undefined) resp.dataSource = item.ds;
+      if (item.ib !== undefined) resp.importBatchId = item.ib;
       if (item.st !== undefined) resp.startTime = item.st;
       if (item.d !== undefined) resp.department = item.d;
       if (item.ad !== undefined) resp.address = item.ad;
@@ -381,14 +389,21 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   const readNotificationIdsRef = useRef<Set<string>>(new Set());
   const notificationPersistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
 
-  const persistRemote = (operation: Promise<void>) => {
+  const persistRemoteAsync = async (operation: Promise<void>): Promise<void> => {
     if (!isSupabaseConfigured) return;
     setError(null);
-    void operation.catch((persistenceError) => {
+    try {
+      await operation;
+    } catch (persistenceError) {
       if (isMountedRef.current) {
         setError(persistenceError instanceof Error ? persistenceError.message : 'Unable to save data to Supabase.');
       }
-    });
+      throw persistenceError;
+    }
+  };
+
+  const persistRemote = (operation: Promise<void>) => {
+    void persistRemoteAsync(operation).catch(() => undefined);
   };
 
   const persistNotificationReadIds = (readIds: Set<string>) => {
@@ -1466,14 +1481,12 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   };
 
   // Update an existing survey form
-  const updateSurvey = (updatedForm: CustomForm) => {
+  const updateSurvey = async (updatedForm: CustomForm) => {
     const normalizedForm = normalizeCustomForm(updatedForm);
-    setSurveys((currentSurveys) => {
-      const updated = currentSurveys.map((s) => s.id === normalizedForm.id ? normalizedForm : s);
-      safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
-      persistRemote(replaceApplicationRecords('survey', updated, (survey) => survey.id));
-      return updated;
-    });
+    const updated = surveys.map((survey) => survey.id === normalizedForm.id ? normalizedForm : survey);
+    setSurveys(updated);
+    safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
+    await persistRemoteAsync(replaceApplicationRecords('survey', updated, (survey) => survey.id));
     return normalizedForm;
   };
 
@@ -1493,7 +1506,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   // response's stored questionCategory, active or archived - that carries
   // the old label is rewritten to the new one in the same pass, so the
   // rename is immediately visible everywhere that groups by questionCategory
-  // (bar charts, N/A frequency, reports) without leaving old-label data
+  // (bar charts and reports) without leaving old-label data
   // behind as an orphaned bucket. The radar chart (which groups by
   // questionWeights.ts's own section labels, not questionCategory) picks up
   // the rename separately via getLiveCategoryLabel, which reads the same
@@ -1583,6 +1596,9 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
 
     const newResponses: SurveyResponse[] = answers.map((ans) => ({
       responseId,
+      dataSource: submissionSourceForEnvironment(parseDeploymentEnvironment(
+        window.__SMS_RUNTIME_CONFIG__?.deploymentEnvironment || import.meta.env.VITE_DEPLOYMENT_ENV,
+      )),
       surveyId: targetSurvey.id,
       companyId,
       surveyType: targetSurvey.surveyType,
@@ -1623,7 +1639,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   };
 
   // Create or add a partner company
-  const addPartnerCompany = (
+  const addPartnerCompany = async (
     name: string,
     type: SurveyType,
     affiliation?: string,
@@ -1660,19 +1676,17 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     const updated = [...partnerCompanies, newCompany];
     setPartnerCompanies(updated);
     safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(updated));
-    persistRemote(upsertApplicationRecords('partner_company', [newCompany], (company) => company.id));
+    await persistRemoteAsync(upsertApplicationRecords('partner_company', [newCompany], (company) => company.id));
     return newCompany;
   };
 
   // Update an existing partner company
-  const updatePartnerCompany = (updatedCompany: PartnerCompany) => {
+  const updatePartnerCompany = async (updatedCompany: PartnerCompany) => {
     const normalizedCompany = normalizePartnerCompany(updatedCompany);
-    setPartnerCompanies((currentCompanies) => {
-      const updated = currentCompanies.map((c) => c.id === normalizedCompany.id ? normalizedCompany : c);
-      safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(updated));
-      persistRemote(upsertApplicationRecords('partner_company', [normalizedCompany], (company) => company.id));
-      return updated;
-    });
+    const updated = partnerCompanies.map((company) => company.id === normalizedCompany.id ? normalizedCompany : company);
+    setPartnerCompanies(updated);
+    safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(updated));
+    await persistRemoteAsync(upsertApplicationRecords('partner_company', [normalizedCompany], (company) => company.id));
     return normalizedCompany;
   };
 
@@ -1688,6 +1702,28 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       persistRemote(upsertApplicationRecords('partner_company', updatedCompaniesList.map(normalizePartnerCompany), (company) => company.id));
       return updated;
     });
+  };
+
+  const updatePartnerDocument = async (
+    companyId: string,
+    branchId: string,
+    documentName: string,
+    expectedDocument: ComplianceDocument,
+    nextDocument: Pick<ComplianceDocument, 'provided' | 'expiryDate'>,
+  ): Promise<PartnerCompany> => {
+    const updatedCompany = await renewPartnerDocument(
+      companyId,
+      branchId,
+      documentName,
+      expectedDocument,
+      nextDocument,
+    );
+    setPartnerCompanies((currentCompanies) => {
+      const updated = currentCompanies.map((company) => company.id === companyId ? updatedCompany : company);
+      safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+    return updatedCompany;
   };
 
   // Import the Master List Excel: fuzzy-matches each row's BP Name against
@@ -1706,19 +1742,19 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   };
 
   // Applies a previously-previewed import result to the live registry.
-  const commitMasterListImport = (result: ImportResult) => {
+  const commitMasterListImport = async (result: ImportResult) => {
     const normalized = result.companies.map(normalizePartnerCompany);
     setPartnerCompanies(normalized);
     safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(normalized));
-    persistRemote(replaceApplicationRecords('partner_company', normalized, (company) => company.id));
+    await persistRemoteAsync(replaceApplicationRecords('partner_company', normalized, (company) => company.id));
   };
 
   // Remove a partner company
-  const removePartnerCompany = (id: string) => {
+  const removePartnerCompany = async (id: string) => {
     const updated = partnerCompanies.filter((c) => c.id !== id);
     setPartnerCompanies(updated);
     safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(updated));
-    persistRemote(deleteApplicationRecords('partner_company', [id]));
+    await persistRemoteAsync(deleteApplicationRecords('partner_company', [id]));
   };
 
   // Clear frontend caches so the next authenticated load rehydrates shared
@@ -1815,7 +1851,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     ));
   };
 
-  const restoreResponseGroup = (responseId: string) => {
+  const restoreResponseGroup = async (responseId: string) => {
     const updatedResponses = responses.map(r => {
       if (r.responseId === responseId) {
         return { ...r, archived: false };
@@ -1825,14 +1861,14 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
 
     setResponses(updatedResponses);
     safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
-    persistRemote(upsertApplicationRecords(
+    await persistRemoteAsync(upsertApplicationRecords(
       'survey_response',
       updatedResponses.filter((response) => response.responseId === responseId),
       surveyResponseRecordId,
     ));
   };
 
-  const restoreResponsesForSurvey = (surveyId: string) => {
+  const restoreResponsesForSurvey = async (surveyId: string) => {
     const targetSurvey = surveys.find(s => s.id === surveyId);
     if (!targetSurvey) return;
     const questionIdsToRestore = new Set<string>();
@@ -1852,14 +1888,14 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
 
     setResponses(updatedResponses);
     safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
-    persistRemote(upsertApplicationRecords(
+    await persistRemoteAsync(upsertApplicationRecords(
       'survey_response',
       updatedResponses.filter((response) => questionIdsToRestore.has(response.questionId)),
       surveyResponseRecordId,
     ));
   };
 
-  const deleteArchivedResponseGroups = (groupIds: { archivedAt: string; surveyId: string }[]) => {
+  const deleteArchivedResponseGroups = async (groupIds: { archivedAt: string; surveyId: string }[]) => {
     const updatedResponses = responses.filter(r => {
       if (!r.archived || !r.archivedAt || !r.archivedBySurveyId) return true;
       const match = groupIds.some(g => g.archivedAt === r.archivedAt && g.surveyId === r.archivedBySurveyId);
@@ -1869,10 +1905,10 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
     const remainingIds = new Set(updatedResponses.map(surveyResponseRecordId));
     const removedIds = responses.map(surveyResponseRecordId).filter((id) => !remainingIds.has(id));
-    persistRemote(deleteApplicationRecords('survey_response', removedIds));
+    await persistRemoteAsync(deleteApplicationRecords('survey_response', removedIds));
   };
 
-  const restoreArchivedResponseGroups = (groupIds: { archivedAt: string; surveyId: string }[]) => {
+  const restoreArchivedResponseGroups = async (groupIds: { archivedAt: string; surveyId: string }[]) => {
     const updatedResponses = responses.map(r => {
       if (!r.archived || !r.archivedAt || !r.archivedBySurveyId) return r;
       const match = groupIds.some(g => g.archivedAt === r.archivedAt && g.surveyId === r.archivedBySurveyId);
@@ -1883,7 +1919,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     });
     setResponses(updatedResponses);
     safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
-    persistRemote(upsertApplicationRecords(
+    await persistRemoteAsync(upsertApplicationRecords(
       'survey_response',
       updatedResponses.filter((response) => groupIds.some(
         (group) => group.archivedAt === response.archivedAt && group.surveyId === response.archivedBySurveyId,
@@ -1900,7 +1936,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     const result = await importArchivedResponsesFromFile(file, responses, getOrCreateSeries);
     setResponses(result.responses);
     safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(result.responses)));
-    persistRemote(replaceApplicationRecords('survey_response', result.responses, surveyResponseRecordId));
+    await persistRemoteAsync(replaceApplicationRecords('survey_response', result.responses, surveyResponseRecordId));
     return result;
   };
 
@@ -2142,6 +2178,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     addPartnerCompany,
     updatePartnerCompany,
     updatePartnerCompaniesBulk,
+    updatePartnerDocument,
     removePartnerCompany,
     previewMasterListImport,
     commitMasterListImport,

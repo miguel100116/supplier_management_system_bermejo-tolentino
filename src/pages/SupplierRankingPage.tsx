@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Building2, ChevronDown, Eraser, GripVertical, History, Search, Trophy, X } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
 import { getRankingLog, logRankingChange, RankingLogEntry, RankingSnapshotSlot } from '../utils/supplierRankingLog';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 
 interface SupplierRankingPageProps {
   partnerCompanies: PartnerCompany[];
@@ -43,6 +45,9 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
   const [logEntries, setLogEntries] = useState<RankingLogEntry[]>(() => getRankingLog());
   const [viewingEntry, setViewingEntry] = useState<RankingLogEntry | null>(null);
   const [showOngoingWarning, setShowOngoingWarning] = useState(false);
+  const [logSort, setLogSort] = useState<'date-desc' | 'date-asc' | 'actor-asc' | 'actor-desc'>('date-desc');
+  const [logDateFrom, setLogDateFrom] = useState('');
+  const [logDateTo, setLogDateTo] = useState('');
 
   useEffect(() => {
     const refresh = () => setLogEntries(getRankingLog());
@@ -87,6 +92,15 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
   }, [unrankedInDraft, searchQuery]);
 
   const filledCount = draftSlotIds.filter(Boolean).length;
+
+  const filteredLogEntries = useMemo(() => logEntries
+    .filter((entry) => isWithinDateRange(entry.timestamp, logDateFrom, logDateTo))
+    .sort((a, b) => {
+      if (logSort === 'date-asc') return compareDate(a.timestamp, b.timestamp);
+      if (logSort === 'actor-asc') return compareText(a.actorEmail, b.actorEmail);
+      if (logSort === 'actor-desc') return compareText(b.actorEmail, a.actorEmail);
+      return compareDate(b.timestamp, a.timestamp);
+    }), [logEntries, logSort, logDateFrom, logDateTo]);
 
   // "Ongoing" = a Supplier survey is currently published/open - status
   // 'Running', or unset (matches SurveyFormsPage's own "ACTIVE" badge rule:
@@ -334,6 +348,27 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
           <History size={16} className="text-[#0063a9]" />
           <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Modification Log</span>
         </div>
+        <TableFilterBar
+          sortOptions={[
+            { value: 'date-desc', label: 'Date: newest first' },
+            { value: 'date-asc', label: 'Date: oldest first' },
+            { value: 'actor-asc', label: 'Changed by: A–Z' },
+            { value: 'actor-desc', label: 'Changed by: Z–A' },
+          ]}
+          sortValue={logSort}
+          onSortChange={setLogSort}
+          resultCount={filteredLogEntries.length}
+          dateFrom={logDateFrom}
+          dateTo={logDateTo}
+          onDateFromChange={setLogDateFrom}
+          onDateToChange={setLogDateTo}
+          dateLabel="Change date"
+          onReset={() => {
+            setLogSort('date-desc');
+            setLogDateFrom('');
+            setLogDateTo('');
+          }}
+        />
         {logEntries.length === 0 ? (
           <p className="py-6 text-center text-xs text-slate-400">No changes have been saved yet.</p>
         ) : (
@@ -347,7 +382,7 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {logEntries.map((entry) => (
+                {filteredLogEntries.map((entry) => (
                   <tr key={entry.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/20 transition-colors">
                     <td className="px-3 py-2.5">
                       <button
@@ -364,6 +399,11 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
                     </td>
                   </tr>
                 ))}
+                {filteredLogEntries.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-3 py-8 text-center text-xs text-slate-400">No ranking changes match the selected filters.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

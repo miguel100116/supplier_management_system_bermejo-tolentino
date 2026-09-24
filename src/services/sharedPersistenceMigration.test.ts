@@ -10,6 +10,14 @@ const rlsMigration = readFileSync(
   new URL('../../supabase/migrations/20260921013124_consolidate_application_rls.sql', import.meta.url),
   'utf8',
 ).toLowerCase();
+const provenanceMigration = readFileSync(
+  new URL('../../supabase/migrations/202609220001_response_provenance.sql', import.meta.url),
+  'utf8',
+).toLowerCase();
+const provenanceReadiness = readFileSync(
+  new URL('../../supabase/verification/response_provenance_readiness.sql', import.meta.url),
+  'utf8',
+).toLowerCase();
 
 test('centralizes every formerly browser-only shared record type', () => {
   for (const recordType of [
@@ -36,6 +44,25 @@ test('narrows Data API privileges and enables live table publication', () => {
 test('keeps the migration non-destructive to stored business rows', () => {
   assert.doesNotMatch(migration, /\b(delete from|truncate table|drop table)\b/);
   assert.doesNotMatch(rlsMigration, /\b(delete from|truncate table|drop table)\b/);
+  assert.doesNotMatch(provenanceMigration, /\b(delete from|truncate table|drop table)\b/);
+});
+
+test('backfills provenance only for responses traceable to the normalized client import', () => {
+  assert.match(provenanceMigration, /from public\.evaluation_submissions s/);
+  assert.match(provenanceMigration, /join public\.import_source_files f on f\.id = s\.source_file_id/);
+  assert.match(provenanceMigration, /'datasource', 'client_csv'/);
+  assert.match(provenanceMigration, /payload ->> 'datasource' is null/);
+  assert.doesNotMatch(provenanceMigration, /'test_submission'/);
+});
+
+test('provides read-only provenance reconciliation with exact identity and conflict counts', () => {
+  assert.match(provenanceReadiness, /evaluation_answers/);
+  assert.match(provenanceReadiness, /ar\.record_id = n\.response_id \|\| ':' \|\| n\.question_id/);
+  assert.match(provenanceReadiness, /pending_rows/);
+  assert.match(provenanceReadiness, /exact_provenance_rows/);
+  assert.match(provenanceReadiness, /protected_nonmatching_rows/);
+  const executableSql = provenanceReadiness.replace(/--.*$/gm, '');
+  assert.doesNotMatch(executableSql, /\b(insert|update|delete|truncate|alter|drop|create)\b/);
 });
 
 test('keeps security-definer authorization helpers outside the Data API schema', () => {
