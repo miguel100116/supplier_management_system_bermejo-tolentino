@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { QueuedReportEmail, EmailStatus } from '../../types/feedbackHub';
 import { Clock, CheckCircle2, RotateCcw, Send, AlertTriangle, FileText, Search, History, Sparkles, X, Settings, Eye, Mail } from 'lucide-react';
 import { ReturnReasonModal } from './ReturnReasonModal';
+import { TableFilterBar } from '../TableFilterBar';
+import { compareDate, compareText, isWithinDateRange } from '../../utils/tableFilters';
 
 interface SentReportsTabProps {
   sentReports: QueuedReportEmail[];
@@ -28,6 +30,9 @@ export function SentReportsTab({
 }: SentReportsTabProps) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<EmailStatus | 'All'>('All');
+  const [tableSort, setTableSort] = useState<'date-desc' | 'date-asc' | 'company-asc' | 'company-desc'>('date-desc');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   // Countdown timer force re-render ticker every 1 sec
   const [, setTick] = useState(0);
@@ -49,14 +54,19 @@ export function SentReportsTab({
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Filtered list
-  const filteredReports = sentReports.filter((r) => {
+  const filteredReports = useMemo(() => sentReports.filter((r) => {
     const matchesSearch =
       r.companyName.toLowerCase().includes(search.toLowerCase()) ||
       r.surveyTitle.toLowerCase().includes(search.toLowerCase()) ||
       r.recipientEmail.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+    return matchesSearch && matchesStatus && isWithinDateRange(r.sentAt ?? r.queuedAt, dateFrom, dateTo);
+  }).sort((a, b) => {
+    if (tableSort === 'date-asc') return compareDate(a.sentAt ?? a.queuedAt, b.sentAt ?? b.queuedAt);
+    if (tableSort === 'company-asc') return compareText(a.companyName, b.companyName);
+    if (tableSort === 'company-desc') return compareText(b.companyName, a.companyName);
+    return compareDate(b.sentAt ?? b.queuedAt, a.sentAt ?? a.queuedAt);
+  }), [sentReports, search, statusFilter, tableSort, dateFrom, dateTo]);
 
   // Calculate live time remaining string
   const getRemainingTimeStr = (expiresAtIso: string) => {
@@ -114,6 +124,30 @@ export function SentReportsTab({
           </button>
         </div>
       </div>
+
+      <TableFilterBar
+        sortOptions={[
+          { value: 'date-desc', label: 'Activity: newest first' },
+          { value: 'date-asc', label: 'Activity: oldest first' },
+          { value: 'company-asc', label: 'Company: A–Z' },
+          { value: 'company-desc', label: 'Company: Z–A' },
+        ]}
+        sortValue={tableSort}
+        onSortChange={setTableSort}
+        resultCount={filteredReports.length}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        dateLabel="Queued / sent date"
+        onReset={() => {
+          setSearch('');
+          setStatusFilter('All');
+          setTableSort('date-desc');
+          setDateFrom('');
+          setDateTo('');
+        }}
+      />
 
       {/* Email Log Table */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 overflow-hidden">

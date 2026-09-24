@@ -24,6 +24,7 @@ async function startServer() {
       azureClientId: process.env.VITE_AZURE_CLIENT_ID || '',
       azureTenantId: process.env.VITE_AZURE_TENANT_ID || '',
       azureRedirectUri: process.env.VITE_AZURE_REDIRECT_URI || '',
+      deploymentEnvironment: process.env.VITE_DEPLOYMENT_ENV || '',
     });
   });
 

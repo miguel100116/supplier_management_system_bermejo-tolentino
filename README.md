@@ -135,10 +135,10 @@ A **Data Scope** toggle (shared across Dashboard and Analytics) further switches
 | **Dashboard** | Personalized performance indicators and KPIs. |
 | **Survey Forms** | View, fill, and publish feedback forms. |
 | **Survey Explorer** | Analyze complete raw survey response records. |
-| **Analytics** | Company-wide statistical charts, trends, and company comparisons. |
+| **Analytics** | Company statistical charts, trends, rankings, and company comparisons over the response data authorized for the current session. |
 | **Reports** | Summary / Company / Question / Executive-Summary builders + raw exports (PDF, Excel, CSV). |
 | **Present** | Staggered slide-deck presentation builder (PDF/PPTX export). |
-| **Partner Companies** | Manage external courier, supplier, and subcontractor rosters, branches, and documents. |
+| **Partner Companies** | Manage external courier, supplier, and subcontractor rosters, branches, documents, and the Admin-only dated Active Companies upload history. |
 | **Document Tracker** | Categorized compliance-document register across all partner companies. |
 | **Renew Compliance Documents** | Action permission: update document expiry/status without full Account Management access. |
 | **Supplier Ranking** | Curate and reorder the Top 20 suppliers evaluable by default in Supplier surveys. |
@@ -170,6 +170,8 @@ The application is a **single-page React app** with a thin Express server used o
 | **Exports** | jsPDF + jspdf-autotable (PDF), xlsx (Excel), papaparse (CSV), pptxgenjs (PPTX), docx |
 
 **Key design decision — the data source seam:** Authenticated staging sessions load shared business records, configuration, operational history, and per-user state through the Supabase application repository. The normalized CSV tables remain the immutable import/audit layer, while `application_records` is the editable UI-facing store. Realtime table changes trigger an RLS-protected refetch. Local storage is limited to authenticated startup caching and device-specific state; the frontend no longer generates or bundles mock business records.
+
+**Official Analytics provenance:** Client CSV evaluations and verified production submissions feed Analytics and Company Leaderboards. Submissions created while `VITE_DEPLOYMENT_ENV=staging` are retained as test records but excluded from official analytics. The setting defaults safely to staging and must be explicitly set to `production` in the approved live deployment.
 
 ---
 
@@ -209,6 +211,8 @@ Supplier_Management_System/
 > **Implication:** Authenticated shared business data is available across devices through staging Supabase. Clearing browser storage removes only the local cache and device-specific drafts/preferences; it does not delete the shared backend records.
 
 **Staging backend:** The normalized migrations under [`supabase/migrations`](supabase/migrations) are applied to the dedicated staging project. Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the editable frontend store and are published to Supabase Realtime. RLS scopes evaluation rows by profile, permits employees to insert only their own submissions and operational entries, and restricts shared configuration/registry writes by role. Authorization helpers live in an unexposed `private` schema. The older [`supabase/schema.sql`](supabase/schema.sql) remains an unapplied draft.
+
+The verified frontend/backend contract, record-type matrix, Realtime routing, and known authorization gaps are documented in [`docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md`](docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md). In particular, lower-rank company-wide aggregate Analytics, delegated document renewal, and non-Admin archive mutations require dedicated server-side authorization work before production; the client must not bypass those boundaries.
 
 ---
 

@@ -9,13 +9,9 @@ import {
   Building,
   Info,
   Calendar,
-  Hash,
-  Briefcase,
   ClipboardList,
   Award,
   X,
-  List,
-  LayoutGrid,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
@@ -26,14 +22,11 @@ import {
   FileText,
   Check,
   ChevronRight,
-  Truck,
-  Package,
   Upload,
   Loader2,
   Search,
   Globe,
   MapPin,
-  HelpCircle,
   Tag,
   Mail,
   User,
@@ -49,8 +42,10 @@ import { CATEGORY_BUCKET_KEYS, computeCategoryRankSummary } from '../utils/categ
 import { getRequiredDocumentKeys, isExpiryDocument } from '../utils/documentRequirements';
 import { findMissingProfileFields, MISSING_FIELD_LABELS, MissingProfileField } from '../utils/dataCompleteness';
 import { ImportResult } from '../utils/masterListImport';
-import { logAdminActivity } from '../utils/adminActivityLog';
-import { logDocumentModification } from '../utils/documentModificationLog';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { isWithinDateRange } from '../utils/tableFilters';
+import { ActiveCompaniesModal } from '../features/active-companies/components/ActiveCompaniesModal';
+import { ActiveCompanyUploadCards } from '../features/active-companies/components/ActiveCompanyUploadCards';
 
 const MISSING_FIELD_ICONS: Record<MissingProfileField, typeof MapPin> = {
   address: MapPin,
@@ -118,8 +113,8 @@ const BRANCH_STATUS_SEVERITY: Record<BranchStatus, number> = {
   Inactive: -1,
 };
 
-// Keep both the General cards and Simplified table manageable to scan. The
-// shared client-side pagination applies after filtering and sorting.
+// Keep the simplified registry table manageable to scan. Pagination applies
+// after filtering and sorting.
 const COMPANIES_PAGE_SIZE = 10;
 
 const DOCUMENT_STATUS_STYLES: Record<DocumentStatus, string> = {
@@ -148,11 +143,18 @@ interface PartnerCompaniesPageProps {
     bpCode?: string,
     ntBpCode?: string,
     supplierOrigin?: SupplierOrigin
-  ) => void;
-  onRemoveCompany: (id: string) => void;
-  onUpdateCompany: (company: PartnerCompany) => void;
+  ) => Promise<PartnerCompany>;
+  onRemoveCompany: (id: string) => Promise<void>;
+  onUpdateCompany: (company: PartnerCompany) => Promise<PartnerCompany>;
+  onRenewDocument: (
+    companyId: string,
+    branchId: string,
+    documentName: string,
+    expectedDocument: ComplianceDocument,
+    nextDocument: Pick<ComplianceDocument, 'provided' | 'expiryDate'>,
+  ) => Promise<PartnerCompany>;
   onPreviewMasterListImport?: (file: File, options?: { replace?: boolean }) => Promise<ImportResult>;
-  onCommitMasterListImport?: (result: ImportResult) => void;
+  onCommitMasterListImport?: (result: ImportResult) => Promise<void>;
   isAdmin?: boolean;
   /** Distinct from isAdmin - can be granted to a role without full Admin access (Account Management -> "Renew Compliance Documents"). */
   canRenewDocuments?: boolean;
@@ -168,6 +170,7 @@ export function PartnerCompaniesPage({
   onAddCompany,
   onRemoveCompany,
   onUpdateCompany,
+  onRenewDocument,
   onPreviewMasterListImport,
   onCommitMasterListImport,
   isAdmin,
@@ -185,11 +188,14 @@ export function PartnerCompaniesPage({
   // Local/Foreign sub-filter, only meaningful while activeTab === 'Supplier'
   const [originFilter, setOriginFilter] = useState<'All' | 'Local' | 'Foreign'>('All');
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'general' | 'simplified'>('general');
+  const [registeredFrom, setRegisteredFrom] = useState('');
+  const [registeredTo, setRegisteredTo] = useState('');
+  const [documentFilter, setDocumentFilter] = useState<'all' | 'current' | 'expiring' | 'expired' | 'missing'>('all');
   const [isCategorySummaryOpen, setIsCategorySummaryOpen] = useState(true);
   const [importReplace, setImportReplace] = useState(false);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [registerModalTab, setRegisterModalTab] = useState<'manual' | 'upload'>('manual');
+  const [isActiveCompaniesOpen, setIsActiveCompaniesOpen] = useState(false);
 
   // Detail Modal State
   const [selectedCompany, setSelectedCompany] = useState<PartnerCompany | null>(null);
@@ -233,10 +239,9 @@ export function PartnerCompaniesPage({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Passcode modal state
+  // Destructive-action confirmation state. Authorization is enforced by the
+  // authenticated Admin route and Supabase RLS, not a browser-side passcode.
   const [companyToDelete, setCompanyToDelete] = useState<PartnerCompany | null>(null);
-  const [passcodeInput, setPasscodeInput] = useState('');
-  const [passcodeError, setPasscodeError] = useState('');
 
   // Master List import state
   const importFileInputRef = useRef<HTMLInputElement>(null);
@@ -247,10 +252,9 @@ export function PartnerCompaniesPage({
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState('');
 
-  type SortKey = 'name' | 'type' | 'createdAt' | 'docStatus';
+  type SortKey = 'name' | 'type' | 'registeredAt' | 'docStatus';
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>(null);
 
-  const adminPasscode = 'admin'; // Main passcode requested, mgenesis2026 as backup
   const effectiveNow = new Date();
   const currentDateStr = effectiveNow.toISOString().slice(0, 10);
 
@@ -368,7 +372,7 @@ export function PartnerCompaniesPage({
     [classifiedCompanies]
   );
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
@@ -394,15 +398,20 @@ export function PartnerCompaniesPage({
       ? (newNtBpCode.trim() || (trimmedBpCode ? `${trimmedBpCode}-NT` : ''))
       : undefined;
 
-    onAddCompany(
-      newName.trim(),
-      newType,
-      newAffiliation || undefined,
-      newRegDate,
-      trimmedBpCode || undefined,
-      trimmedNtBpCode || undefined,
-      newType === 'Supplier' ? newSupplierOrigin : undefined
-    );
+    try {
+      await onAddCompany(
+        newName.trim(),
+        newType,
+        newAffiliation || undefined,
+        newRegDate,
+        trimmedBpCode || undefined,
+        trimmedNtBpCode || undefined,
+        newType === 'Supplier' ? newSupplierOrigin : undefined
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to add the partner company.');
+      return;
+    }
 
     setSuccessMessage(
       `"${newName.trim()}" successfully added as a Partner ${newType}${newType === 'Supplier' ? ` (${newSupplierOrigin})` : ''}.`
@@ -439,11 +448,16 @@ export function PartnerCompaniesPage({
     }
   };
 
-  const applyImportPreview = () => {
+  const applyImportPreview = async () => {
     if (!importPreview || !onCommitMasterListImport) return;
-    onCommitMasterListImport(importPreview);
-    setImportResult(importPreview);
-    setImportPreview(null);
+    setImportError('');
+    try {
+      await onCommitMasterListImport(importPreview);
+      setImportResult(importPreview);
+      setImportPreview(null);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Unable to apply the Master List import.');
+    }
   };
 
   const cancelImportPreview = () => setImportPreview(null);
@@ -462,17 +476,17 @@ export function PartnerCompaniesPage({
   const startDelete = (company: PartnerCompany, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setCompanyToDelete(company);
-    setPasscodeInput('');
-    setPasscodeError('');
   };
 
-  const confirmDelete = () => {
-    if (passcodeInput !== adminPasscode && passcodeInput !== 'mgenesis2026') {
-      setPasscodeError('Invalid administrative passcode. Please try again.');
-      return;
-    }
+  const confirmDelete = async () => {
     if (companyToDelete) {
-      onRemoveCompany(companyToDelete.id);
+      setErrorMessage('');
+      try {
+        await onRemoveCompany(companyToDelete.id);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to remove the partner company.');
+        return;
+      }
       setSuccessMessage(`Successfully removed partner "${companyToDelete.name}".`);
       setCompanyToDelete(null);
       if (selectedCompany?.id === companyToDelete.id) {
@@ -482,13 +496,19 @@ export function PartnerCompaniesPage({
     }
   };
 
-  const toggleArchive = (company: PartnerCompany, e?: React.MouseEvent) => {
+  const toggleArchive = async (company: PartnerCompany, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const updated: PartnerCompany = {
       ...company,
       isArchived: !company.isArchived
     };
-    onUpdateCompany(updated);
+    setErrorMessage('');
+    try {
+      await onUpdateCompany(updated);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to update the partner company.');
+      return;
+    }
     
     // update current selected company if open
     if (selectedCompany?.id === company.id) {
@@ -528,6 +548,20 @@ export function PartnerCompaniesPage({
       );
     }
 
+    baseList = baseList.filter((company) =>
+      isWithinDateRange(company.registeredAt || company.createdAt, registeredFrom, registeredTo)
+    );
+
+    if (documentFilter !== 'all') {
+      baseList = baseList.filter((company) => {
+        const summary = computeCompanyDocumentSummary(company, effectiveNow);
+        if (documentFilter === 'current') return summary.status === 'Current';
+        if (documentFilter === 'expiring') return summary.status === 'Expiring Soon';
+        if (documentFilter === 'expired') return summary.status === 'Expired';
+        return summary.status === 'Missing';
+      });
+    }
+
     if (sortConfig) {
       // docStatus has no direct field on PartnerCompany - rank by the primary
       // branch's Status value (same one shown/edited in the Document Tracker).
@@ -536,8 +570,16 @@ export function PartnerCompaniesPage({
         return status ? BRANCH_STATUS_SEVERITY[status] : -2;
       };
       baseList = [...baseList].sort((a, b) => {
-        const valA = sortConfig.key === 'docStatus' ? docSeverity(a) : (a[sortConfig.key] || '');
-        const valB = sortConfig.key === 'docStatus' ? docSeverity(b) : (b[sortConfig.key] || '');
+        const valA = sortConfig.key === 'docStatus'
+          ? docSeverity(a)
+          : sortConfig.key === 'registeredAt'
+          ? (a.registeredAt || a.createdAt || '')
+          : (a[sortConfig.key] || '');
+        const valB = sortConfig.key === 'docStatus'
+          ? docSeverity(b)
+          : sortConfig.key === 'registeredAt'
+          ? (b.registeredAt || b.createdAt || '')
+          : (b[sortConfig.key] || '');
         if (valA < valB) {
           return sortConfig.direction === 'asc' ? -1 : 1;
         }
@@ -548,13 +590,13 @@ export function PartnerCompaniesPage({
       });
     }
     return baseList;
-  }, [classifiedCompanies, incompleteCompanies, statusTab, activeTab, originFilter, searchQuery, sortConfig, effectiveNow]);
+  }, [classifiedCompanies, incompleteCompanies, statusTab, activeTab, originFilter, searchQuery, sortConfig, effectiveNow, registeredFrom, registeredTo, documentFilter]);
 
   // Jump back to page 1 whenever a filter/search/sort narrows or reshuffles
   // the result set - otherwise the user can land on a now-empty page.
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusTab, activeTab, originFilter, searchQuery, sortConfig]);
+  }, [statusTab, activeTab, originFilter, searchQuery, sortConfig, registeredFrom, registeredTo, documentFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredCompanies.length / COMPANIES_PAGE_SIZE));
   // Clamp defensively (e.g. the list shrinks from a delete while on a later
@@ -574,7 +616,7 @@ export function PartnerCompaniesPage({
   // Address/Contact Person/Mobile Phone/Email inputs in the branch card -
   // these are exactly the fields the Incomplete Profiles tab checks).
   const updateBranchField = (branchId: string, field: 'address' | 'contactPerson' | 'mobilePhone' | 'email', value: string) => {
-    if (!selectedCompany) return;
+    if (!selectedCompany || !isAdmin) return;
     const updatedBranches = (selectedCompany.branches ?? []).map((b) =>
       b.id === branchId ? { ...b, [field]: value } : b
     );
@@ -586,7 +628,7 @@ export function PartnerCompaniesPage({
   // Lets an admin toggle a branch's Status directly in the registry, the same
   // field the Master List import populates from its "Status" column dropdown.
   const updateBranchStatus = (branchId: string, status: BranchStatus) => {
-    if (!selectedCompany) return;
+    if (!selectedCompany || !isAdmin) return;
     const updatedBranches = (selectedCompany.branches ?? []).map((b) =>
       b.id === branchId ? { ...b, status } : b
     );
@@ -621,40 +663,24 @@ export function PartnerCompaniesPage({
     return new Date(renewalYear, renewalMonth + 1, 0).getDate();
   }, [renewalYear, renewalMonth]);
 
-  // Category label for the modification log, matching Document Register's
-  // format (e.g. "Supplier (Local)") so entries read consistently regardless
-  // of which page an edit came from.
-  const categoryLabelFor = (company: Pick<PartnerCompany, 'type' | 'supplierOrigin'>) =>
-    company.type === 'Supplier' ? `Supplier (${company.supplierOrigin ?? 'Local'})` : company.type;
-
   // Toggle a flag-only document (e.g. SIF, Owner's ID) that has no expiry
   // date of its own - just a provided/not-provided accreditation checklist
   // item. Called from the confirm dialog's Confirm button (see
   // flagConfirmTarget/requestFlagToggle) rather than directly from the badge
   // click, and logged the same way Document Register logs its own edits so
   // both entry points share one audit trail.
-  const toggleFlagDocument = (branchId: string, docName: string, provided: boolean) => {
+  const toggleFlagDocument = async (branchId: string, docName: string, provided: boolean) => {
     if (!selectedCompany) return;
-    const branch = (selectedCompany.branches ?? []).find((b) => b.id === branchId);
-    const updatedBranches = (selectedCompany.branches ?? []).map((b) =>
-      b.id === branchId
-        ? { ...b, documents: { ...b.documents, [docName]: { provided, status: provided ? 'Current' as DocumentStatus : 'Missing' as DocumentStatus } } }
-        : b
-    );
-    const updated: PartnerCompany = { ...selectedCompany, branches: updatedBranches };
-    onUpdateCompany(updated);
-    setSelectedCompany(updated);
-    logAdminActivity(
-      'Updated compliance document',
-      `${docName} marked ${provided ? 'provided' : 'not provided'} for "${branchAwareCompanyLabel(selectedCompany, branch)}"`
-    );
-    logDocumentModification({
-      actorEmail: currentUserEmail || 'unknown',
-      category: categoryLabelFor(selectedCompany),
-      companyName: branchAwareCompanyLabel(selectedCompany, branch),
-      docName,
-      change: `Marked ${provided ? 'provided' : 'not provided'}`,
-    });
+    const expectedDocument = (selectedCompany.branches ?? []).find((branch) => branch.id === branchId)?.documents?.[docName] ?? {};
+    setErrorMessage('');
+    try {
+      const updated = await onRenewDocument(selectedCompany.id, branchId, docName, expectedDocument, { provided });
+      setSelectedCompany(updated);
+      setSuccessMessage(`"${docName}" was marked ${provided ? 'provided' : 'not provided'} for "${selectedCompany.name}".`);
+      setTimeout(() => setSuccessMessage(''), 4000);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to update the compliance document.');
+    }
   };
 
   const requestFlagToggle = (branch: BranchRecord, docName: string) => {
@@ -666,8 +692,8 @@ export function PartnerCompaniesPage({
   // category that determines which compliance documents apply. Moving a
   // company out of Uncategorized also accredits and unarchives it, mirroring
   // what a Master List import does when a row's category is recognized.
-  const handleClassifyCompany = (newType: PartnerCompanyType, newOrigin?: SupplierOrigin) => {
-    if (!selectedCompany || !canRenew) return;
+  const handleClassifyCompany = async (newType: PartnerCompanyType, newOrigin?: SupplierOrigin) => {
+    if (!selectedCompany || !isAdmin) return;
     const becomingCategorized = newType !== 'Uncategorized' && selectedCompany.type === 'Uncategorized';
     const updated: PartnerCompany = {
       ...selectedCompany,
@@ -677,7 +703,13 @@ export function PartnerCompaniesPage({
         ? { accreditationStatus: 'Accredited' as AccreditationStatus, isArchived: false }
         : {}),
     };
-    onUpdateCompany(updated);
+    setErrorMessage('');
+    try {
+      await onUpdateCompany(updated);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to classify the partner company.');
+      return;
+    }
     setSelectedCompany(updated);
     setSuccessMessage(
       `"${selectedCompany.name}" classified as ${newType}${newType === 'Supplier' ? ` (${updated.supplierOrigin})` : ''}.`
@@ -685,38 +717,30 @@ export function PartnerCompaniesPage({
     setTimeout(() => setSuccessMessage(''), 4000);
   };
 
-  const handleConfirmDocumentRenewal = () => {
+  const handleConfirmDocumentRenewal = async () => {
     if (!selectedCompany || !renewalTarget) return;
 
     const pad = (n: number) => String(n).padStart(2, '0');
     const newExpiryStr = `${renewalYear}-${pad(renewalMonth + 1)}-${pad(renewalDay)}`;
     const { branchId, docName } = renewalTarget;
-    const branch = (selectedCompany.branches ?? []).find((b) => b.id === branchId);
-    const { status, daysLeft } = computeDocumentStatus({ expiryDate: newExpiryStr }, effectiveNow, docName);
-
-    const updatedBranches = (selectedCompany.branches ?? []).map((b) =>
-      b.id === branchId
-        ? { ...b, documents: { ...b.documents, [docName]: { provided: true, expiryDate: newExpiryStr, status, daysLeft } } }
-        : b
-    );
-    const updated: PartnerCompany = { ...selectedCompany, branches: updatedBranches };
-
-    onUpdateCompany(updated);
-    setSelectedCompany(updated);
-    setRenewalTarget(null);
-    setSuccessMessage(`"${docName}" renewed for "${selectedCompany.name}" until ${formatDate(newExpiryStr)}.`);
-    setTimeout(() => setSuccessMessage(''), 5000);
-    logAdminActivity(
-      'Renewed compliance document',
-      `${docName} renewed for "${branchAwareCompanyLabel(selectedCompany, branch)}" — new expiry ${newExpiryStr}`
-    );
-    logDocumentModification({
-      actorEmail: currentUserEmail || 'unknown',
-      category: categoryLabelFor(selectedCompany),
-      companyName: branchAwareCompanyLabel(selectedCompany, branch),
-      docName,
-      change: `Renewed — new expiry ${formatDate(newExpiryStr)}`,
-    });
+    const expectedDocument = (selectedCompany.branches ?? []).find((branch) => branch.id === branchId)?.documents?.[docName] ?? {};
+    setErrorMessage('');
+    try {
+      const updated = await onRenewDocument(
+        selectedCompany.id,
+        branchId,
+        docName,
+        expectedDocument,
+        { provided: true, expiryDate: newExpiryStr },
+      );
+      setSelectedCompany(updated);
+      setRenewalTarget(null);
+      setSuccessMessage(`"${docName}" renewed for "${selectedCompany.name}" until ${formatDate(newExpiryStr)}.`);
+      setTimeout(() => setSuccessMessage(''), 5000);
+      // The server RPC writes the audit entry atomically with the document change.
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to renew the compliance document.');
+    }
   };
 
   return (
@@ -888,7 +912,7 @@ export function PartnerCompaniesPage({
 
         {/* Register Button (admin only) - opens a modal with Manual Entry / Upload Excel tabs */}
         {isAdmin && (
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {onPreviewMasterListImport && (
               <input
                 ref={importFileInputRef}
@@ -899,12 +923,21 @@ export function PartnerCompaniesPage({
               />
             )}
             <button
+              onClick={() => setIsActiveCompaniesOpen(true)}
+              className="secondary-button min-h-10 w-full gap-1.5 px-4 text-xs font-bold sm:w-auto"
+              type="button"
+            >
+              <Building size={15} aria-hidden="true" />
+              <span>Active Companies by Type</span>
+              <ChevronRight size={14} className="text-slate-400" aria-hidden="true" />
+            </button>
+            <button
               onClick={() => {
                 setErrorMessage('');
                 setRegisterModalTab('manual');
                 setIsRegisterOpen(true);
               }}
-              className="bg-[#0063a9] hover:bg-[#00528c] text-white flex items-center justify-center gap-1.5 py-2.5 px-5 text-xs font-bold rounded-lg shadow-xs transition duration-150 cursor-pointer"
+              className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-[#0063a9] px-5 py-2.5 text-xs font-bold text-white shadow-xs transition duration-150 hover:bg-[#00528c] sm:w-auto"
               type="button"
             >
               <Plus size={16} />
@@ -921,38 +954,60 @@ export function PartnerCompaniesPage({
         </div>
       )}
 
-      {/* Registry Header & Controls Block */}
-      <div className="panel px-5 py-4 flex flex-wrap justify-between items-center gap-3">
+      {/* Registry Header */}
+      <div className="panel px-5 py-4">
         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-          {STATUS_TAB_LABELS[statusTab]} Registry List ({filteredCompanies.length}) &bull; Click card to edit/renew
+          {STATUS_TAB_LABELS[statusTab]} Registry List ({filteredCompanies.length}) &bull; Click row to edit/renew
         </span>
-        <div className="flex rounded-lg border border-slate-200 bg-white p-1 dark:border-transparent dark:bg-slate-950">
-          <button
-            type="button"
-            onClick={() => setViewMode('general')}
-            className={`flex items-center gap-1.5 rounded-md py-1.5 px-3 text-[11px] font-bold transition-all duration-150 cursor-pointer ${
-              viewMode === 'general'
-                ? 'bg-[#0063a9] text-white shadow-xs'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            <LayoutGrid size={12} />
-            <span>General</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('simplified')}
-            className={`flex items-center gap-1.5 rounded-md py-1.5 px-3 text-[11px] font-bold transition-all duration-150 cursor-pointer ${
-              viewMode === 'simplified'
-                ? 'bg-[#0063a9] text-white shadow-xs'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            <List size={12} />
-            <span>Simplified</span>
-          </button>
-        </div>
       </div>
+
+      <TableFilterBar
+        sortOptions={[
+          { value: 'name-asc', label: 'Company: A–Z' },
+          { value: 'name-desc', label: 'Company: Z–A' },
+          { value: 'registeredAt-desc', label: 'Registered: newest first' },
+          { value: 'registeredAt-asc', label: 'Registered: oldest first' },
+          { value: 'docStatus-desc', label: 'Documents: most urgent first' },
+        ]}
+        sortValue={sortConfig ? `${sortConfig.key}-${sortConfig.direction}` : 'name-asc'}
+        onSortChange={(value) => {
+          const separator = value.lastIndexOf('-');
+          setSortConfig({
+            key: value.slice(0, separator) as SortKey,
+            direction: value.slice(separator + 1) as 'asc' | 'desc',
+          });
+        }}
+        resultCount={filteredCompanies.length}
+        dateFrom={registeredFrom}
+        dateTo={registeredTo}
+        onDateFromChange={setRegisteredFrom}
+        onDateToChange={setRegisteredTo}
+        dateLabel="Registration date"
+        onReset={() => {
+          setSearchQuery('');
+          setActiveTab('All');
+          setOriginFilter('All');
+          setRegisteredFrom('');
+          setRegisteredTo('');
+          setDocumentFilter('all');
+          setSortConfig({ key: 'name', direction: 'asc' });
+        }}
+      >
+        <label className="min-w-[180px] flex-1 sm:flex-none">
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Document expiration</span>
+          <select
+            value={documentFilter}
+            onChange={(event) => setDocumentFilter(event.target.value as typeof documentFilter)}
+            className="field !mt-0 w-full py-2 text-xs sm:w-[190px]"
+          >
+            <option value="all">All document states</option>
+            <option value="current">Current</option>
+            <option value="expiring">Expiring soon</option>
+            <option value="expired">Expired / for update</option>
+            <option value="missing">Missing required docs</option>
+          </select>
+        </label>
+      </TableFilterBar>
 
       {filteredCompanies.length === 0 ? (
         <div className="panel py-20 text-center text-slate-400">
@@ -965,7 +1020,7 @@ export function PartnerCompaniesPage({
             {statusTab === 'Archived' && 'The archive is currently empty.'}
           </p>
         </div>
-      ) : viewMode === 'simplified' ? (
+      ) : (
         <div className="panel p-0 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] border-collapse text-sm">
@@ -1089,168 +1144,6 @@ export function PartnerCompaniesPage({
             </table>
           </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {paginatedCompanies.map((c) => {
-            const score = getCompanyScoreDetails(c.name, c.type);
-            const docSummary = computeCompanyDocumentSummary(c, effectiveNow);
-            const isExpiringSoon = !c.isArchived && docSummary.status === 'Expiring Soon';
-            const missingProfileFields = findMissingProfileFields(c);
-
-            return (
-              <div 
-                key={c.id} 
-                onClick={() => handleCompanyClick(c)}
-                className="panel relative overflow-hidden cursor-pointer hover:shadow-lg transition-all duration-200 border border-slate-200 dark:border-slate-800/80 hover:border-[#0063a9] dark:hover:border-blue-900/80 p-6 flex flex-col justify-between"
-              >
-                {/* Card Status Indicator Border */}
-                <div className={`absolute top-0 bottom-0 left-0 w-1.5 ${
-                  c.isArchived ? 'bg-slate-300' : (docSummary.status === 'Expired' || docSummary.status === 'Missing') ? 'bg-rose-500' : isExpiringSoon ? 'bg-amber-400' : 'bg-emerald-500'
-                }`} />
-
-                {/* Top segment: Title, prominent badges and Action */}
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-2 min-w-0 flex-1 pl-1.5">
-                    <h4 className="text-lg font-bold text-slate-900 dark:text-white truncate group-hover:text-[#0063a9] dark:group-hover:text-blue-300 transition-colors">
-                      {c.name}
-                    </h4>
-                    
-                    {/* Highly Recognizable Category Tag with Icon */}
-                    <div className="pt-0.5 flex flex-wrap items-center gap-1.5">
-                      {c.type === 'Courier' && (
-                        <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900/30">
-                          <Truck size={14} className="text-blue-600 dark:text-blue-400" />
-                          <span>Courier Partner</span>
-                        </span>
-                      )}
-                      {c.type === 'Supplier' && (
-                        <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/30">
-                          <Package size={14} className="text-emerald-600 dark:text-emerald-400" />
-                          <span>Supplier Partner</span>
-                        </span>
-                      )}
-                      {c.type === 'Subcontractor' && (
-                        <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/30">
-                          <Briefcase size={14} className="text-amber-600 dark:text-amber-400" />
-                          <span>Subcontractor</span>
-                        </span>
-                      )}
-                      {c.type === 'Uncategorized' && (
-                        <span className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wide bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:border-slate-700">
-                          <HelpCircle size={14} className="text-slate-400" />
-                          <span>Uncategorized</span>
-                        </span>
-                      )}
-                      {c.type === 'Supplier' && c.supplierOrigin && (
-                        <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide bg-slate-50 text-slate-500 border border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700">
-                          {c.supplierOrigin === 'Foreign' ? <Globe size={12} /> : <MapPin size={12} />}
-                          <span>{c.supplierOrigin}</span>
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Meta Tags Bar */}
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 dark:text-slate-500 pt-1">
-                      <span className="flex items-center gap-1">
-                        <Hash size={12} className="text-slate-300 dark:text-slate-700" />
-                        <span className="font-mono text-[10px] uppercase tracking-wider">
-                          {c.id.substring(0, 10).toUpperCase()}
-                        </span>
-                      </span>
-
-                      <span className="text-slate-200 dark:text-slate-800">|</span>
-
-                      <span className="flex items-center gap-1">
-                        <Calendar size={12} className="text-slate-300 dark:text-slate-700" />
-                        <span>Registered: <strong className="text-slate-600 dark:text-slate-400 font-semibold">{formatDate(c.registeredAt || c.createdAt)}</strong></span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Badge Status */}
-                  <div className="shrink-0">
-                    {c.isArchived ? (
-                      <span className="inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">Archived</span>
-                    ) : docSummary.status === 'Expired' ? (
-                      <span className="inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-950 dark:text-rose-400 dark:border-rose-900 animate-pulse">Expired</span>
-                    ) : docSummary.status === 'Missing' ? (
-                      <span className="inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-950 dark:text-rose-400 dark:border-rose-900">Missing Docs</span>
-                    ) : isExpiringSoon ? (
-                      <span className="inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-900 animate-pulse">Expiring Soon</span>
-                    ) : (
-                      <span className="inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-900">Active</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Document Compliance Box */}
-                <div className="mt-5 grid grid-cols-1 gap-2 rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-xs dark:border-slate-800/80 dark:bg-slate-900/50 min-[420px]:grid-cols-3">
-                  <div>
-                    <span className="text-slate-400 font-medium block">Expired</span>
-                    <strong className={`font-bold block ${docSummary.expiredCount > 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
-                      {docSummary.expiredCount}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 font-medium block">Expiring Soon</span>
-                    <strong className={`font-bold block ${docSummary.expiringSoonCount > 0 ? 'text-amber-600' : 'text-slate-700 dark:text-slate-300'}`}>
-                      {docSummary.expiringSoonCount}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 font-medium block">Missing</span>
-                    <strong className={`font-bold block ${docSummary.missingCount > 0 ? 'text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
-                      {docSummary.missingCount}
-                    </strong>
-                  </div>
-                </div>
-
-                {/* Missing Profile Fields */}
-                {missingProfileFields.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {missingProfileFields.map((field) => {
-                      const Icon = MISSING_FIELD_ICONS[field];
-                      return (
-                        <span
-                          key={field}
-                          className="inline-flex items-center gap-1 rounded-full border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400"
-                        >
-                          <Icon size={10} />
-                          Missing {MISSING_FIELD_LABELS[field]}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Multi-column specs details grid */}
-                <div className="mt-4 grid grid-cols-1 gap-4 border-t border-slate-100 pt-3 text-xs dark:border-slate-800/60 min-[420px]:grid-cols-2">
-                  {/* Column 1: Scope */}
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Specialization Scope</span>
-                    <span className="text-slate-600 dark:text-slate-300 font-medium line-clamp-1">
-                      {c.affiliation || 'General affiliation scope'}
-                    </span>
-                  </div>
-
-                  {/* Column 2: Performance */}
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Survey Audit Volume</span>
-                    <span className="text-slate-600 dark:text-slate-300 font-semibold">
-                      {score.count} evaluation{score.count !== 1 ? 's' : ''} completed
-                    </span>
-                  </div>
-                </div>
-
-                {/* Arrow Indicator on Hover */}
-                <div className="mt-4 flex items-center justify-between text-xs text-slate-400 group-hover:text-[#0063a9] dark:group-hover:text-blue-300 transition-colors">
-                  <span className="italic text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">Click to manage reminders & details</span>
-                  <ChevronRight size={14} className="transform group-hover:translate-x-1 transition-transform" />
-                </div>
-              </div>
-            );
-          })}
-        </div>
       )}
 
       {totalPages > 1 && (
@@ -1353,7 +1246,7 @@ export function PartnerCompaniesPage({
                       id="classify-type-sel"
                       className="field text-xs py-2"
                       value={selectedCompany.type}
-                      disabled={!canRenew}
+                      disabled={!isAdmin}
                       onChange={(e) => handleClassifyCompany(e.target.value as PartnerCompanyType)}
                     >
                       <option value="Uncategorized">Uncategorized</option>
@@ -1369,7 +1262,7 @@ export function PartnerCompaniesPage({
                         id="classify-origin-sel"
                         className="field text-xs py-2"
                         value={selectedCompany.supplierOrigin ?? 'Local'}
-                        disabled={!canRenew}
+                        disabled={!isAdmin}
                         onChange={(e) => handleClassifyCompany('Supplier', e.target.value as SupplierOrigin)}
                       >
                         <option value="Local">Local</option>
@@ -1379,9 +1272,9 @@ export function PartnerCompaniesPage({
                   )}
                 </div>
                 <p className="text-[10px] text-slate-400">
-                  {canRenew
+                  {isAdmin
                     ? 'Determines which compliance documents apply to this partner (see Branches & Compliance Documents below). Classifying an Uncategorized partner also unarchives and accredits it.'
-                    : 'Reclassifying requires the Document Renewal permission.'}
+                    : 'Reclassifying is restricted to administrators.'}
                 </p>
               </div>
             </div>
@@ -1404,6 +1297,7 @@ export function PartnerCompaniesPage({
                     <input
                       type="email"
                       value={selectedCompany.email || ''}
+                      disabled={!isAdmin}
                       onChange={(e) => {
                         const updated = { ...selectedCompany, email: e.target.value };
                         setSelectedCompany(updated);
@@ -1515,7 +1409,7 @@ export function PartnerCompaniesPage({
                             <span className="text-[10px] text-slate-400 uppercase tracking-wide">{branch.rawCategory}</span>
                           )}
                         </div>
-                        {canRenew ? (
+                        {isAdmin ? (
                           <select
                             value={branch.status ?? ''}
                             onChange={(e) => updateBranchStatus(branch.id, e.target.value as BranchStatus)}
@@ -1545,6 +1439,7 @@ export function PartnerCompaniesPage({
                           <input
                             type="text"
                             value={branch.address || ''}
+                            disabled={!isAdmin}
                             onChange={(e) => updateBranchField(branch.id, 'address', e.target.value)}
                             placeholder="Add branch address"
                             className={`field text-xs py-1.5 ${!branch.address ? 'border-amber-300 dark:border-amber-800' : ''}`}
@@ -1557,6 +1452,7 @@ export function PartnerCompaniesPage({
                           <input
                             type="text"
                             value={branch.contactPerson || ''}
+                            disabled={!isAdmin}
                             onChange={(e) => updateBranchField(branch.id, 'contactPerson', e.target.value)}
                             placeholder="Add contact person"
                             className={`field text-xs py-1.5 ${!branch.contactPerson ? 'border-amber-300 dark:border-amber-800' : ''}`}
@@ -1569,6 +1465,7 @@ export function PartnerCompaniesPage({
                           <input
                             type="text"
                             value={branch.mobilePhone || ''}
+                            disabled={!isAdmin}
                             onChange={(e) => updateBranchField(branch.id, 'mobilePhone', e.target.value)}
                             placeholder="Add mobile phone"
                             className={`field text-xs py-1.5 ${!branch.mobilePhone ? 'border-amber-300 dark:border-amber-800' : ''}`}
@@ -1581,6 +1478,7 @@ export function PartnerCompaniesPage({
                           <input
                             type="email"
                             value={branch.email || ''}
+                            disabled={!isAdmin}
                             onChange={(e) => updateBranchField(branch.id, 'email', e.target.value)}
                             placeholder="Add branch email"
                             className={`field text-xs py-1.5 ${!branch.email ? 'border-amber-300 dark:border-amber-800' : ''}`}
@@ -2020,6 +1918,8 @@ export function PartnerCompaniesPage({
                   only genuinely new or newly-accredited companies are added.
                 </div>
 
+                <ActiveCompanyUploadCards userEmail={currentUserEmail} />
+
                 <label
                   className={`flex items-start gap-2.5 rounded-xl border p-3 cursor-pointer transition ${
                     importReplace
@@ -2058,6 +1958,7 @@ export function PartnerCompaniesPage({
                   {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
                   <span>{isImporting ? 'Importing…' : importReplace ? 'Choose File & Replace Registry' : 'Choose Excel File (.xlsx)'}</span>
                 </button>
+
                 <div className="flex items-center justify-end border-t border-slate-100 dark:border-slate-800 pt-4">
                   <button
                     onClick={() => setIsRegisterOpen(false)}
@@ -2217,6 +2118,11 @@ export function PartnerCompaniesPage({
         </div>,
         document.body
       )}
+
+      <ActiveCompaniesModal
+        isOpen={isActiveCompaniesOpen}
+        onClose={() => setIsActiveCompaniesOpen(false)}
+      />
 
       {/* Master List Import Review Modal - shows what would change before
           anything is saved; nothing is written to the registry until the
@@ -2425,40 +2331,21 @@ export function PartnerCompaniesPage({
         document.body
       )}
 
-      {/* Delete Confirmation Passcode Modal */}
+      {/* Delete confirmation modal. Supabase RLS remains the authorization boundary. */}
       {companyToDelete && createPortal(
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-transparent dark:bg-slate-950 relative animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3 text-amber-500">
-              <ShieldCheck size={24} className="shrink-0" />
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Admin Security Verification</h3>
+            <div className="flex items-center gap-3 text-rose-500">
+              <AlertTriangle size={24} className="shrink-0" />
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Remove Partner?</h3>
             </div>
             
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-              You are attempting to remove <strong className="text-slate-800 dark:text-slate-200">"{companyToDelete.name}"</strong> from the registry list. This is a critical security action. Please input the administrative passcode to authorize this transaction.
+              You are about to remove <strong className="text-slate-800 dark:text-slate-200">"{companyToDelete.name}"</strong> from the registry. This action is restricted to authenticated administrators and cannot be undone from this screen.
             </p>
 
-            <div className="bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded border border-dashed border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 mt-3 font-mono">
-              Hint: Enter <strong>admin</strong> to authorize the removal.
-            </div>
-
-            <div className="mt-4">
-              <label htmlFor="auth-passcode" className="field-label">Administrative Passcode</label>
-              <input
-                id="auth-passcode"
-                type="password"
-                className="field text-sm mt-1"
-                placeholder="••••••••"
-                value={passcodeInput}
-                onChange={(e) => setPasscodeInput(e.target.value)}
-                autoFocus
-              />
-              {passcodeError && (
-                <p className="text-[11px] text-rose-500 font-bold mt-1.5 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  <span>{passcodeError}</span>
-                </p>
-              )}
+            <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300">
+              Confirm only if this partner should be permanently removed from the shared registry.
             </div>
 
             <div className="flex items-center justify-end gap-3 mt-6 border-t border-slate-100 pt-4 dark:border-slate-800">

@@ -89,8 +89,8 @@ export function CategoriesManagerPage({ categoryLabels, onRenameCategory, onRest
         <h2 className="text-sm font-bold text-slate-800 dark:text-white">Categories Manager</h2>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           Each partner type is evaluated across 5 categories. Renaming a category here updates it everywhere it's
-          used - survey question categories, the radar chart, bar charts, N/A frequency, reports, and the survey
-          editor's category dropdown.
+          used - survey question categories, the radar chart, bar charts, reports, and the survey editor's category
+          dropdown.
         </p>
       </div>
 
@@ -203,9 +203,9 @@ export function CategoriesManagerPage({ categoryLabels, onRenameCategory, onRest
                   {pendingAction === 'save' ? 'Rename these categories?' : `Restore ${openType} to default categories?`}
                 </h3>
                 <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-                  This changes {openType} category names across the whole system - the radar chart, bar charts, N/A
-                  frequency, reports, the analytics dashboard, and every existing survey question and submitted
-                  response already tagged with the old name. This can't be undone automatically.
+                  This changes {openType} category names across the whole system - the radar chart, bar charts,
+                  reports, the analytics dashboard, and every existing survey question and submitted response
+                  already tagged with the old name. This can't be undone automatically.
                 </p>
               </div>
             </div>

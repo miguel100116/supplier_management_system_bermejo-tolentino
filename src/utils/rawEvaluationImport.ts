@@ -197,6 +197,14 @@ function textCell(raw: unknown): string {
   return String(raw).trim();
 }
 
+async function sourceFileHash(buffer: ArrayBuffer, fileName: string): Promise<string> {
+  const hashInput = fileName.toLowerCase().endsWith('.csv')
+    ? new TextEncoder().encode(new TextDecoder().decode(buffer).replace(/\r\n/g, '\n'))
+    : new Uint8Array(buffer);
+  const digest = await crypto.subtle.digest('SHA-256', hashInput);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function parseRatingCell(raw: unknown): Rating {
   const str = textCell(raw);
   if (!str) return 'N/A';
@@ -215,7 +223,7 @@ function toIso(raw: unknown): string | null {
 
 type ResponseBase = Pick<
   SurveyResponse,
-  'responseId' | 'surveyType' | 'respondentType' | 'startTime' | 'submissionDate' | 'company' | 'department' | 'address' | 'respondentEmail'
+  'responseId' | 'companyId' | 'dataSource' | 'importBatchId' | 'surveyType' | 'respondentType' | 'startTime' | 'submissionDate' | 'company' | 'department' | 'address' | 'respondentEmail'
 >;
 
 function buildRowResponses(cells: unknown[], spec: FormSpec, base: ResponseBase): SurveyResponse[] {
@@ -259,8 +267,8 @@ function buildRowResponses(cells: unknown[], spec: FormSpec, base: ResponseBase)
 // flags the classification mismatch for the admin instead of silently
 // creating a duplicate company or discarding the response.
 export type CompanyMatchStatus =
-  | { kind: 'matched'; canonicalName: string }
-  | { kind: 'needs-reclassification'; canonicalName: string; currentType: PartnerCompany['type']; isArchived: boolean }
+  | { kind: 'matched'; companyId: string; canonicalName: string }
+  | { kind: 'needs-reclassification'; companyId: string; canonicalName: string; currentType: PartnerCompany['type']; isArchived: boolean }
   | { kind: 'unmatched' };
 
 function resolveCompanyMatch(rawName: string, surveyType: SurveyType, allCompanies: PartnerCompany[], threshold = 0.82): CompanyMatchStatus {
@@ -281,9 +289,9 @@ function resolveCompanyMatch(rawName: string, surveyType: SurveyType, allCompani
 
   const company = best.company;
   if (company.type === surveyType && !company.isArchived) {
-    return { kind: 'matched', canonicalName: company.name };
+    return { kind: 'matched', companyId: company.id, canonicalName: company.name };
   }
-  return { kind: 'needs-reclassification', canonicalName: company.name, currentType: company.type, isArchived: !!company.isArchived };
+  return { kind: 'needs-reclassification', companyId: company.id, canonicalName: company.name, currentType: company.type, isArchived: !!company.isArchived };
 }
 
 export interface RawEvalAccountProfile {
@@ -302,6 +310,7 @@ export interface CompanyMatchInfo {
   rawName: string;
   normalizedName: string;
   status: CompanyMatchStatus['kind'];
+  companyId?: string;
   canonicalName?: string;
   currentType?: PartnerCompany['type'];
   isArchived?: boolean;
@@ -323,6 +332,7 @@ interface ParsedRow {
 export interface RawEvalPreview {
   surveyType: SurveyType;
   fileName: string;
+  importBatchId: string;
   totalRows: number;
   skippedBlank: number;
   missingRespondentInfo: number;
@@ -364,6 +374,7 @@ export async function previewRawEvaluationImport(
 ): Promise<RawEvalPreview> {
   const spec = FORM_SPECS[surveyType];
   const buffer = await file.arrayBuffer();
+  const fileHash = await sourceFileHash(buffer, file.name);
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) throw new Error('The uploaded file has no sheets.');
@@ -412,6 +423,7 @@ export async function previewRawEvaluationImport(
         rawName: rawCompany,
         normalizedName: normalizedCompany,
         status: match.kind,
+        companyId: match.kind !== 'unmatched' ? match.companyId : undefined,
         canonicalName: match.kind !== 'unmatched' ? match.canonicalName : undefined,
         currentType: match.kind === 'needs-reclassification' ? match.currentType : undefined,
         isArchived: match.kind === 'needs-reclassification' ? match.isArchived : undefined,
@@ -450,6 +462,7 @@ export async function previewRawEvaluationImport(
   return {
     surveyType,
     fileName: file.name,
+    importBatchId: `client-csv:${surveyType.toLowerCase()}:${fileHash}`,
     totalRows: rawRows.length - 1,
     skippedBlank,
     missingRespondentInfo,
@@ -481,6 +494,7 @@ export function commitRawEvaluationImport(preview: RawEvalPreview, decisions: Re
   for (const row of preview.rows) {
     const match = matchByNormalized.get(row.normalizedCompany);
     let company: string;
+    let companyId: string;
 
     if (!match || match.status === 'unmatched') {
       const decision = decisions[row.normalizedCompany] ?? 'skip';
@@ -503,12 +517,17 @@ export function commitRawEvaluationImport(preview: RawEvalPreview, decisions: Re
           branches: [{ id: `${id}-branch-1`, bpCode: '' }],
         });
       }
+      companyId = newCompanyByNormalized.get(row.normalizedCompany)!.id;
     } else {
       company = match.canonicalName!;
+      companyId = match.companyId!;
     }
 
     const base: ResponseBase = {
       responseId: row.responseId,
+      companyId,
+      dataSource: 'client_csv',
+      importBatchId: preview.importBatchId,
       surveyType: preview.surveyType,
       respondentType: row.respondentType,
       startTime: row.startTime,

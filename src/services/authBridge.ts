@@ -11,8 +11,8 @@
 //   Authentication > Providers > Azure  -> enable it, and add the Entra app's
 //   Application (client) ID to the provider's allowed audiences. Without that,
 //   signInWithIdToken below returns an "provider not enabled"/audience error
-//   and we fall back to MSAL-only identity (login still works, but RLS is not
-//   yet enforced for this user). See supabase/seed_admins.sql for role setup.
+//   and Microsoft sign-in is blocked because an MSAL-only identity cannot be
+//   authorized by Postgres RLS. See supabase/seed_admins.sql for role setup.
 
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
@@ -21,10 +21,9 @@ export interface SupabaseBridgeResult {
   error?: string;
 }
 
-// Exchange the Microsoft ID token for a Supabase session. Best-effort by
-// design: a failure here must never block the user from using the app via
-// their verified Microsoft identity, so callers should log the result but not
-// treat !ok as a hard login failure until the provider is fully configured.
+// Exchange the Microsoft ID token for a Supabase session. Callers must treat
+// failure as a blocking authentication error because Postgres RLS cannot
+// authorize an MSAL-only browser identity.
 export async function signIntoSupabaseWithMicrosoft(
   idToken: string,
   nonce: string,

@@ -67,6 +67,9 @@ export function Shell<T extends string>({
   const flatPages = flattenPages(pages);
   const activePageItem = flatPages.find((p) => p.key === activePage);
   const ActiveIcon = activePageItem?.icon ?? Menu;
+  const moduleLabel = activePageItem?.label ?? title;
+  const contentHeading = pageHeading || title;
+  const showModuleContext = moduleLabel !== contentHeading;
 
   // Auto-expand whichever group currently contains the active page, without
   // collapsing groups the user has already opened manually.
@@ -333,8 +336,12 @@ export function Shell<T extends string>({
           <div className="px-3 py-4 sm:px-4 sm:py-6 lg:px-8">
             <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="min-w-0">
-                <p className="mb-1 break-words text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400 sm:text-xs">SUPPLIER MANAGEMENT PERFORMANCE EVALUATION SURVEY ANALYTICS</p>
-                <h2 className="break-words text-xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-2xl">{pageHeading || title}</h2>
+                {showModuleContext && (
+                  <p className="mb-1 break-words text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400 sm:text-xs">
+                    {moduleLabel}
+                  </p>
+                )}
+                <h2 className="break-words text-xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-2xl">{contentHeading}</h2>
               </div>
               <div id="shell-header-action"></div>
             </div>

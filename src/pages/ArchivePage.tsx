@@ -15,17 +15,19 @@ import type { ArchiveImportResult } from '../utils/archiveResponseTransfer';
 import { ChartCard } from '../components/ChartCard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { seriesTrend, companySeriesTrend } from '../utils/analytics';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 
 interface ArchivePageProps {
   surveys: CustomForm[];
   archivedResponses: SurveyResponse[];
   archiveSeries?: ArchiveSeries[];
   onRenameArchiveSeries?: (id: string, newLabel: string) => void;
-  onUpdateSurvey?: (survey: CustomForm) => void;
-  onRestoreResponseGroup?: (responseId: string) => void;
-  onRestoreResponsesForSurvey?: (surveyId: string) => void;
-  onDeleteArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => void;
-  onRestoreArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => void;
+  onUpdateSurvey?: (survey: CustomForm) => Promise<CustomForm>;
+  onRestoreResponseGroup?: (responseId: string) => Promise<void>;
+  onRestoreResponsesForSurvey?: (surveyId: string) => Promise<void>;
+  onDeleteArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => Promise<void>;
+  onRestoreArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => Promise<void>;
   onImportArchivedResponses?: (file: File) => Promise<ArchiveImportResult>;
   isAdmin: boolean;
 }
@@ -46,9 +48,13 @@ export function ArchivePage({
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<'surveys' | 'responses'>('surveys');
   const [searchQuery, setSearchQuery] = useState('');
+  const [tableSort, setTableSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('date-desc');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [confirmSurvey, setConfirmSurvey] = useState<CustomForm | null>(null);
   const [confirmResponseGroup, setConfirmResponseGroup] = useState<{ responseId: string; company: string; type: string } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   // Filter archived surveys
   const archivedSurveys = useMemo(() => {
@@ -120,12 +126,15 @@ export function ArchivePage({
     setConfirmSurvey(survey);
   };
 
-  const executeRestoreSurvey = () => {
+  const executeRestoreSurvey = async () => {
     if (!confirmSurvey || !onUpdateSurvey) return;
-    onUpdateSurvey({
-      ...confirmSurvey,
-      status: 'Running'
-    });
+    setMutationError(null);
+    try {
+      await onUpdateSurvey({ ...confirmSurvey, status: 'Running' });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to restore the survey.');
+      return;
+    }
     setSuccessMessage(`Form "${confirmSurvey.title}" has been restored to Active status!`);
     setConfirmSurvey(null);
     setTimeout(() => setSuccessMessage(null), 4000);
@@ -135,9 +144,15 @@ export function ArchivePage({
     setConfirmResponseGroup(group);
   };
 
-  const executeRestoreResponseGroup = () => {
+  const executeRestoreResponseGroup = async () => {
     if (!confirmResponseGroup || !onRestoreResponseGroup) return;
-    onRestoreResponseGroup(confirmResponseGroup.responseId);
+    setMutationError(null);
+    try {
+      await onRestoreResponseGroup(confirmResponseGroup.responseId);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to restore the response group.');
+      return;
+    }
     setSuccessMessage(`Evaluations for "${confirmResponseGroup.company}" restored to live dataset!`);
     setConfirmResponseGroup(null);
     setTimeout(() => setSuccessMessage(null), 4000);
@@ -145,22 +160,34 @@ export function ArchivePage({
 
   // Filter lists based on search
   const filteredArchivedSurveys = useMemo(() => {
-    if (!searchQuery.trim()) return archivedSurveys;
     const needle = searchQuery.toLowerCase();
-    return archivedSurveys.filter(
-      (s) => s.title.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)
-    );
-  }, [archivedSurveys, searchQuery]);
+    return archivedSurveys
+      .filter((s) =>
+        (!needle.trim() || s.title.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)) &&
+        isWithinDateRange(s.createdAt, dateFrom, dateTo)
+      )
+      .sort((a, b) => {
+        if (tableSort === 'name-asc') return compareText(a.title, b.title);
+        if (tableSort === 'name-desc') return compareText(b.title, a.title);
+        if (tableSort === 'date-asc') return compareDate(a.createdAt, b.createdAt);
+        return compareDate(b.createdAt, a.createdAt);
+      });
+  }, [archivedSurveys, searchQuery, tableSort, dateFrom, dateTo]);
 
   const filteredGroupedResponses = useMemo(() => {
-    if (!searchQuery.trim()) return groupedArchivedResponses;
     const needle = searchQuery.toLowerCase();
-    return groupedArchivedResponses.filter(
-      (g) =>
-        g.label.toLowerCase().includes(needle) ||
-        g.surveyTypes.some((t) => t.toLowerCase().includes(needle))
-    );
-  }, [groupedArchivedResponses, searchQuery]);
+    return groupedArchivedResponses
+      .filter((g) =>
+        (!needle.trim() || g.label.toLowerCase().includes(needle) || g.surveyTypes.some((t) => t.toLowerCase().includes(needle))) &&
+        isWithinDateRange(g.sortKey, dateFrom, dateTo)
+      )
+      .sort((a, b) => {
+        if (tableSort === 'name-asc') return compareText(a.label, b.label);
+        if (tableSort === 'name-desc') return compareText(b.label, a.label);
+        if (tableSort === 'date-asc') return compareDate(a.sortKey, b.sortKey);
+        return compareDate(b.sortKey, a.sortKey);
+      });
+  }, [groupedArchivedResponses, searchQuery, tableSort, dateFrom, dateTo]);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
@@ -267,13 +294,19 @@ export function ArchivePage({
     URL.revokeObjectURL(url);
   };
 
-  const handleBulkRestore = () => {
+  const handleBulkRestore = async () => {
     if (selectedGroups.size === 0 || !onRestoreArchivedResponseGroups) return;
     const groups = filteredGroupedResponses
       .filter(g => selectedGroups.has(g.id))
       .flatMap(g => g.eventKeys);
 
-    onRestoreArchivedResponseGroups(groups);
+    setMutationError(null);
+    try {
+      await onRestoreArchivedResponseGroups(groups);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to restore the archived responses.');
+      return;
+    }
     setSelectedGroups(new Set());
     setSuccessMessage('Selected archived forms have been restored to live dataset!');
     setTimeout(() => setSuccessMessage(null), 4000);
@@ -284,12 +317,18 @@ export function ArchivePage({
     setConfirmDeleteState({ isOpen: true });
   };
 
-  const confirmBulkDelete = () => {
+  const confirmBulkDelete = async () => {
     const groups = filteredGroupedResponses
       .filter(g => selectedGroups.has(g.id))
       .flatMap(g => g.eventKeys);
 
-    onDeleteArchivedResponseGroups!(groups);
+    setMutationError(null);
+    try {
+      await onDeleteArchivedResponseGroups!(groups);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to delete the archived responses.');
+      return;
+    }
     setSelectedGroups(new Set());
     setConfirmDeleteState({ isOpen: false });
     setSuccessMessage('Selected archived logs have been permanently deleted.');
@@ -312,6 +351,11 @@ export function ArchivePage({
         <div className="bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/50 rounded-xl p-4 flex items-center gap-3 text-emerald-800 dark:text-emerald-300 text-sm animate-fade-in">
           <RefreshCw size={18} className="animate-spin-slow text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span className="font-semibold">{successMessage}</span>
+        </div>
+      )}
+      {mutationError && (
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300">
+          {mutationError}
         </div>
       )}
 
@@ -428,6 +472,29 @@ export function ArchivePage({
             </div>
           </div>
         </div>
+
+        <TableFilterBar
+          sortOptions={[
+            { value: 'date-desc', label: 'Date: newest first' },
+            { value: 'date-asc', label: 'Date: oldest first' },
+            { value: 'name-asc', label: 'Name: A–Z' },
+            { value: 'name-desc', label: 'Name: Z–A' },
+          ]}
+          sortValue={tableSort}
+          onSortChange={setTableSort}
+          resultCount={activeTab === 'surveys' ? filteredArchivedSurveys.length : filteredGroupedResponses.length}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateFromChange={setDateFrom}
+          onDateToChange={setDateTo}
+          dateLabel={activeTab === 'surveys' ? 'Created date' : 'Archived date'}
+          onReset={() => {
+            setSearchQuery('');
+            setTableSort('date-desc');
+            setDateFrom('');
+            setDateTo('');
+          }}
+        />
 
         {importError && (
           <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 text-xs font-semibold flex items-center gap-2 dark:bg-rose-950/20 dark:border-rose-900">

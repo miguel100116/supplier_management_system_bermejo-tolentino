@@ -3,6 +3,8 @@ import { Shield, Search, Plus, UserCog, Mail, Briefcase, Trash2, Edit2, AlertCir
 import { AccountProfile } from '../App';
 import { PageModuleKey, getDefaultPermissions, getDepartmentDefaultPermissions } from '../utils/rbac';
 import { SurveyType } from '../types/survey';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { compareText } from '../utils/tableFilters';
 
 interface AccountManagementPageProps {
   accounts: AccountProfile[];
@@ -47,6 +49,7 @@ export function AccountManagementPage({
   onUpdateDepartmentPermissions
 }: AccountManagementPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [tableSort, setTableSort] = useState<'email-asc' | 'email-desc' | 'department-asc' | 'designation-asc'>('email-asc');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
 
@@ -140,12 +143,18 @@ export function AccountManagementPage({
   };
 
   const filteredAccounts = useMemo(() => {
-    return accounts.filter(a => 
+    const matching = accounts.filter(a =>
       a.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
       a.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
       a.designation.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [accounts, searchTerm]);
+    return matching.sort((a, b) => {
+      if (tableSort === 'email-desc') return compareText(b.email, a.email);
+      if (tableSort === 'department-asc') return compareText(a.department, b.department) || compareText(a.email, b.email);
+      if (tableSort === 'designation-asc') return compareText(a.designation, b.designation) || compareText(a.email, b.email);
+      return compareText(a.email, b.email);
+    });
+  }, [accounts, searchTerm, tableSort]);
 
   // Whenever designation or department changes in form, automatically assign default permissions
   // if we are NOT editing, or if we want to reset permissions in editing.
@@ -343,6 +352,24 @@ export function AccountManagementPage({
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <span className="font-medium text-slate-700 dark:text-slate-300">{filteredAccounts.length}</span> Accounts Found
           </div>
+        </div>
+
+        <div className="mb-4">
+          <TableFilterBar
+            sortOptions={[
+              { value: 'email-asc', label: 'Email: A–Z' },
+              { value: 'email-desc', label: 'Email: Z–A' },
+              { value: 'department-asc', label: 'Department: A–Z' },
+              { value: 'designation-asc', label: 'Designation: A–Z' },
+            ]}
+            sortValue={tableSort}
+            onSortChange={setTableSort}
+            resultCount={filteredAccounts.length}
+            onReset={() => {
+              setSearchTerm('');
+              setTableSort('email-asc');
+            }}
+          />
         </div>
 
         <div className="overflow-x-auto">

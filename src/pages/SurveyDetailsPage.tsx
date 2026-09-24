@@ -5,6 +5,8 @@ import { CompletionStatusBar } from '../components/CompletionStatusBar';
 import { SurveyPreviewModal } from '../components/SurveyPreviewModal';
 import { formatNumber, getSurveyEvaluationCompanies, scoredResponses, submissionScores } from '../utils/analytics';
 import { isScoredQuestion, getQuestionMaxPoints, formatCompositeScore } from '../data/questionWeights';
+import { TableFilterBar } from '../components/TableFilterBar';
+import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 
 interface SurveyDetailsPageProps {
   survey: CustomForm;
@@ -21,6 +23,10 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [submissionSearch, setSubmissionSearch] = useState('');
+  const [submissionSort, setSubmissionSort] = useState<'date-desc' | 'date-asc' | 'company-asc' | 'company-desc'>('date-desc');
+  const [submissionFrom, setSubmissionFrom] = useState('');
+  const [submissionTo, setSubmissionTo] = useState('');
 
   const { pendingCompanies, completedCount, totalCompanies } = useMemo(() => {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
@@ -77,6 +83,22 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
 
     return Object.values(grouped).sort((a, b) => b.submissionDate.localeCompare(a.submissionDate));
   }, [surveyResponses]);
+
+  const filteredSubmissions = useMemo(() => {
+    const needle = submissionSearch.trim().toLowerCase();
+    return submissions
+      .filter((submission) => {
+        if (!isWithinDateRange(submission.submissionDate, submissionFrom, submissionTo)) return false;
+        if (!needle) return true;
+        return `${submission.company} ${submission.department ?? ''} ${submission.respondentType}`.toLowerCase().includes(needle);
+      })
+      .sort((a, b) => {
+        if (submissionSort === 'date-asc') return compareDate(a.submissionDate, b.submissionDate);
+        if (submissionSort === 'company-asc') return compareText(a.company, b.company);
+        if (submissionSort === 'company-desc') return compareText(b.company, a.company);
+        return compareDate(b.submissionDate, a.submissionDate);
+      });
+  }, [submissions, submissionSearch, submissionSort, submissionFrom, submissionTo]);
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -274,6 +296,39 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
           <span className="text-xs text-slate-400">Source: Interactive Submissions</span>
         </div>
 
+        <TableFilterBar
+          sortOptions={[
+            { value: 'date-desc', label: 'Submission: newest first' },
+            { value: 'date-asc', label: 'Submission: oldest first' },
+            { value: 'company-asc', label: 'Company: A–Z' },
+            { value: 'company-desc', label: 'Company: Z–A' },
+          ]}
+          sortValue={submissionSort}
+          onSortChange={setSubmissionSort}
+          resultCount={filteredSubmissions.length}
+          dateFrom={submissionFrom}
+          dateTo={submissionTo}
+          onDateFromChange={setSubmissionFrom}
+          onDateToChange={setSubmissionTo}
+          dateLabel="Submission date"
+          onReset={() => {
+            setSubmissionSearch('');
+            setSubmissionSort('date-desc');
+            setSubmissionFrom('');
+            setSubmissionTo('');
+          }}
+        >
+          <label className="min-w-[190px] flex-1 sm:flex-none">
+            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Search</span>
+            <input
+              value={submissionSearch}
+              onChange={(event) => setSubmissionSearch(event.target.value)}
+              placeholder="Company, department, role…"
+              className="field !mt-0 w-full py-2 text-xs sm:w-[220px]"
+            />
+          </label>
+        </TableFilterBar>
+
         {submissions.length === 0 ? (
           <div className="py-8 text-center text-slate-400 dark:text-slate-600">
             <ClipboardCheck size={32} className="mx-auto mb-2 opacity-50" />
@@ -293,7 +348,7 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {submissions.map((sub) => {
+                {filteredSubmissions.map((sub) => {
                   const validAnswers = sub.answers.filter((a) => a.rating !== 'N/A');
                   const scoredAnswerCount = scoredResponses(sub.answers).length;
                   const submissionScore = submissionScores(sub.answers)[0]?.score;
@@ -324,6 +379,11 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
                     </tr>
                   );
                 })}
+                {filteredSubmissions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400">No submissions match the selected filters.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

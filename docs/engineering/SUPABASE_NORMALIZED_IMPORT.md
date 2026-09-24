@@ -19,6 +19,8 @@ The additive migration is `supabase/migrations/202609150001_normalized_business_
 
 ## Local dry run
 
+CSV checksums are calculated from canonical LF text. Git checkouts using CRLF therefore verify against the same reviewed client content without weakening validation of any other byte.
+
 Run:
 
 ```powershell

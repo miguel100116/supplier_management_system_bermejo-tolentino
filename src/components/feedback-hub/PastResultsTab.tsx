@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../../types/survey';
 import { QueuedReportEmail } from '../../types/feedbackHub';
 import { Search, Filter, Download, Send, BarChart3, CheckCircle2, Clock, AlertTriangle, FileText } from 'lucide-react';
@@ -6,6 +6,8 @@ import { exportTablesAsPDF, ExportTable } from '../../utils/exporters';
 import { SurveyDetailModal } from './SurveyDetailModal';
 import { submissionScores } from '../../utils/analytics';
 import { formatCompositeScore } from '../../data/questionWeights';
+import { TableFilterBar } from '../TableFilterBar';
+import { compareDate, compareText, isWithinDateRange } from '../../utils/tableFilters';
 
 interface PastResultsTabProps {
   surveys: CustomForm[];
@@ -24,16 +26,26 @@ export function PastResultsTab({
 }: PastResultsTabProps) {
   const [search, setSearch] = useState('');
   const [selectedType, setSelectedType] = useState<SurveyType | 'All'>('All');
+  const [tableSort, setTableSort] = useState<'date-desc' | 'date-asc' | 'title-asc' | 'title-desc'>('date-desc');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [selectedSurveyForDetail, setSelectedSurveyForDetail] = useState<CustomForm | null>(null);
 
   // Filter completed surveys or all surveys
   const completedSurveys = surveys.filter((s) => s.status !== 'Archived');
 
-  const filteredSurveys = completedSurveys.filter((s) => {
-    const matchesSearch = s.title.toLowerCase().includes(search.toLowerCase()) || s.surveyType.toLowerCase().includes(search.toLowerCase());
-    const matchesType = selectedType === 'All' || s.surveyType === selectedType;
-    return matchesSearch && matchesType;
-  });
+  const filteredSurveys = useMemo(() => completedSurveys
+    .filter((s) => {
+      const matchesSearch = s.title.toLowerCase().includes(search.toLowerCase()) || s.surveyType.toLowerCase().includes(search.toLowerCase());
+      const matchesType = selectedType === 'All' || s.surveyType === selectedType;
+      return matchesSearch && matchesType && isWithinDateRange(s.createdAt, dateFrom, dateTo);
+    })
+    .sort((a, b) => {
+      if (tableSort === 'date-asc') return compareDate(a.createdAt, b.createdAt);
+      if (tableSort === 'title-asc') return compareText(a.title, b.title);
+      if (tableSort === 'title-desc') return compareText(b.title, a.title);
+      return compareDate(b.createdAt, a.createdAt);
+    }), [completedSurveys, search, selectedType, tableSort, dateFrom, dateTo]);
 
   const handleExportPdfRow = (survey: CustomForm) => {
     const surveyResponses = responses.filter(
@@ -96,6 +108,30 @@ export function PastResultsTab({
           </select>
         </div>
       </div>
+
+      <TableFilterBar
+        sortOptions={[
+          { value: 'date-desc', label: 'Completion: newest first' },
+          { value: 'date-asc', label: 'Completion: oldest first' },
+          { value: 'title-asc', label: 'Survey: A–Z' },
+          { value: 'title-desc', label: 'Survey: Z–A' },
+        ]}
+        sortValue={tableSort}
+        onSortChange={setTableSort}
+        resultCount={filteredSurveys.length}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        dateLabel="Completion date"
+        onReset={() => {
+          setSearch('');
+          setSelectedType('All');
+          setTableSort('date-desc');
+          setDateFrom('');
+          setDateTo('');
+        }}
+      />
 
       {/* Table View */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 overflow-hidden">

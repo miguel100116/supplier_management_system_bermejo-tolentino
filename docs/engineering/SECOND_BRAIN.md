@@ -36,6 +36,7 @@ Canonical product documentation:
 
 - Authenticated staging users load and save profiles, permissions, surveys, Partner Companies/documents, responses, archives, category labels, Feedback Hub data, notification/reminder configuration, compliance snapshots, ranking/activity/modification/export history, and employee notification state through Supabase.
 - Imported normalized tables remain the immutable source/audit layer. `app_profiles` and per-entity `application_records` are the canonical editable frontend store.
+- Analytics provenance is explicit as of 2026-09-22: client CSV rows use `dataSource=client_csv`, approved live form submissions use `production_submission`, and staging form submissions use `test_submission`. Official Analytics includes only the first two. Legacy normalized/default-form and UI-import IDs are recognized as client data; legacy pre-production `RESP-*` rows remain stored but are classified as test data. `VITE_DEPLOYMENT_ENV` defaults to staging and must be set to production only for the approved live deployment.
 - Browser `localStorage` remains an authenticated startup cache and stores intentionally device-specific drafts/preferences. Eligible historical browser records are uploaded once when the remote set is empty; remote empty sets are authoritative after migration.
 - Supabase Realtime events invalidate the relevant client store and cause an RLS-protected refetch; event payloads are not trusted as application data.
 
@@ -51,7 +52,7 @@ Canonical product documentation:
 Verified on 2026-09-21:
 
 - `npm run lint` succeeds and runs TypeScript checks for both application and import scripts; ESLint is not configured.
-- `npm test` passes 45 focused tests covering Feedback Hub report data, application persistence identifiers, browser-to-Supabase migration behavior, normalized Partner Company/document mapping, and the Supabase import pipeline; broader component, integration, and end-to-end coverage is not yet established.
+- `npm test` covers focused domain, persistence-contract, import, mapping, and authorization helpers; broader component, integration, and end-to-end coverage is not yet established. Use the current command output as the source for the exact test count.
 - No repository CI workflow is present.
 - The TypeScript source under `src/` is roughly 65,000 lines across about 100 files.
 - Major concentration points include `src/hooks/useSurveyData.ts`, `src/App.tsx`, several page components above 1,000 lines, and a very large generated/static partner seed file.
@@ -240,14 +241,162 @@ Consequences: Staging sessions converge on Supabase values across devices, inclu
 
 Evidence: `src/services/applicationRepository.ts`, `src/services/sharedStoreHydration.ts`, `src/hooks/useSurveyData.ts`, `src/App.tsx`, `server.ts`, `supabase/migrations/20260921011822_centralize_shared_state.sql`, `supabase/migrations/20260921013124_consolidate_application_rls.sql`
 
+### 2026-09-22 - Shared module back navigation
+
+Status: accepted
+
+Context: Detail, create, edit, and form-filling views previously inferred navigation history after rendering, so a Back action could lose its origin and fall through to Dashboard.
+
+Decision: Route module changes through one in-memory navigation boundary in `App.tsx`. Page-level Back and Cancel controls use the same history and explicit survey-module fallback where required. Internal wizard-step controls remain local to their current module.
+
+Consequences: Back returns users to the immediately preceding module instead of Dashboard. Navigation history is session-local and deliberately resets at login or an authorization redirect.
+
+Evidence: `src/App.tsx`
+
+### 2026-09-22 - Shared operational table filters
+
+Status: accepted
+
+Context: Operational tables used unrelated search and sort controls, and several had no alphabetical or date filtering. Document expiration is meaningful only where compliance documents exist.
+
+Decision: Use `TableFilterBar` and the pure helpers in `tableFilters.ts` for operational listing tables. Each table exposes only fields present in its data: alphabetical and date sorting/date ranges where applicable, plus document-expiration states in Partner Companies. Document Tracker retains its more detailed field/condition/value filter builder, including document status and days-left conditions. Generated report previews, survey rating matrices, and fixed ranking-slot grids are not treated as filterable record lists.
+
+Consequences: Table controls now share responsive styling, reset behavior, local-date range semantics, and result counts without inventing expiration filters for tables that do not contain document data.
+
+Evidence: `src/components/TableFilterBar.tsx`, `src/utils/tableFilters.ts`, operational table consumers under `src/pages/` and `src/components/feedback-hub/`
+
+### 2026-09-22 - Analytics ranking consistency boundary
+
+Status: accepted
+
+Context: Analytics ranking logic was duplicated in the page, and the best/least-performing chart always used volume weighting even when users selected Pure Average. It could therefore sort by one value while displaying another.
+
+Decision: Keep company-ranking preparation in `src/features/analytics/domain/rankings.ts`. Every ranking consumer must pass the selected ranking mode, and charts must display the same score used for ordering. Scope calculations to the already filtered response slice and exclude all-N/A composites from ranked results.
+
+Consequences: Champion cards, leaderboards, and best/least-performing charts consistently honor survey filters and ranking mode. Focused domain tests cover pure versus weighted ordering, displayed score selection, active survey types, and ranking direction.
+
+Evidence: `src/features/analytics/domain/rankings.ts`, `src/features/analytics/domain/rankings.test.ts`, `src/pages/AnalyticsPage.tsx`
+
+### 2026-09-22 - Analytics presentation hierarchy
+
+Status: accepted
+
+Context: Analytics exposed useful information but presented overview metrics, detailed company tools, trends, and question breakdowns with similar visual weight. The ordering made the page harder to scan and left the response total and performance extremes isolated in full-width rows.
+
+Decision: Preserve the existing analytics data and interactions while organizing the page into four presentation groups: Overview, Trends & Comparisons, Company Exploration, and Question Detail. Keep period/ranking controls in a labeled toolbar, balance the primary partner summary with response and range cards, and use responsive grids that collapse to one column without fixed-width content.
+
+Consequences: The same analytics remain available with clearer progressive disclosure, less unused space, and more consistent control labeling. Presentation components live under `src/features/analytics/components/`; calculation ownership remains unchanged in the Analytics domain and utility layers.
+
+Evidence: `src/pages/AnalyticsPage.tsx`, `src/features/analytics/components/AnalyticsSection.tsx`, `src/features/analytics/components/AnalyticsToolbar.tsx`, `src/features/analytics/components/PerformanceHighlights.tsx`
+
+### 2026-09-23 - Versioned active-company snapshots
+
+Status: accepted and applied to staging on 2026-09-23
+
+Context: Partner Companies needs an Admin-only view of the companies present in each official Courier, Supplier, and Subcontractor evaluation export. This list is distinct from the Partner Companies master-list registry and from calculated leaderboard rankings.
+
+Decision: Store each category upload as an immutable `active_company_snapshot` application record containing its source filename, upload timestamp, actor, and deduplicated company names. Seed the first three snapshots from the repository's official Microsoft Forms CSV exports. New CSV/Excel uploads append snapshots independently per survey type; the latest timestamp is current while older snapshots remain selectable.
+
+Consequences: Admins upload the three files from Partner Companies → Register New Partner → Upload Master List, then inspect and backtrack the lists from the Partner Companies action bar. The existing consolidated application-record RLS keeps this record type Admin-only because it is not included in any employee-readable exception. Migration `202609230001_active_company_snapshots.sql` is applied to staging; production remains unchanged and requires separate authorization.
+
+Evidence: `src/features/active-companies/`, `src/pages/PartnerCompaniesPage.tsx`, `supabase/migrations/202609230001_active_company_snapshots.sql`
+
+### 2026-09-23 - Frontend–Supabase semantic alignment audit
+
+Status: structurally aligned with documented production blockers
+
+Context: The frontend persistence paths, application-record types, Realtime invalidation, and database RLS needed one verified map after shared-state centralization and the Active Companies relocation.
+
+Decision: Treat `docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md` as the canonical connection map. Export one runtime `APPLICATION_RECORD_TYPES` tuple and test it against the latest versioned database constraint. Refresh department permissions and active-company snapshots on their Realtime invalidation events.
+
+Consequences: Record-type drift now fails a focused test, and those two stores converge across open clients. Three authorization gaps remain explicit production blockers: secure company-wide aggregate Analytics for lower ranks, delegated document renewal, and non-Admin archive mutations. Do not weaken raw-row RLS to solve them.
+
+Evidence: `docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`, `src/App.tsx`, `src/features/active-companies/components/ActiveCompaniesModal.tsx`
+
+### 2026-09-24 - Repository authorization stabilization boundaries
+
+Status: partially implemented and locally verified; the database migration is pending commit and unapplied
+
+Decision: Keep Archive Center Admin-only. Permit delegated document renewal only through a field-limited, optimistic-concurrency RPC that writes the modification audit entry in the same transaction. Company-wide lower-rank Analytics remains unresolved and must not widen raw-response RLS.
+
+Consequences: `202609240001_delegated_document_renewal.sql` requires separate staging authorization and database-backed role tests. Until applied, delegated renewal remains unavailable. Production remains untouched.
+
+Evidence: `src/utils/rbac.ts`, `src/hooks/useSurveyData.ts`, `supabase/migrations/202609240001_delegated_document_renewal.sql`, and its focused tests.
+
+### 2026-09-24 - Runtime record validation and rejected-write recovery
+
+Status: accepted and locally verified in the working tree
+
+Decision: Parse every one of the 19 `application_records` payload types at the repository boundary with bounded IDs, enums, dates, arrays, text, and numeric values. Quarantine malformed rows while retaining valid neighbors. Await authorization-sensitive writes before success and emit authoritative invalidation after any rejected read/write/reconciliation step.
+
+Consequences: Corrupt remote rows fail closed and are reported without leaking payload content. A partially completed replace operation converges through RLS-protected refetch and is safe to retry because stable IDs and the computed stale-ID set make the operations idempotent.
+
+Compatibility note: repository validation runs before hook normalization. It therefore owns the known response migrations (`Contractor` to `Courier`, `General` to `Overall`, missing respondent type to `Unspecified`, and missing legacy rating/comment values to `N/A`/empty text). Missing completion dates are recovered in evidence order from `startTime`, the timestamp embedded in a legacy `RESP-*` ID, then immutable `application_records.created_at`; `submissionDateInferredFrom` preserves that distinction. Supplied malformed dates still fail closed. The archive importer now rejects rows with no recoverable date instead of persisting another incomplete response. Quarantine notifications aggregate sanitized validation reasons and never include response payloads or record identifiers.
+
+Evidence: `src/services/applicationRecordSchemas.ts`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`, `src/services/clientSecurityRegression.test.ts`.
+
+### 2026-09-24 - Authentication recovery and provider bridge
+
+Status: repository implementation complete; hosted settings and production-provider approval pending
+
+Decision: Support Supabase password reset/recovery with a forced fresh sign-in after password update. Treat Microsoft-to-Supabase token exchange as mandatory before establishing the application identity. Keep lifecycle and emergency procedures in `AUTH_OPERATIONS.md`.
+
+Consequences: Microsoft bridge failure no longer leaves an MSAL-only identity attempting RLS-backed operations. Exact redirect URLs, leaked-password protection, provider selection, revocation, and disabled-account behavior still require environment-owner configuration and staging tests.
+
+Evidence: `src/pages/LoginPage.tsx`, `src/pages/PasswordRecoveryPage.tsx`, `src/services/supabasePasswordAuth.ts`, `src/services/authBridge.ts`, `src/App.tsx`, `docs/engineering/AUTH_OPERATIONS.md`.
+
+### 2026-09-24 - Dependency remediation and reproducible verification
+
+Status: locally verified in the working tree; hosted CI has not run
+
+Decision: Resolve the 11 clean-install advisories without forced upgrades, use official SheetJS CE 0.20.3, pin patched `image-size`, test spreadsheet/PPTX exports, and document the bounded `core-js` and `esbuild` install hooks. Pin Node 22 and immutable third-party action commits in a pull-request verification workflow.
+
+Consequences: Local `npm audit` is clean. The workflow performs clean install, TypeScript checks, tests, build, dependency audit, secret scan, and build-artifact upload, but branch protection and a hosted run require a later authorized push and repository-owner configuration.
+
+Evidence: `package.json`, `package-lock.json`, `src/utils/exportDependencies.test.ts`, `.nvmrc`, `.github/workflows/verify.yml`, `docs/engineering/DEPENDENCY_SECURITY.md`.
+
+### 2026-09-24 - Response provenance execution readiness
+
+Status: runbook and read-only verification complete; migration remains unapplied
+
+Decision: Explain the 6,355 pending rows as the exact normalized-answer seed set awaiting provenance classification. Use deterministic exact-ID/payload matching, protect already classified rows, and require the documented backup, thresholds, reconciliation, and recovery decision before any staging execution.
+
+Consequences: Courier 540, Subcontractor 1,560, Supplier 4,255, and total 6,355 are the expected post-migration exact counts when the preflight has zero conflicts. No migration was executed; staging approval and production review remain independent blockers.
+
+Evidence: `docs/engineering/RESPONSE_PROVENANCE_RUNBOOK.md`, `supabase/verification/response_provenance_readiness.sql`, `supabase/migrations/202609220001_response_provenance.sql`, `src/services/sharedPersistenceMigration.test.ts`.
+
 ## Active modernization state
 
+### 2026-09-24 - Remove browser-side shared administrative passcodes
+
+Status: accepted and locally verified in the working tree
+
+Context: Partner deletion and survey archive/reset dialogs embedded shared passcode values in browser source. Those values were visible to every client and could not provide an authorization boundary, even though the corresponding controls were Admin-only and Supabase RLS remained authoritative.
+
+Decision: Remove the shared passcodes and password inputs. Retain explicit destructive-action confirmation, Admin-only rendering, and database authorization. Add a focused source regression test preventing these pages from reintroducing browser-side shared passcodes.
+
+Consequences: Destructive actions no longer imply that a bundled passcode provides security. Any stronger reauthentication requirement must be implemented through the authenticated provider and server/database boundary rather than a client constant.
+
+Evidence: `src/pages/PartnerCompaniesPage.tsx`, `src/pages/SurveyFormsPage.tsx`, `src/services/clientSecurityRegression.test.ts`; `npm run lint`, 74 tests, and `npm run build` passed on 2026-09-24.
+
+### 2026-09-24 - Validate profile authorization payloads at runtime
+
+Status: accepted and locally verified in the working tree
+
+Context: `loadProfiles()` trusted database strings and cast permission arrays directly to TypeScript types. A malformed role, designation, department, page key, or survey type could therefore reach authorization and navigation logic without runtime rejection.
+
+Decision: Parse profiles at the application repository boundary on both load and save. Accept only the supported company email domain, roles, designations, departments, page-module keys, and survey types; normalize email casing and duplicate permission entries; reject unsupported values with a field-specific error.
+
+Consequences: Profile and permission corruption now fails closed before reaching RBAC consumers. Other `application_records` payload types still require their own runtime schemas and remain tracked separately.
+
+Evidence: `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`; `npm run lint`, 76 tests, and `npm run build` passed on 2026-09-24.
+
 - Agent governance: established by `AGENTS.md`.
-- Automated test harness: focused Feedback Hub company-report tests established; repository-wide coverage remains incomplete.
-- CI/CD workflow: not established.
-- Feature-module refactor: not started by this governance change.
+- Automated test harness: focused Feedback Hub company-report and Analytics ranking tests established; repository-wide coverage remains incomplete.
+- CI/CD workflow: repository workflow established with pinned Node/actions; hosted execution and branch protection are not established.
+- Feature-module refactor: started incrementally for Feedback Hub reporting and Analytics ranking/presentation seams; large legacy pages remain.
 - Backend source-of-truth migration: complete for shared state in staging; production migration/deployment still requires explicit authorization and environment-specific verification.
-- Repository artifact cleanup: not started by this governance change.
+- Repository artifact cleanup: tracked `.vite` cache and obsolete root extraction/patch outputs removed; `.vite/` is ignored.
 
 ## Handoff template
 

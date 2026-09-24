@@ -1,5 +1,6 @@
 export type SurveyType = 'Courier' | 'Supplier' | 'Subcontractor';
 export type Rating = number | 'N/A';
+export type SurveyResponseSource = 'client_csv' | 'production_submission' | 'test_submission';
 export type SurveyAccessRole = 'Rank & File' | 'Supervisory' | 'Managerial' | 'Director' | 'Executive';
 
 // A PartnerCompany's type widens SurveyType with 'Uncategorized' — the state
@@ -86,6 +87,11 @@ export interface PartnerCompany {
 
 export interface SurveyResponse {
   responseId: string;
+  // Provenance controls whether a response belongs in official analytics.
+  // Optional for records written before provenance tracking was introduced;
+  // those are classified conservatively by responseProvenance.ts.
+  dataSource?: SurveyResponseSource;
+  importBatchId?: string;
   // Stable source identifiers used by report generation. Optional for rows
   // saved by older builds, which predate these fields.
   surveyId?: string;
@@ -100,6 +106,10 @@ export interface SurveyResponse {
   // When the respondent completed/submitted - what "Completion time"/"Date"
   // means everywhere else in the app (analytics, exports, etc.).
   submissionDate: string;
+  // Present only when a legacy record lacked an exact completion timestamp.
+  // Consumers may display/use submissionDate, but must not represent an
+  // inferred value as an exact source-provided completion time.
+  submissionDateInferredFrom?: 'startTime' | 'responseId' | 'recordCreatedAt';
   company: string;
   department?: string;
   address?: string;
