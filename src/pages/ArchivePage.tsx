@@ -23,11 +23,11 @@ interface ArchivePageProps {
   archivedResponses: SurveyResponse[];
   archiveSeries?: ArchiveSeries[];
   onRenameArchiveSeries?: (id: string, newLabel: string) => void;
-  onUpdateSurvey?: (survey: CustomForm) => void;
-  onRestoreResponseGroup?: (responseId: string) => void;
-  onRestoreResponsesForSurvey?: (surveyId: string) => void;
-  onDeleteArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => void;
-  onRestoreArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => void;
+  onUpdateSurvey?: (survey: CustomForm) => Promise<CustomForm>;
+  onRestoreResponseGroup?: (responseId: string) => Promise<void>;
+  onRestoreResponsesForSurvey?: (surveyId: string) => Promise<void>;
+  onDeleteArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => Promise<void>;
+  onRestoreArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => Promise<void>;
   onImportArchivedResponses?: (file: File) => Promise<ArchiveImportResult>;
   isAdmin: boolean;
 }
@@ -54,6 +54,7 @@ export function ArchivePage({
   const [confirmSurvey, setConfirmSurvey] = useState<CustomForm | null>(null);
   const [confirmResponseGroup, setConfirmResponseGroup] = useState<{ responseId: string; company: string; type: string } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   // Filter archived surveys
   const archivedSurveys = useMemo(() => {
@@ -125,12 +126,15 @@ export function ArchivePage({
     setConfirmSurvey(survey);
   };
 
-  const executeRestoreSurvey = () => {
+  const executeRestoreSurvey = async () => {
     if (!confirmSurvey || !onUpdateSurvey) return;
-    onUpdateSurvey({
-      ...confirmSurvey,
-      status: 'Running'
-    });
+    setMutationError(null);
+    try {
+      await onUpdateSurvey({ ...confirmSurvey, status: 'Running' });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to restore the survey.');
+      return;
+    }
     setSuccessMessage(`Form "${confirmSurvey.title}" has been restored to Active status!`);
     setConfirmSurvey(null);
     setTimeout(() => setSuccessMessage(null), 4000);
@@ -140,9 +144,15 @@ export function ArchivePage({
     setConfirmResponseGroup(group);
   };
 
-  const executeRestoreResponseGroup = () => {
+  const executeRestoreResponseGroup = async () => {
     if (!confirmResponseGroup || !onRestoreResponseGroup) return;
-    onRestoreResponseGroup(confirmResponseGroup.responseId);
+    setMutationError(null);
+    try {
+      await onRestoreResponseGroup(confirmResponseGroup.responseId);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to restore the response group.');
+      return;
+    }
     setSuccessMessage(`Evaluations for "${confirmResponseGroup.company}" restored to live dataset!`);
     setConfirmResponseGroup(null);
     setTimeout(() => setSuccessMessage(null), 4000);
@@ -284,13 +294,19 @@ export function ArchivePage({
     URL.revokeObjectURL(url);
   };
 
-  const handleBulkRestore = () => {
+  const handleBulkRestore = async () => {
     if (selectedGroups.size === 0 || !onRestoreArchivedResponseGroups) return;
     const groups = filteredGroupedResponses
       .filter(g => selectedGroups.has(g.id))
       .flatMap(g => g.eventKeys);
 
-    onRestoreArchivedResponseGroups(groups);
+    setMutationError(null);
+    try {
+      await onRestoreArchivedResponseGroups(groups);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to restore the archived responses.');
+      return;
+    }
     setSelectedGroups(new Set());
     setSuccessMessage('Selected archived forms have been restored to live dataset!');
     setTimeout(() => setSuccessMessage(null), 4000);
@@ -301,12 +317,18 @@ export function ArchivePage({
     setConfirmDeleteState({ isOpen: true });
   };
 
-  const confirmBulkDelete = () => {
+  const confirmBulkDelete = async () => {
     const groups = filteredGroupedResponses
       .filter(g => selectedGroups.has(g.id))
       .flatMap(g => g.eventKeys);
 
-    onDeleteArchivedResponseGroups!(groups);
+    setMutationError(null);
+    try {
+      await onDeleteArchivedResponseGroups!(groups);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to delete the archived responses.');
+      return;
+    }
     setSelectedGroups(new Set());
     setConfirmDeleteState({ isOpen: false });
     setSuccessMessage('Selected archived logs have been permanently deleted.');
@@ -329,6 +351,11 @@ export function ArchivePage({
         <div className="bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/50 rounded-xl p-4 flex items-center gap-3 text-emerald-800 dark:text-emerald-300 text-sm animate-fade-in">
           <RefreshCw size={18} className="animate-spin-slow text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span className="font-semibold">{successMessage}</span>
+        </div>
+      )}
+      {mutationError && (
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300">
+          {mutationError}
         </div>
       )}
 

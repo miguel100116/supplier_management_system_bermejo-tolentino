@@ -1,6 +1,6 @@
 # Frontend–Supabase alignment
 
-Status: audited against the frontend source and versioned migrations on 2026-09-23. The live hosted schema was not re-queried during this audit because the Supabase CLI/connector was unavailable in the environment. Historical staging-application claims in `SECOND_BRAIN.md` therefore remain historical evidence, not a new remote verification.
+Status: re-audited through non-intrusive static analysis of the frontend source and versioned migrations on 2026-09-24. The live hosted schema was not queried during this pass. Staging migration statuses below are explicitly labeled as previously verified/reported evidence and must not be treated as a fresh remote verification.
 
 ## Verdict
 
@@ -15,7 +15,118 @@ The connection architecture is structurally sound:
 - Realtime messages are invalidation signals and clients refetch through RLS;
 - the 19 frontend record types exactly match the latest versioned database check constraint.
 
-The system is **not yet fully semantically aligned for production**. Three frontend capabilities are broader than the current database policies: company-wide aggregate Analytics for lower ranks, delegated document renewal, and non-Admin archive mutations. These gaps are described below and must not be solved by exposing unrestricted raw response or registry rows.
+The working tree now contains delegated document renewal, Admin-only Archive Center routing, runtime parsing for every application-record type, failed-write refetch, password recovery, and a mandatory Microsoft-to-Supabase exchange. Company-wide lower-rank Analytics remains unresolved. The delegated-renewal database function is pending a reviewed commit and has **not** been applied. Production alignment therefore remains blocked until approved environment-specific migration, policy, role, Realtime, and recovery testing is complete.
+
+## Implementation checklist
+
+Checklist meaning:
+
+- `[x]` is implemented and was verified in the current repository source or versioned migrations.
+- `[ ]` is missing, incomplete, or requires environment-specific verification that this static audit could not provide.
+- A tracked migration counts as repository implementation, not proof that it has been applied to staging or production.
+
+### Configuration and trust boundary
+
+- [x] The browser configuration contract exposes only the public Supabase URL and publishable key through Vite variables or `/api/config`.
+- [x] Supabase client creation has an explicit unconfigured state and a harmless placeholder client; repository/auth operations reject unconfigured use.
+- [x] Supabase password sign-in and sign-up normalize and restrict addresses to `@mgenesis.com`.
+- [x] The versioned database policies also require a confirmed `@mgenesis.com` identity instead of relying only on the browser check.
+- [x] A targeted tracked-file scan found no private-key blocks, JWT-shaped tokens, Supabase secret-key signatures, common live secret prefixes, or AWS access-key signatures.
+- [ ] [ENVIRONMENT] Confirm independently in every deployed environment that `/api/config` and built assets contain no service-role key, database password, JWT signing secret, or OAuth client secret.
+- [ ] [OWNER] Confirm the production authentication provider and configuration; staging configuration is not production evidence.
+
+### Data ownership and repository boundary
+
+- [x] Shared editable application data crosses the named `applicationRepository` boundary or a focused service built on it.
+- [x] `APPLICATION_RECORD_TYPES` defines 19 record types and has a focused test against the latest versioned database constraint.
+- [x] `survey_response` uses `responseId:questionId` as its stable application-record key.
+- [x] Owner-scoped notification, export, and employee-notification records attach the authenticated Supabase user ID where required.
+- [x] Normalized company/form tables are treated as a read-only reference/import layer by the frontend.
+- [x] Active-company snapshots use a focused parser/service and cannot create Partner Company or survey-response records.
+- [x] Runtime schemas parse all 19 application-record payload types; invalid rows are quarantined and reported without discarding valid neighboring rows. Known legacy survey responses normalize `Contractor` to `Courier`, `General` to `Overall`, absent respondent type to `Unspecified`, and absent rating/comment values to `N/A`/empty text. A missing completion timestamp is recovered deterministically from start time, a `RESP-<timestamp>` ID, or finally the immutable application-record creation time and marked with its inference source; a supplied malformed date remains rejected.
+- [x] Profile roles, designations, departments, page permissions, and survey-type permissions are validated at runtime on load and save instead of being cast from database arrays.
+
+### Versioned authorization controls
+
+- [x] Versioned migrations enable RLS on `app_profiles`, `application_records`, and normalized business tables.
+- [x] Anonymous access to `app_profiles` and `application_records` is revoked in the versioned migration chain.
+- [x] Authorization helper functions use an empty `search_path`; security-definer profile helpers live in the unexposed `private` schema.
+- [x] The latest RLS migration consolidates `app_profiles` and `application_records` to one policy per operation.
+- [x] Raw response reads are scoped by role, designation, department, ownership, and respondent email as documented.
+- [x] Shared registry/configuration writes are Admin-only in the current policy model.
+- [ ] [STAGING] Re-query staging to confirm the expected RLS policies, grants, functions, and constraints are actually installed.
+- [ ] [PRODUCTION] Independently verify production RLS and grants before any production approval.
+- [ ] Company-wide aggregate Analytics for lower ranks still needs a reviewed server-side boundary; raw response access must not be widened.
+- [x] `202609240001_delegated_document_renewal.sql` implements a narrowly validated renewal RPC with optimistic concurrency and an atomic audit entry; the migration remains unapplied.
+- [x] Archive Center is explicitly Admin-only in default and effective page access, matching the existing database write boundary.
+
+### Realtime synchronization
+
+- [x] `subscribeToApplicationChanges()` listens to `application_records` and `app_profiles`.
+- [x] Realtime payloads are used only as invalidation signals; clients refetch through normal RLS-protected queries.
+- [x] Core surveys, responses, partners, and categories refresh through `useSurveyData.ts`.
+- [x] Profiles and department permissions refresh through `App.tsx`.
+- [x] Operational stores refresh through `sharedStoreHydration.ts`.
+- [x] An open Active Companies view refreshes `active_company_snapshot` records through its focused service.
+- [x] A versioned migration adds `application_records` and `app_profiles` to `supabase_realtime` when absent.
+- [ ] [ENVIRONMENT] Re-query staging and production separately to confirm both tables are currently published to Realtime.
+- [ ] [STAGING] Add environment-backed tests for disconnect, reconnect, duplicate invalidation, and stale-session behavior.
+
+### Persistence failure behavior
+
+- [x] Background persistence failures emit a user-visible `supabase-persistence-error` event.
+- [x] Repository functions throw when Supabase reads, writes, deletes, or reconciliation operations fail.
+- [x] Repository read/write/reconciliation failures emit a typed invalidation that causes an authoritative RLS-protected refetch.
+- [x] Authorization-sensitive Partner, document-renewal, survey, and archive success notifications occur only after the remote mutation resolves.
+- [x] Multi-step replacement recovery is defined: any failed upsert, select, or delete requests an authoritative refetch; retry is safe because upserts use stable IDs and deletes target the computed stale-ID set. Atomicity is still preferred for future complex workflows.
+
+### Authentication and account lifecycle
+
+- [x] Supabase email/password authentication is implemented for staging.
+- [x] Login rejects an authenticated session whose email is outside the approved company domain.
+- [x] Microsoft login remains visibly optional/disabled when its public configuration is unavailable.
+- [x] Password reset email initiation, recovery callback handling, password validation/update, and forced fresh sign-in are implemented and covered by focused tests.
+- [ ] [OWNER/HOSTED] Enable hosted leaked-password protection when the approved Supabase plan supports it, or approve a documented compensating control.
+- [x] Microsoft authentication completes only after a successful Supabase ID-token exchange; bridge failure blocks the application identity.
+- [x] Hard-coded browser-side administrative passcodes have been removed; destructive actions retain explicit confirmation and rely on authenticated Admin routing plus database authorization.
+
+### Migration status
+
+- [x] `202609230001_active_company_snapshots.sql` is tracked in Git.
+- [x] Staging was previously reported/verified to record `202609230001_active_company_snapshots` as applied; this static pass did not re-query it.
+- [x] `202609220001_response_provenance.sql` is tracked, additive, and has a focused non-destructive migration test.
+- [x] `202609240001_delegated_document_renewal.sql` exists in the working tree and is statically tested; it was not executed and remains pending the next reviewed commit.
+- [x] `202609220001_response_provenance` remains documented as not applied in staging and prohibited from execution without separate authorization.
+- [x] The 6,355 pending/zero exact result is explained and reproducibly classified by `response_provenance_readiness.sql` and `RESPONSE_PROVENANCE_RUNBOOK.md`.
+- [x] Pre-migration recovery, post-migration reconciliation, and exact failure thresholds are defined in the runbook.
+- [ ] [OWNER/STAGING] Obtain environment-owner approval for the recovery plan and a staging-only execution window; no migration was executed in this phase.
+- [ ] [PRODUCTION] Inspect production migration state independently; do not infer it from staging.
+
+### Automated and environment verification
+
+- [x] Focused tests cover record-type constraint alignment, additive migration behavior, private security-definer helpers, consolidated policies, provenance classification, and Active Companies seed behavior.
+- [x] The pre-stabilization baseline passed TypeScript checks, 73 tests, and a production build on 2026-09-24.
+- [x] The client-passcode removal passed TypeScript checks, 74 tests, and a production build on 2026-09-24.
+- [x] Profile/permission runtime validation passed TypeScript checks, 76 tests, and a production build on 2026-09-24.
+- [x] The completed local stabilization slice passed a lockfile-clean `npm ci`, TypeScript checks, 97 tests, production build, and zero-vulnerability dependency audit on 2026-09-24.
+- [ ] [STAGING] Add database-backed permitted/denied tests for Admin, Executive, Director, Managerial, Supervisory, Rank & File, delegated-renewal, and archive scenarios.
+- [x] Focused regression coverage verifies failed-write invalidation and that sensitive success messages follow awaited remote calls.
+- [ ] [STAGING] Add environment-backed Realtime disconnect/reconnect and database-rejection integration tests.
+- [x] A pinned-Node pull-request workflow runs `npm ci`, type checking, tests, production build, dependency audit, secret scanning, and uploads the immutable build artifact; it cannot run on GitHub until pushed and enabled.
+- [x] The previous 1 critical, 5 high, and 5 moderate advisories were remediated; `npm audit` is clean and ownership/install-script decisions are recorded in `DEPENDENCY_SECURITY.md`.
+
+### Repository security hygiene
+
+- [x] Static pattern checks found no tracked privilege-escalation, system-service manipulation, persistence, destructive package-removal, private-key, or credential-token signatures.
+- [x] The service-role import path reads its credential from a server-side environment variable and was not executed during this audit.
+- [x] First-party network access found in scope is attributable to Supabase, Microsoft Graph, runtime configuration, or documented import tooling rather than hidden exfiltration logic.
+- [x] Tracked `.vite/` dependency-cache files are removed and `.vite/` is ignored.
+- [x] Obsolete root-level extraction/patch scripts and generated text/JSON outputs were statically reviewed, found unreferenced, and removed without execution; canonical source data and the project charter remain.
+- [x] Partner Companies and Survey Forms no longer ship shared administrative passcodes or password inputs for destructive actions; a focused source regression test guards this invariant.
+
+## Static security audit summary
+
+**Static repository security-readiness score: 8.5/10.** The web/Node/PostgreSQL code shows a legitimate, scoped architecture with no detected malicious privilege, persistence, destructive-system, token, private-key, or covert exfiltration signatures. The previously identified repository gaps are implemented and tested locally. Production readiness remains blocked by unapplied migrations, unverified hosted configuration/RLS/Realtime state, environment-backed role and recovery tests, leaked-password configuration, CI branch protection, and operational approval; this static result is not a penetration test or substitute for staging/production verification.
 
 ## Connection and trust flow
 
@@ -121,43 +232,31 @@ Active-company uploads contain only source metadata and a deduplicated `companie
 
 Debouncing is used for the large core hydration path. Feature-specific refreshes remain scoped to their record type.
 
-## Confirmed semantic gaps
+## Repository resolutions and environment blockers
 
-### 1. Aggregate Analytics versus raw response RLS — high priority
+### 1. Protected lower-rank Analytics
 
-The frontend intends Analytics to be company-wide and aggregate-only for every rank. The current frontend hydrates Analytics from `survey_response` rows already filtered by RLS. Supervisory users therefore receive only their department, and Rank & File users receive only their own submissions; the client cannot reconstruct a company-wide aggregate from rows it never receives.
+Required resolution: expose a reviewed security-definer aggregate RPC or protected aggregate view returning only approved grouped metrics, then use it for lower-rank Analytics. Do not broaden raw `survey_response` SELECT access merely to make the charts company-wide.
 
-Required resolution: expose a security-definer aggregate RPC or protected aggregate view returning only approved grouped metrics, then use it for lower-rank Analytics. Do not broaden raw `survey_response` SELECT access merely to make the charts company-wide.
+### 2. Delegated document renewal
 
-### 2. Delegated document renewal versus `partner_company` UPDATE RLS — high priority
+Resolved in repository: the renewal RPC validates identity, permission, company/branch/document identity, allowed fields, date format, and expected current value, then changes one document and writes its audit entry atomically. Blocker: apply and test permitted, denied, malformed, stale, and concurrent calls in staging.
 
-The frontend supports a `renew-documents` permission for non-Admins, but document changes are persisted by updating a `partner_company` record. The consolidated UPDATE policy allows that record type only to Admins, so a delegated user's local optimistic edit is rejected by Supabase.
+### 3. Archive authorization
 
-Required resolution: model an effective server-side permission that RLS can evaluate, or provide a narrowly validated renewal RPC. The RPC should permit only document/status fields and should write the modification audit record atomically.
+Resolved in repository: Archive Center is Admin-only even if a stale custom permission attempts to expose it. This matches the existing Admin-only response mutation policy. Blocker: verify positive and negative cases against the installed staging policies.
 
-### 3. Archive module versus response UPDATE/DELETE RLS — high priority
+### 4. Rejected-write consistency
 
-Managerial and Director defaults include Archive Center, but existing `survey_response` rows can be updated or deleted only by an Admin. Archive, restore, and archive deletion operations therefore fail remotely for non-Admin users even when the module is visible.
+Resolved in repository: sensitive mutations are awaited before success and repository failures request authoritative hydration. Stable IDs make replacement retries idempotent. Blocker: inject real database rejections and network interruption in an approved environment.
 
-Required resolution: decide whether Archive Center is Admin-only or add a server-side archive operation with explicit authorization and field-level validation. Do not grant unrestricted response UPDATE/DELETE.
+### 5. Runtime application-record validation
 
-### 4. Optimistic cache can temporarily disagree after a rejected write — medium priority
+Resolved in repository: all 19 record types have bounded runtime validation, including stable IDs, enums, dates, arrays, and finite numbers. Invalid remote rows are quarantined and reported while valid neighbors load. CSV/XLSX import boundaries retain their dedicated parsers and tests. Blocker: broaden environment/E2E coverage for legacy production-shaped data before release.
 
-Several UI actions update React/local cache first and persist in the background. Failures emit `supabase-persistence-error`, but the optimistic value can remain visible until the next authoritative hydration.
+### 6. Authentication lifecycle
 
-Required resolution: for authorization-sensitive mutations, await the remote result before reporting success, or roll back/refetch on failure.
-
-### 5. Runtime payload validation is uneven — medium priority
-
-The generic repository verifies only that a payload is a JSON object. Some feature boundaries perform stronger parsing, but the core Partner Company, survey, and response records rely mainly on normalization and TypeScript assertions.
-
-Required resolution: add runtime schemas/parsers for every untrusted application record before expanding production use.
-
-### 6. Microsoft-to-Supabase bridge failure leaves no database session — low while Microsoft login is disabled
-
-The optional Microsoft flow establishes the frontend identity before the best-effort Supabase ID-token exchange finishes. If that exchange fails, RLS-backed hydration cannot succeed. Microsoft login is currently unavailable by product decision, so this is dormant.
-
-Required resolution before enabling Microsoft login: treat a successful Supabase session exchange as part of authentication completion, or show a blocking connection error.
+Resolved in repository: Microsoft bridge failure blocks sign-in and password recovery is implemented. Operational procedures are in `AUTH_OPERATIONS.md`. Blockers: approve the production provider, configure exact redirects and leaked-password protection, and test suspension/revocation/recovery in staging.
 
 ## Verification procedure
 

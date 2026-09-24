@@ -64,6 +64,13 @@ export interface ArchiveImportResult {
 
 const VALID_SURVEY_TYPES: SurveyType[] = ['Courier', 'Supplier', 'Subcontractor'];
 
+function submissionDateFromResponseId(responseId: string): string {
+  const rawTimestamp = /^RESP-(\d{13})-/.exec(responseId)?.[1];
+  if (!rawTimestamp) return '';
+  const date = new Date(Number(rawTimestamp));
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
 function coerceRating(value: unknown): SurveyResponse['rating'] | undefined {
   if (value === 'N/A' || value === '') return value === '' ? undefined : 'N/A';
   const num = Number(value);
@@ -75,11 +82,20 @@ function rowToResponse(row: Record<string, unknown>): { response?: SurveyRespons
   const company = String(row.company ?? '').trim();
   const questionId = String(row.questionId ?? '').trim();
   const surveyType = String(row.surveyType ?? '').trim() as SurveyType;
+  const respondentType = String(row.respondentType ?? '').trim() || 'Unspecified';
+  const rawStartTime = String(row.startTime ?? '').trim();
+  const rawSubmissionDate = String(row.submissionDate ?? '').trim();
+  const recoveredSubmissionDate = rawSubmissionDate
+    || rawStartTime
+    || submissionDateFromResponseId(responseId);
 
   if (!responseId) return { reason: 'Missing responseId' };
   if (!company) return { reason: 'Missing company' };
   if (!questionId) return { reason: 'Missing questionId' };
   if (!VALID_SURVEY_TYPES.includes(surveyType)) return { reason: `Invalid surveyType "${row.surveyType}"` };
+  if (!recoveredSubmissionDate || Number.isNaN(Date.parse(recoveredSubmissionDate))) {
+    return { reason: 'Missing or invalid submissionDate with no recoverable startTime/responseId timestamp' };
+  }
 
   const rating = coerceRating(row.rating);
   if (rating === undefined) return { reason: `Invalid rating "${row.rating}"` };
@@ -88,9 +104,12 @@ function rowToResponse(row: Record<string, unknown>): { response?: SurveyRespons
     response: {
       responseId,
       surveyType,
-      respondentType: String(row.respondentType ?? '').trim(),
-      startTime: row.startTime ? String(row.startTime).trim() : undefined,
-      submissionDate: String(row.submissionDate ?? '').trim(),
+      respondentType,
+      startTime: rawStartTime || undefined,
+      submissionDate: recoveredSubmissionDate,
+      ...(!rawSubmissionDate
+        ? { submissionDateInferredFrom: rawStartTime ? 'startTime' as const : 'responseId' as const }
+        : {}),
       company,
       department: row.department ? String(row.department) : undefined,
       address: row.address ? String(row.address) : undefined,

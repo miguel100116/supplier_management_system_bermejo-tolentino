@@ -115,11 +115,10 @@ export function SurveyFormsPage({
   const [isCompanyPickerOpen, setIsCompanyPickerOpen] = useState(false);
   const [evaluationCompanyIds, setEvaluationCompanyIds] = useState<string[]>([]);
 
-  // Custom passcode and warning modals
+  // Destructive-action confirmation modals. Authorization is enforced by the
+  // authenticated Admin route and Supabase RLS, not a browser-side passcode.
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
-  const [archivePasscode, setArchivePasscode] = useState('');
-  const [resetPasscode, setResetPasscode] = useState('');
   const [archiveError, setArchiveError] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetSeriesLabel, setResetSeriesLabel] = useState('');
@@ -416,12 +415,6 @@ export function SurveyFormsPage({
   };
 
   const handleProceedArchive = () => {
-    const validCodes = ['1234', 'mgenesis', 'admin123'];
-    if (!validCodes.includes(archivePasscode)) {
-      setArchiveError('Invalid administrator passcode! Access denied.');
-      return;
-    }
-
     if (!onUpdateSurveysBulk && !onUpdateSurvey) {
       setArchiveError('Survey update callback is not configured.');
       return;
@@ -445,17 +438,10 @@ export function SurveyFormsPage({
     setSelectedSurveyIds(new Set());
     setIsModifyOpen(false);
     setIsArchiveConfirmOpen(false);
-    setArchivePasscode('');
     setArchiveError('');
   };
 
   const handleProceedReset = () => {
-    const validCodes = ['1234', 'mgenesis', 'admin123'];
-    if (!validCodes.includes(resetPasscode)) {
-      setResetError('Invalid administrator passcode! Access denied.');
-      return;
-    }
-
     if (onArchiveResponses) {
       onArchiveResponses([...selectedSurveyIds], resetSeriesLabel);
       alert("Selected survey responses have been archived successfully, and the forms have been reset!");
@@ -463,7 +449,6 @@ export function SurveyFormsPage({
       setSelectedSurveyIds(new Set());
       setIsModifyOpen(false);
       setIsResetConfirmOpen(false);
-      setResetPasscode('');
       setResetError('');
       setResetSeriesLabel('');
     } else {
@@ -1049,7 +1034,6 @@ export function SurveyFormsPage({
                           </span>
                           <button
                             onClick={() => {
-                              setArchivePasscode('');
                               setArchiveError('');
                               setIsArchiveConfirmOpen(true);
                             }}
@@ -1290,7 +1274,6 @@ export function SurveyFormsPage({
                   <div className="flex items-center gap-2.5">
                     <button
                       onClick={() => {
-                        setResetPasscode('');
                         setResetError('');
                         setResetSeriesLabel(suggestSeriesLabel());
                         setIsResetConfirmOpen(true);
@@ -1463,38 +1446,17 @@ export function SurveyFormsPage({
                     <p>The forms will no longer accept responses, but their historic responses will be preserved in the Archive Center.</p>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block uppercase tracking-wider">
-                      Enter Admin Passcode:
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="Enter administrator passcode to verify"
-                      className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                      value={archivePasscode}
-                      onChange={(e) => {
-                        setArchivePasscode(e.target.value);
-                        setArchiveError('');
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleProceedArchive();
-                        }
-                      }}
-                    />
-                    {archiveError && (
-                      <p className="text-xs font-bold text-rose-600 dark:text-rose-400 animate-pulse mt-1">
-                        {archiveError}
-                      </p>
-                    )}
-                  </div>
+                  {archiveError && (
+                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400" role="alert">
+                      {archiveError}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={() => {
                       setIsArchiveConfirmOpen(false);
-                      setArchivePasscode('');
                       setArchiveError('');
                     }}
                     className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
@@ -1559,38 +1521,17 @@ export function SurveyFormsPage({
                     </p>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block uppercase tracking-wider">
-                      Enter Admin Passcode:
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="Enter administrator passcode to verify"
-                      className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      value={resetPasscode}
-                      onChange={(e) => {
-                        setResetPasscode(e.target.value);
-                        setResetError('');
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleProceedReset();
-                        }
-                      }}
-                    />
-                    {resetError && (
-                      <p className="text-xs font-bold text-rose-600 dark:text-rose-400 animate-pulse mt-1">
-                        {resetError}
-                      </p>
-                    )}
-                  </div>
+                  {resetError && (
+                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400" role="alert">
+                      {resetError}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={() => {
                       setIsResetConfirmOpen(false);
-                      setResetPasscode('');
                       setResetError('');
                     }}
                     className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"

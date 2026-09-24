@@ -106,6 +106,10 @@ export interface SurveyResponse {
   // When the respondent completed/submitted - what "Completion time"/"Date"
   // means everywhere else in the app (analytics, exports, etc.).
   submissionDate: string;
+  // Present only when a legacy record lacked an exact completion timestamp.
+  // Consumers may display/use submissionDate, but must not represent an
+  // inferred value as an exact source-provided completion time.
+  submissionDateInferredFrom?: 'startTime' | 'responseId' | 'recordCreatedAt';
   company: string;
   department?: string;
   address?: string;

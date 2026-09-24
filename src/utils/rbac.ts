@@ -63,7 +63,6 @@ export function getDefaultPermissions(designation: string, department: string): 
       'explorer',
       'reports',
       'present',
-      'archive',
       'notifications'
     ];
   } else if (rank === 'Director') {
@@ -77,7 +76,6 @@ export function getDefaultPermissions(designation: string, department: string): 
       'explorer',
       'reports',
       'present',
-      'archive',
       'notifications'
     ];
   } else if (rank === 'Executive') {
@@ -126,8 +124,7 @@ export function getDepartmentDefaultPermissions(department: string): UserPermiss
       'partner-companies',
       'document-register',
       'partners-feedback-hub',
-      'notifications',
-      'archive'
+      'notifications'
     ];
   } else {
     // AP - Trade, Logistics, Procurement Group, TASS
@@ -143,9 +140,6 @@ export function getDepartmentDefaultPermissions(department: string): UserPermiss
       'present',
       'notifications'
     ];
-    if (dept === 'TASS') {
-      pages.push('archive');
-    }
   }
 
   return { pages, surveyTypes };
@@ -159,6 +153,10 @@ export function hasPageAccess(
   pageKey: string,
   isAdmin: boolean
 ): boolean {
+  // Archive mutations are Admin-only at the database boundary. Never expose
+  // the route through a stale/custom employee page override.
+  if (pageKey === 'archive') return isAdmin;
+
   if (isAdmin && pageKey !== 'fill-form' && pageKey !== 'view-form' && pageKey !== 'create-form') {
     return true; // Admin has full access by default
   }

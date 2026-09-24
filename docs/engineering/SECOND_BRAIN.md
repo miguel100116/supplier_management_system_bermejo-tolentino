@@ -313,14 +313,90 @@ Consequences: Record-type drift now fails a focused test, and those two stores c
 
 Evidence: `docs/engineering/SUPABASE_FRONTEND_ALIGNMENT.md`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`, `src/App.tsx`, `src/features/active-companies/components/ActiveCompaniesModal.tsx`
 
+### 2026-09-24 - Repository authorization stabilization boundaries
+
+Status: partially implemented and locally verified; the database migration is pending commit and unapplied
+
+Decision: Keep Archive Center Admin-only. Permit delegated document renewal only through a field-limited, optimistic-concurrency RPC that writes the modification audit entry in the same transaction. Company-wide lower-rank Analytics remains unresolved and must not widen raw-response RLS.
+
+Consequences: `202609240001_delegated_document_renewal.sql` requires separate staging authorization and database-backed role tests. Until applied, delegated renewal remains unavailable. Production remains untouched.
+
+Evidence: `src/utils/rbac.ts`, `src/hooks/useSurveyData.ts`, `supabase/migrations/202609240001_delegated_document_renewal.sql`, and its focused tests.
+
+### 2026-09-24 - Runtime record validation and rejected-write recovery
+
+Status: accepted and locally verified in the working tree
+
+Decision: Parse every one of the 19 `application_records` payload types at the repository boundary with bounded IDs, enums, dates, arrays, text, and numeric values. Quarantine malformed rows while retaining valid neighbors. Await authorization-sensitive writes before success and emit authoritative invalidation after any rejected read/write/reconciliation step.
+
+Consequences: Corrupt remote rows fail closed and are reported without leaking payload content. A partially completed replace operation converges through RLS-protected refetch and is safe to retry because stable IDs and the computed stale-ID set make the operations idempotent.
+
+Compatibility note: repository validation runs before hook normalization. It therefore owns the known response migrations (`Contractor` to `Courier`, `General` to `Overall`, missing respondent type to `Unspecified`, and missing legacy rating/comment values to `N/A`/empty text). Missing completion dates are recovered in evidence order from `startTime`, the timestamp embedded in a legacy `RESP-*` ID, then immutable `application_records.created_at`; `submissionDateInferredFrom` preserves that distinction. Supplied malformed dates still fail closed. The archive importer now rejects rows with no recoverable date instead of persisting another incomplete response. Quarantine notifications aggregate sanitized validation reasons and never include response payloads or record identifiers.
+
+Evidence: `src/services/applicationRecordSchemas.ts`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`, `src/services/clientSecurityRegression.test.ts`.
+
+### 2026-09-24 - Authentication recovery and provider bridge
+
+Status: repository implementation complete; hosted settings and production-provider approval pending
+
+Decision: Support Supabase password reset/recovery with a forced fresh sign-in after password update. Treat Microsoft-to-Supabase token exchange as mandatory before establishing the application identity. Keep lifecycle and emergency procedures in `AUTH_OPERATIONS.md`.
+
+Consequences: Microsoft bridge failure no longer leaves an MSAL-only identity attempting RLS-backed operations. Exact redirect URLs, leaked-password protection, provider selection, revocation, and disabled-account behavior still require environment-owner configuration and staging tests.
+
+Evidence: `src/pages/LoginPage.tsx`, `src/pages/PasswordRecoveryPage.tsx`, `src/services/supabasePasswordAuth.ts`, `src/services/authBridge.ts`, `src/App.tsx`, `docs/engineering/AUTH_OPERATIONS.md`.
+
+### 2026-09-24 - Dependency remediation and reproducible verification
+
+Status: locally verified in the working tree; hosted CI has not run
+
+Decision: Resolve the 11 clean-install advisories without forced upgrades, use official SheetJS CE 0.20.3, pin patched `image-size`, test spreadsheet/PPTX exports, and document the bounded `core-js` and `esbuild` install hooks. Pin Node 22 and immutable third-party action commits in a pull-request verification workflow.
+
+Consequences: Local `npm audit` is clean. The workflow performs clean install, TypeScript checks, tests, build, dependency audit, secret scan, and build-artifact upload, but branch protection and a hosted run require a later authorized push and repository-owner configuration.
+
+Evidence: `package.json`, `package-lock.json`, `src/utils/exportDependencies.test.ts`, `.nvmrc`, `.github/workflows/verify.yml`, `docs/engineering/DEPENDENCY_SECURITY.md`.
+
+### 2026-09-24 - Response provenance execution readiness
+
+Status: runbook and read-only verification complete; migration remains unapplied
+
+Decision: Explain the 6,355 pending rows as the exact normalized-answer seed set awaiting provenance classification. Use deterministic exact-ID/payload matching, protect already classified rows, and require the documented backup, thresholds, reconciliation, and recovery decision before any staging execution.
+
+Consequences: Courier 540, Subcontractor 1,560, Supplier 4,255, and total 6,355 are the expected post-migration exact counts when the preflight has zero conflicts. No migration was executed; staging approval and production review remain independent blockers.
+
+Evidence: `docs/engineering/RESPONSE_PROVENANCE_RUNBOOK.md`, `supabase/verification/response_provenance_readiness.sql`, `supabase/migrations/202609220001_response_provenance.sql`, `src/services/sharedPersistenceMigration.test.ts`.
+
 ## Active modernization state
+
+### 2026-09-24 - Remove browser-side shared administrative passcodes
+
+Status: accepted and locally verified in the working tree
+
+Context: Partner deletion and survey archive/reset dialogs embedded shared passcode values in browser source. Those values were visible to every client and could not provide an authorization boundary, even though the corresponding controls were Admin-only and Supabase RLS remained authoritative.
+
+Decision: Remove the shared passcodes and password inputs. Retain explicit destructive-action confirmation, Admin-only rendering, and database authorization. Add a focused source regression test preventing these pages from reintroducing browser-side shared passcodes.
+
+Consequences: Destructive actions no longer imply that a bundled passcode provides security. Any stronger reauthentication requirement must be implemented through the authenticated provider and server/database boundary rather than a client constant.
+
+Evidence: `src/pages/PartnerCompaniesPage.tsx`, `src/pages/SurveyFormsPage.tsx`, `src/services/clientSecurityRegression.test.ts`; `npm run lint`, 74 tests, and `npm run build` passed on 2026-09-24.
+
+### 2026-09-24 - Validate profile authorization payloads at runtime
+
+Status: accepted and locally verified in the working tree
+
+Context: `loadProfiles()` trusted database strings and cast permission arrays directly to TypeScript types. A malformed role, designation, department, page key, or survey type could therefore reach authorization and navigation logic without runtime rejection.
+
+Decision: Parse profiles at the application repository boundary on both load and save. Accept only the supported company email domain, roles, designations, departments, page-module keys, and survey types; normalize email casing and duplicate permission entries; reject unsupported values with a field-specific error.
+
+Consequences: Profile and permission corruption now fails closed before reaching RBAC consumers. Other `application_records` payload types still require their own runtime schemas and remain tracked separately.
+
+Evidence: `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`; `npm run lint`, 76 tests, and `npm run build` passed on 2026-09-24.
 
 - Agent governance: established by `AGENTS.md`.
 - Automated test harness: focused Feedback Hub company-report and Analytics ranking tests established; repository-wide coverage remains incomplete.
-- CI/CD workflow: not established.
+- CI/CD workflow: repository workflow established with pinned Node/actions; hosted execution and branch protection are not established.
 - Feature-module refactor: started incrementally for Feedback Hub reporting and Analytics ranking/presentation seams; large legacy pages remain.
 - Backend source-of-truth migration: complete for shared state in staging; production migration/deployment still requires explicit authorization and environment-specific verification.
-- Repository artifact cleanup: not started by this governance change.
+- Repository artifact cleanup: tracked `.vite` cache and obsolete root extraction/patch outputs removed; `.vite/` is ignored.
 
 ## Handoff template
 

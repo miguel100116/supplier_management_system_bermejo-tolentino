@@ -151,15 +151,20 @@ export function parseActiveCompanySnapshot(value: unknown): ActiveCompanySnapsho
     || candidate.surveyType === 'Subcontractor';
   const validCompanies = Array.isArray(candidate.companies)
     && candidate.companies.length > 0
-    && candidate.companies.every((company) => typeof company === 'string' && company.trim().length > 0);
+    && candidate.companies.length <= 10_000
+    && candidate.companies.every((company) => typeof company === 'string' && company.trim().length > 0 && company.length <= 500);
   const validDate = typeof candidate.uploadedAt === 'string' && !Number.isNaN(Date.parse(candidate.uploadedAt));
 
   if (
     typeof candidate.id !== 'string'
+    || candidate.id.length === 0
+    || candidate.id.length > 500
     || !validSurveyType
     || !validDate
     || typeof candidate.uploadedBy !== 'string'
+    || candidate.uploadedBy.length > 500
     || typeof candidate.sourceFileName !== 'string'
+    || candidate.sourceFileName.length > 2_000
     || !validCompanies
   ) {
     throw new Error('An active-company snapshot has an invalid stored shape.');

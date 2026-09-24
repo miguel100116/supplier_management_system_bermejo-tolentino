@@ -7,6 +7,7 @@ import { Shell, NavItem } from './layouts/Shell';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage, MicrosoftAuth } from './pages/LoginPage';
+import { PasswordRecoveryPage } from './pages/PasswordRecoveryPage';
 import { restoreMicrosoftAccount, logoutMicrosoft, isMsalConfigured } from './services/msalAuth';
 import { signIntoSupabaseWithMicrosoft, signOutSupabase } from './services/authBridge';
 import { isSupabaseConfigured, supabase } from './services/supabaseClient';
@@ -175,6 +176,12 @@ const allSurveyTypes: SurveyType[] = ['Courier', 'Supplier', 'Subcontractor'];
 export default function App() {
   const [accountPersistenceError, setAccountPersistenceError] = useState<string | null>(null);
   const [account, setAccount] = useState<string | null>(null);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const hashType = new URLSearchParams(window.location.hash.slice(1)).get('type');
+    const queryType = new URLSearchParams(window.location.search).get('type');
+    return hashType === 'recovery' || queryType === 'recovery';
+  });
   // Gates the first paint until we've asked MSAL whether a real signed-in
   // account exists, so we never flash the app before auth is verified.
   const [authChecked, setAuthChecked] = useState(() => !isSupabaseConfigured && !isMsalConfigured());
@@ -368,6 +375,7 @@ export default function App() {
     addPartnerCompany,
     updatePartnerCompany,
     updatePartnerCompaniesBulk,
+    updatePartnerDocument,
     removePartnerCompany,
     previewMasterListImport,
     commitMasterListImport,
@@ -688,7 +696,12 @@ export default function App() {
           if (!cancelled) setAuthChecked(true);
         });
 
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true);
+          applyEmail(null);
+          return;
+        }
         const email = session?.user.email?.trim().toLowerCase() ?? null;
         applyEmail(email?.endsWith('@mgenesis.com') ? email : null);
       });
@@ -823,26 +836,35 @@ export default function App() {
     return () => window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshSharedStore);
   }, [account, profile, isAdmin]);
 
-  const handleLogin = (email: string, auth?: MicrosoftAuth) => {
+  const handleLogin = async (email: string, auth?: MicrosoftAuth) => {
+    if (auth) {
+      const result = await signIntoSupabaseWithMicrosoft(auth.idToken, auth.nonce);
+      if (!result.ok) {
+        throw new Error(result.error || 'Unable to establish the required Supabase session.');
+      }
+    }
     recordSessionActivity(email);
     setAccount(email);
     localStorage.setItem('user_account', email);
     resetNavigationTo('dashboard');
-    // Best-effort: exchange the Microsoft ID token for a Supabase session so
-    // Postgres RLS can enforce access. A failure here (e.g. Azure provider not
-    // yet enabled in Supabase) is logged but does not block the user - their
-    // Microsoft identity is already verified. See supabase/seed_admins.sql.
-    if (auth) {
-      signIntoSupabaseWithMicrosoft(auth.idToken, auth.nonce).then((res) => {
-        if (!res.ok) console.warn('[auth] Supabase session not established:', res.error);
-      });
-    }
+  };
+
+  const completePasswordRecovery = async () => {
+    await signOutSupabase();
+    setIsPasswordRecovery(false);
+    setAccount(null);
+    localStorage.removeItem('user_account');
+    window.history.replaceState({}, document.title, window.location.pathname);
   };
 
   // Hold the first paint until MSAL has been consulted, so the app never
   // flashes before we know whether the user is really signed in.
   if (!authChecked) {
     return <div className="min-h-screen w-full bg-white" />;
+  }
+
+  if (isPasswordRecovery) {
+    return <PasswordRecoveryPage onComplete={completePasswordRecovery} />;
   }
 
   // Auth Guard
@@ -894,6 +916,7 @@ export default function App() {
         onAddCompany={addPartnerCompany}
         onRemoveCompany={removePartnerCompany}
         onUpdateCompany={updatePartnerCompany}
+        onRenewDocument={updatePartnerDocument}
         onPreviewMasterListImport={previewMasterListImport}
         onCommitMasterListImport={commitMasterListImport}
         isAdmin={isAdmin}
@@ -908,6 +931,7 @@ export default function App() {
         partnerCompanies={partnerCompanies}
         canRenewDocuments={canRenewDocuments}
         onUpdateCompany={updatePartnerCompany}
+        onRenewDocument={updatePartnerDocument}
         currentUserEmail={account || ''}
         isAdmin={isAdmin}
       />
@@ -1236,7 +1260,10 @@ export default function App() {
         <div className="space-y-5">
           {accountPersistenceError && (
             <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              Supabase operation failed: {accountPersistenceError}
+              {accountPersistenceError.includes('quarantined during refresh')
+                ? 'Supabase data validation warning: '
+                : 'Supabase operation failed: '}
+              {accountPersistenceError}
             </div>
           )}
           {error && activePage !== 'dashboard' && (
