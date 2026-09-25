@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import { BarChart3, FileText, LayoutDashboard, Moon, Search, Sun, FilePlus, ClipboardCheck, ArrowLeft, Clock3, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
+import { BarChart3, FileText, LayoutDashboard, Moon, Sun, FilePlus, ClipboardCheck, ArrowLeft, Clock3, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
 import { AccountMenu } from './components/AccountMenu';
 import { NotificationBell } from './components/NotificationBell';
 import { EmployeeNotificationBell } from './components/EmployeeNotificationBell';
@@ -1181,13 +1181,13 @@ export default function App() {
   }[activePage];
 
   
-  if (isSupabaseConfigured && (isSupabaseHydrating || isLoading) && account) {
+  if (isSupabaseConfigured && isSupabaseHydrating && account) {
     return (
       <div className={darkMode ? 'dark' : ''}>
         <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
           <div className="flex flex-col items-center gap-4 text-slate-500 dark:text-slate-400">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-300 border-t-[#0063a9] dark:border-slate-700 dark:border-t-blue-500" />
-            <p className="font-medium animate-pulse">Loading application data...</p>
+            <p className="font-medium animate-pulse">Loading access settings...</p>
           </div>
         </div>
       </div>
@@ -1273,26 +1273,21 @@ export default function App() {
             </div>
           )}
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-            <div className="min-w-0 flex-1">{pageContent}</div>
-          </div>
-          
-          {isAdmin && activePage !== 'notifications' && activePage !== 'create-form' && activePage !== 'fill-form' && activePage !== 'present' && activePage !== 'partners-feedback-hub' && activePage !== 'settings' && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-              <div className="flex items-center gap-2">
-                <Search size={16} className="text-[#0063a9] dark:text-blue-400 shrink-0" />
-                <span>
-                  Data Engine: Supabase shared business data with local device-only drafts and display preferences.
-                </span>
-              </div>
-              <button
-                onClick={handleResetAllData}
-                className="text-xs font-bold text-rose-500 hover:text-rose-600 hover:underline transition shrink-0 cursor-pointer"
-                title="Clear cached frontend records and reload shared data"
-              >
-                Clear Local Cache
-              </button>
+            <div className="min-w-0 flex-1">
+              {isSupabaseConfigured && isLoading ? (
+                <div
+                  className="flex min-h-64 items-center justify-center rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
+                    <div className="h-7 w-7 animate-spin rounded-full border-4 border-slate-300 border-t-[#0063a9] dark:border-slate-700 dark:border-t-blue-500" />
+                    <p className="text-sm font-medium">Refreshing shared data...</p>
+                  </div>
+                </div>
+              ) : pageContent}
             </div>
-          )}
+          </div>
         </div>
       </Shell>
 

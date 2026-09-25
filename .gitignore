@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .vite/
+graphify-out/
 .mcp.json
 .env
 .env.local

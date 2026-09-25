@@ -367,6 +367,16 @@ Evidence: `docs/engineering/RESPONSE_PROVENANCE_RUNBOOK.md`, `supabase/verificat
 
 ## Active modernization state
 
+### 2026-09-25 - Non-blocking authenticated startup hydration
+
+Status: accepted and locally verified; staging latency has not been measured in this workspace
+
+Decision: Keep profiles and department permissions behind the post-login full-screen authorization gate. Once that boundary is ready, render the application shell while shared business records hydrate in the content area. Fetch counted `application_records` pages in bounded parallel batches instead of waiting for every 500-row page sequentially.
+
+Consequences: Navigation and authenticated account context become available sooner without rendering routes from unverified permissions. Large response datasets require fewer sequential network round trips, while validation, quarantine reporting, record ordering, and the sequential fallback for backends without exact counts remain intact.
+
+Evidence: `src/App.tsx`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`.
+
 ### 2026-09-24 - Remove browser-side shared administrative passcodes
 
 Status: accepted and locally verified in the working tree
