@@ -1001,6 +1001,7 @@ export default function App() {
         archiveSeries={archiveSeries}
         selectedSeriesIds={selectedSeriesIds}
         onChangeSelectedSeriesIds={setSelectedSeriesIds}
+        partnerCompanies={userAccessiblePartnerCompanies}
       />
     ),
     present: <PresentPage responses={scopedAccessibleResponses} partnerCompanies={userAccessiblePartnerCompanies} />,
