@@ -29,6 +29,14 @@ export interface NavGroup<T extends string> {
 
 export type NavItem<T extends string> = NavLeaf<T> | NavGroup<T>;
 
+interface ModuleScrollTarget {
+  scrollTo: (options: ScrollToOptions) => void;
+}
+
+export function scrollModuleToTop(target: ModuleScrollTarget = window) {
+  target.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+}
+
 interface ShellProps<T extends string> {
   pages: NavItem<T>[];
   activePage: T;
@@ -81,6 +89,10 @@ export function Shell<T extends string>({
       setExpandedGroups((prev) => (prev.has(activeGroup.id) ? prev : new Set(prev).add(activeGroup.id)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage]);
+
+  useEffect(() => {
+    scrollModuleToTop();
   }, [activePage]);
 
   const toggleGroup = (id: string) => {
