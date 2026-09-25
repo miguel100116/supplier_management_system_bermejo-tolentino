@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import {
   Plus,
   Trash,
-  ShieldCheck,
   AlertCircle,
   Sparkles,
   Building,
@@ -760,38 +759,6 @@ export function PartnerCompaniesPage({
         </div>
       )}
 
-      {/* Primary Status Tabs Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { key: 'Active', label: 'Active Partners', count: classifiedCompanies.active.length, icon: ShieldCheck, accent: 'text-emerald-600 dark:text-emerald-400', caption: 'Total active companies' },
-          { key: 'Expired', label: 'Expired Documents', count: classifiedCompanies.expired.length, icon: AlertCircle, accent: 'text-rose-600 dark:text-rose-400', caption: 'Companies with expired documents' },
-          { key: 'Incomplete', label: 'Incomplete Profiles', count: incompleteCompanies.length, icon: ClipboardList, accent: 'text-amber-600 dark:text-amber-400', caption: 'Companies with incomplete profiles' },
-          { key: 'Archived', label: 'Archived Partners', count: classifiedCompanies.archived.length, icon: Archive, accent: 'text-slate-500 dark:text-slate-400', caption: 'Companies in the archive' }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setStatusTab(tab.key as any)}
-              className={`group flex items-center justify-between gap-3 p-4 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
-                statusTab === tab.key
-                  ? 'border-[#0063a9] bg-[#0063a9]/5 ring-2 ring-[#0063a9]/10'
-                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-[#0063a9]/40 hover:bg-blue-50/40 dark:hover:bg-blue-950/20 hover:shadow-md hover:-translate-y-0.5'
-              }`}
-            >
-              <div>
-                <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">{tab.label}</p>
-                <p className={`mt-1.5 text-[28px] leading-none font-semibold tracking-tight tabular-nums ${tab.accent}`}>{tab.count}</p>
-                <p className={`mt-1.5 text-[11px] font-medium ${tab.accent}`}>{tab.caption}</p>
-              </div>
-              <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-current/10 ${tab.accent} transition-transform duration-150 group-hover:scale-110`}>
-                <Icon size={20} />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
       {/* Category & Supplier Rank Breakdown - mirrors the Master List's own
           legend blocks (Category Summary / Supplier Rank Summary), counted
           per branch/BP Code with NT as a fully separate category. */}
@@ -858,8 +825,26 @@ export function PartnerCompaniesPage({
         )}
       </div>
 
-      {/* Secondary Filter Options Bar */}
+      {/* Registry Filter Options Bar */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">
+        {/* Status filter remains available without the former KPI cards. */}
+        <div className="flex flex-nowrap overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 dark:border-transparent dark:bg-slate-950 w-full sm:w-auto" style={{ scrollbarWidth: 'none' }}>
+          {(Object.keys(STATUS_TAB_LABELS) as Array<keyof typeof STATUS_TAB_LABELS>).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={`shrink-0 whitespace-nowrap rounded-md px-4 py-2 text-xs font-bold transition-all duration-150 cursor-pointer ${
+                statusTab === tab
+                  ? 'bg-[#0063a9] text-white shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+              onClick={() => setStatusTab(tab)}
+            >
+              {STATUS_TAB_LABELS[tab]}
+            </button>
+          ))}
+        </div>
+
         {/* Affiliation category tabs */}
         <div className="flex flex-nowrap overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 dark:border-transparent dark:bg-slate-950 w-full sm:w-auto" style={{ scrollbarWidth: 'none' }}>
           {(['All', 'Courier', 'Supplier', 'Subcontractor', 'Uncategorized'] as const).map((tab) => (
