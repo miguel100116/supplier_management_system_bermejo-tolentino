@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react';
+import { PasswordInput } from '../components/PasswordInput';
 import { updateSupabasePassword } from '../services/supabasePasswordAuth';
 
 interface PasswordRecoveryPageProps {
@@ -43,10 +44,12 @@ export function PasswordRecoveryPage({ onComplete }: PasswordRecoveryPageProps) 
         )}
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">New password</span>
-            <input
-              type="password"
+          <div>
+            <label htmlFor="new-password" className="mb-1 block text-xs font-medium text-slate-600">
+              New password
+            </label>
+            <PasswordInput
+              id="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="new-password"
@@ -54,11 +57,13 @@ export function PasswordRecoveryPage({ onComplete }: PasswordRecoveryPageProps) 
               required
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#0063a9] focus:ring-2 focus:ring-[#0063a9]/15"
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Confirm new password</span>
-            <input
-              type="password"
+          </div>
+          <div>
+            <label htmlFor="confirm-new-password" className="mb-1 block text-xs font-medium text-slate-600">
+              Confirm new password
+            </label>
+            <PasswordInput
+              id="confirm-new-password"
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
               autoComplete="new-password"
@@ -66,7 +71,7 @@ export function PasswordRecoveryPage({ onComplete }: PasswordRecoveryPageProps) 
               required
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#0063a9] focus:ring-2 focus:ring-[#0063a9]/15"
             />
-          </label>
+          </div>
           <button
             type="submit"
             disabled={isSaving}

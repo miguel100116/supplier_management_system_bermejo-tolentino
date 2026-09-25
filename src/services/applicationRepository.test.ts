@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { SurveyResponse } from '../types/survey';
-import { APPLICATION_RECORD_TYPES, parsePersistedProfile, surveyResponseRecordId } from './applicationRepository';
+import {
+  APPLICATION_RECORD_TYPES,
+  applicationRecordPageRanges,
+  parsePersistedProfile,
+  surveyResponseRecordId,
+} from './applicationRepository';
 import { parseApplicationRecordPayload } from './applicationRecordSchemas';
 
 const now = '2026-09-24T00:00:00.000Z';
@@ -35,6 +40,16 @@ test('uses the submission and question IDs as the stable response-row key', () =
     questionId: 'Q-SUP-01',
   } as SurveyResponse;
   assert.equal(surveyResponseRecordId(response), 'response-1:Q-SUP-01');
+});
+
+test('splits application-record reads into complete, non-overlapping pages', () => {
+  assert.deepEqual(applicationRecordPageRanges(0), []);
+  assert.deepEqual(applicationRecordPageRanges(1), [[0, 0]]);
+  assert.deepEqual(applicationRecordPageRanges(1_001, 500), [
+    [0, 499],
+    [500, 999],
+    [1_000, 1_000],
+  ]);
 });
 
 test('keeps frontend application record types aligned with the latest database constraint', () => {

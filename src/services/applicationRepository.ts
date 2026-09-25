@@ -133,6 +133,17 @@ interface ApplicationRecordRow<T> {
 }
 
 const WRITE_CHUNK_SIZE = 300;
+const READ_PAGE_SIZE = 500;
+const READ_PAGE_CONCURRENCY = 6;
+
+export function applicationRecordPageRanges(totalCount: number, pageSize = READ_PAGE_SIZE): Array<[number, number]> {
+  if (!Number.isInteger(totalCount) || totalCount <= 0 || !Number.isInteger(pageSize) || pageSize <= 0) return [];
+  const ranges: Array<[number, number]> = [];
+  for (let from = 0; from < totalCount; from += pageSize) {
+    ranges.push([from, Math.min(from + pageSize - 1, totalCount - 1)]);
+  }
+  return ranges;
+}
 
 function requireConfigured(): void {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
@@ -166,16 +177,8 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
   const values: T[] = [];
   let invalidCount = 0;
   const invalidReasons = new Map<string, number>();
-  const pageSize = 500;
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from('application_records')
-      .select('record_id,payload,created_at')
-      .eq('record_type', recordType)
-      .order('record_id')
-      .range(from, from + pageSize - 1);
-    if (error) throw new Error(`Unable to load ${recordType} records: ${error.message}`);
-    const rows = (data ?? []) as unknown as ApplicationRecordRow<T>[];
+
+  const appendRows = (rows: ApplicationRecordRow<T>[]) => {
     for (const row of rows) {
       try {
         values.push(parseApplicationRecordPayload(recordType, row.payload, row.record_id, {
@@ -191,7 +194,47 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
         invalidReasons.set(safeReason, (invalidReasons.get(safeReason) ?? 0) + 1);
       }
     }
-    if (rows.length < pageSize) break;
+  };
+
+  const firstPage = await supabase
+    .from('application_records')
+    .select('record_id,payload,created_at', { count: 'exact' })
+    .eq('record_type', recordType)
+    .order('record_id')
+    .range(0, READ_PAGE_SIZE - 1);
+  if (firstPage.error) throw new Error(`Unable to load ${recordType} records: ${firstPage.error.message}`);
+  const firstRows = (firstPage.data ?? []) as unknown as ApplicationRecordRow<T>[];
+  appendRows(firstRows);
+
+  if (typeof firstPage.count === 'number') {
+    const remainingRanges = applicationRecordPageRanges(firstPage.count).slice(1);
+    for (let index = 0; index < remainingRanges.length; index += READ_PAGE_CONCURRENCY) {
+      const batch = remainingRanges.slice(index, index + READ_PAGE_CONCURRENCY);
+      const pages = await Promise.all(batch.map(([from, to]) => supabase
+        .from('application_records')
+        .select('record_id,payload,created_at')
+        .eq('record_type', recordType)
+        .order('record_id')
+        .range(from, to)));
+      for (const page of pages) {
+        if (page.error) throw new Error(`Unable to load ${recordType} records: ${page.error.message}`);
+        appendRows((page.data ?? []) as unknown as ApplicationRecordRow<T>[]);
+      }
+    }
+  } else {
+    // Retain compatibility if a backend cannot return an exact count.
+    for (let from = READ_PAGE_SIZE; firstRows.length === READ_PAGE_SIZE; from += READ_PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('application_records')
+        .select('record_id,payload,created_at')
+        .eq('record_type', recordType)
+        .order('record_id')
+        .range(from, from + READ_PAGE_SIZE - 1);
+      if (error) throw new Error(`Unable to load ${recordType} records: ${error.message}`);
+      const rows = (data ?? []) as unknown as ApplicationRecordRow<T>[];
+      appendRows(rows);
+      if (rows.length < READ_PAGE_SIZE) break;
+    }
   }
   if (invalidCount > 0 && typeof window !== 'undefined') {
     const reasonSummary = [...invalidReasons.entries()]
