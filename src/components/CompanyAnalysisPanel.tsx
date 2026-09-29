@@ -272,14 +272,14 @@ export function CompanyAnalysisPanel({ responses, archiveSeries = [] }: CompanyA
           </p>
           </div>
 
-          <fieldset className="min-w-0 lg:shrink-0">
+          <fieldset className="w-full min-w-0 lg:w-auto lg:shrink-0">
             <legend className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Partner type</legend>
-            <div className="segmented-control grid w-full grid-cols-3 lg:w-auto">
+            <div className="segmented-control w-full max-w-full lg:w-auto">
             {surveyTypes.map((type) => (
               <button
                 key={type}
                 type="button"
-                className={`py-2 text-center w-full flex-1 ${surveyType === type ? 'segmented-active font-bold text-[#0063a9] dark:text-blue-400 shadow-sm' : ''}`}
+                className={`min-w-max py-2 text-center w-full flex-1 ${surveyType === type ? 'segmented-active font-bold text-[#0063a9] dark:text-blue-400 shadow-sm' : ''}`}
                 aria-pressed={surveyType === type}
                 onClick={() => {
                   setSurveyType(type);
