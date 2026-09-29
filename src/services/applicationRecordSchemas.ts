@@ -128,6 +128,7 @@ function parseSurvey(value: unknown, recordId: string, label: string): JsonObjec
   text(candidate.title, `${label}.title`, { max: 500 });
   oneOf(candidate.surveyType, SURVEY_TYPES, `${label}.surveyType`);
   isoDate(candidate.createdAt, `${label}.createdAt`);
+  optionalDate(candidate.archivedAt, `${label}.archivedAt`);
   optionalDate(candidate.deadlineDate, `${label}.deadlineDate`);
   if (!Array.isArray(candidate.questions) || candidate.questions.length > 1_000) throw new Error(`${label}.questions must be a bounded list.`);
   candidate.questions.forEach((question, index) => {

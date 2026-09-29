@@ -14,7 +14,7 @@ const now = '2026-09-24T00:00:00.000Z';
 
 const validApplicationRecords: Record<(typeof APPLICATION_RECORD_TYPES)[number], { id: string; payload: unknown }> = {
   partner_company: { id: 'company-1', payload: { id: 'company-1', name: 'Supplier One', type: 'Supplier', createdAt: now, branches: [] } },
-  survey: { id: 'survey-1', payload: { id: 'survey-1', title: 'Supplier Survey', surveyType: 'Supplier', description: '', createdAt: now, questions: [{ questionId: 'q1', questionNumber: 1, question: 'Quality?', questionCategory: 'Quality' }] } },
+  survey: { id: 'survey-1', payload: { id: 'survey-1', title: 'Supplier Survey', surveyType: 'Supplier', description: '', createdAt: now, archivedAt: now, status: 'Archived', questions: [{ questionId: 'q1', questionNumber: 1, question: 'Quality?', questionCategory: 'Quality' }] } },
   survey_response: { id: 'response-1:q1', payload: { responseId: 'response-1', surveyType: 'Supplier', respondentType: 'Employee', submissionDate: now, company: 'Supplier One', questionId: 'q1', questionNumber: 1, question: 'Quality?', questionCategory: 'Quality', rating: 4, comment: '' } },
   archive_series: { id: 'series-1', payload: { id: 'series-1', label: 'First Half', createdAt: now } },
   department_permission: { id: 'Logistics', payload: { department: 'Logistics', pages: ['dashboard'], surveyTypes: ['Courier'] } },
@@ -112,6 +112,15 @@ test('rejects malformed and mismatched application records without trusting Type
   assert.throws(() => parseApplicationRecordPayload('survey_response', { ...validApplicationRecords.survey_response.payload as object, rating: Number.NaN }, 'response-1:q1'), /finite number/);
   assert.throws(() => parseApplicationRecordPayload('department_permission', { department: 'Logistics', pages: ['database-admin'], surveyTypes: ['Courier'] }, 'Logistics'), /unsupported value/);
   assert.throws(() => parseApplicationRecordPayload('reminder_settings', { id: 'global', frequencyHours: '-1', updatedAt: now }, 'global'), /positive/);
+});
+
+test('validates archived survey timestamps at the persistence boundary', () => {
+  const survey = validApplicationRecords.survey;
+  assert.doesNotThrow(() => parseApplicationRecordPayload('survey', survey.payload, survey.id));
+  assert.throws(
+    () => parseApplicationRecordPayload('survey', { ...survey.payload as object, archivedAt: 'not-a-date' }, survey.id),
+    /archivedAt/,
+  );
 });
 
 test('normalizes supported legacy survey-response fields before hydration', () => {

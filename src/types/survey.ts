@@ -184,6 +184,7 @@ export interface CustomForm {
   surveyType: SurveyType;
   description: string;
   createdAt: string;
+  archivedAt?: string;
   deadlineDate?: string;
   status?: 'Running' | 'Paused' | 'Completed' | 'Archived';
   accessDepartments?: string[];

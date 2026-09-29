@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Shield, Search, Plus, UserCog, Mail, Briefcase, Trash2, Edit2, AlertCircle, RotateCcw, Check, CheckSquare, Square } from 'lucide-react';
-import { AccountProfile } from '../App';
+import type { AccountProfile } from '../App';
 import { PageModuleKey, getDefaultPermissions, getDepartmentDefaultPermissions } from '../utils/rbac';
 import { SurveyType } from '../types/survey';
 import { TableFilterBar } from '../components/TableFilterBar';
@@ -15,8 +15,13 @@ interface AccountManagementPageProps {
   onUpdateDepartmentPermissions: (perms: Record<string, { pages: PageModuleKey[]; surveyTypes: SurveyType[] }>) => void;
 }
 
-const DESIGNATION_OPTIONS = ['Rank & File', 'Supervisory', 'Managerial', 'Director', 'Executive'];
-const DEPARTMENT_OPTIONS = ['Accounts Payable - Trade', 'Business Solutions Manager', 'Executive Office', 'Logistics', 'Procurement Group', 'TASS'];
+const ROLE_OPTIONS = ['Employee', 'Admin'] as const satisfies readonly AccountProfile['role'][];
+const DESIGNATION_OPTIONS = ['Rank & File', 'Supervisory', 'Managerial', 'Director', 'Executive'] as const satisfies readonly AccountProfile['designation'][];
+const DEPARTMENT_OPTIONS = ['Accounts Payable - Trade', 'Business Solutions Manager', 'Executive Office', 'Logistics', 'Procurement Group', 'TASS'] as const satisfies readonly AccountProfile['department'][];
+
+function isOption<T extends string>(options: readonly T[], value: string): value is T {
+  return options.includes(value as T);
+}
 
 const PAGE_MODULES: { key: PageModuleKey; label: string; description: string }[] = [
   { key: 'dashboard', label: 'Dashboard', description: 'Personalized performance indicators and KPIs' },
@@ -55,9 +60,9 @@ export function AccountManagementPage({
 
   // Form State
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('Employee');
-  const [designation, setDesignation] = useState(DESIGNATION_OPTIONS[0]);
-  const [department, setDepartment] = useState(DEPARTMENT_OPTIONS[0]);
+  const [role, setRole] = useState<AccountProfile['role']>('Employee');
+  const [designation, setDesignation] = useState<AccountProfile['designation']>(DESIGNATION_OPTIONS[0]);
+  const [department, setDepartment] = useState<AccountProfile['department']>(DEPARTMENT_OPTIONS[0]);
   
   // Custom permissions overrides state in the form
   const [selectedPages, setSelectedPages] = useState<PageModuleKey[]>([]);
@@ -65,7 +70,7 @@ export function AccountManagementPage({
 
   // Department Access Modal State
   const [isDeptOpen, setIsDeptOpen] = useState(false);
-  const [selectedDept, setSelectedDept] = useState(DEPARTMENT_OPTIONS[0]);
+  const [selectedDept, setSelectedDept] = useState<AccountProfile['department']>(DEPARTMENT_OPTIONS[0]);
   const [deptPages, setDeptPages] = useState<PageModuleKey[]>([]);
   const [deptSurveyTypes, setDeptSurveyTypes] = useState<SurveyType[]>([]);
 
@@ -519,7 +524,9 @@ export function AccountManagementPage({
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">System Role</label>
                     <select
                       value={role}
-                      onChange={e => setRole(e.target.value)}
+                      onChange={e => {
+                        if (isOption(ROLE_OPTIONS, e.target.value)) setRole(e.target.value);
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-blue-500 transition-colors text-sm"
                     >
                       <option value="Employee">Employee</option>
@@ -534,6 +541,7 @@ export function AccountManagementPage({
                       value={designation}
                       onChange={e => {
                         const nextDesig = e.target.value;
+                        if (!isOption(DESIGNATION_OPTIONS, nextDesig)) return;
                         setDesignation(nextDesig);
                         applyDefaultPermissionsToForm(nextDesig, department);
                       }}
@@ -552,6 +560,7 @@ export function AccountManagementPage({
                       value={department}
                       onChange={e => {
                         const nextDept = e.target.value;
+                        if (!isOption(DEPARTMENT_OPTIONS, nextDept)) return;
                         setDepartment(nextDept);
                         applyDefaultPermissionsToForm(designation, nextDept);
                       }}

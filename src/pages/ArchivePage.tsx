@@ -130,7 +130,7 @@ export function ArchivePage({
     if (!confirmSurvey || !onUpdateSurvey) return;
     setMutationError(null);
     try {
-      await onUpdateSurvey({ ...confirmSurvey, status: 'Running' });
+      await onUpdateSurvey({ ...confirmSurvey, status: 'Running', archivedAt: undefined });
     } catch (error) {
       setMutationError(error instanceof Error ? error.message : 'Unable to restore the survey.');
       return;
@@ -164,13 +164,16 @@ export function ArchivePage({
     return archivedSurveys
       .filter((s) =>
         (!needle.trim() || s.title.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)) &&
-        isWithinDateRange(s.createdAt, dateFrom, dateTo)
+        isWithinDateRange(s.archivedAt, dateFrom, dateTo)
       )
       .sort((a, b) => {
         if (tableSort === 'name-asc') return compareText(a.title, b.title);
         if (tableSort === 'name-desc') return compareText(b.title, a.title);
-        if (tableSort === 'date-asc') return compareDate(a.createdAt, b.createdAt);
-        return compareDate(b.createdAt, a.createdAt);
+        if (!a.archivedAt && !b.archivedAt) return 0;
+        if (!a.archivedAt) return 1;
+        if (!b.archivedAt) return -1;
+        if (tableSort === 'date-asc') return compareDate(a.archivedAt, b.archivedAt);
+        return compareDate(b.archivedAt, a.archivedAt);
       });
   }, [archivedSurveys, searchQuery, tableSort, dateFrom, dateTo]);
 
@@ -487,7 +490,7 @@ export function ArchivePage({
           dateTo={dateTo}
           onDateFromChange={setDateFrom}
           onDateToChange={setDateTo}
-          dateLabel={activeTab === 'surveys' ? 'Created date' : 'Archived date'}
+          dateLabel="Archived date"
           onReset={() => {
             setSearchQuery('');
             setTableSort('date-desc');
@@ -512,12 +515,13 @@ export function ArchivePage({
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                <table className="w-full min-w-[640px] border-collapse text-sm text-left">
+                <table className="w-full min-w-[760px] border-collapse text-sm text-left">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
                       <th className="px-4 py-3">Survey Title</th>
                       <th className="px-4 py-3">Category</th>
                       <th className="px-4 py-3">Date Created</th>
+                      <th className="px-4 py-3">Date Archived</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -541,6 +545,11 @@ export function ArchivePage({
                         </td>
                         <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
                           {new Date(survey.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                        </td>
+                        <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
+                          {survey.archivedAt
+                            ? new Date(survey.archivedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                            : 'Not recorded'}
                         </td>
                         <td className="px-4 py-4 text-right">
                           <button

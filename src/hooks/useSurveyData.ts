@@ -382,6 +382,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   const [partnerCompanies, setPartnerCompanies] = useState<PartnerCompany[]>([]);
   const [categoryLabels, setCategoryLabels] = useState<Record<SurveyType, string[]>>(() => getStoredCategoryLabels());
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<ResponseNotification[]>([]);
   const [unreadNotificationIds, setUnreadNotificationIds] = useState<Set<string>>(() => new Set());
@@ -1357,10 +1358,25 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   useEffect(() => {
     if (!isSupabaseConfigured || !currentUserEmail) return;
     let cancelled = false;
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refreshTimers = new Map<ApplicationRecordType, ReturnType<typeof setTimeout>>();
+    let activeBackgroundRefreshes = 0;
+
+    const applyNotificationReadState = (remoteNotificationState: NotificationReadState | null) => {
+      const cachedNotificationState = loadCachedNotificationReadState(currentUserEmail);
+      const notificationState = newestNotificationReadState(remoteNotificationState, cachedNotificationState);
+      const restoredReadIds = new Set(notificationState?.readNotificationIds ?? []);
+      readNotificationIdsRef.current = restoredReadIds;
+      knownSystemNotificationIdsRef.current = new Set();
+      setUnreadNotificationIds((current) => new Set(Array.from(current).filter((id) => !restoredReadIds.has(id))));
+      if (notificationState) {
+        cacheNotificationReadState(notificationState);
+        if (!remoteNotificationState || notificationState.updatedAt !== remoteNotificationState.updatedAt) {
+          persistRemote(saveNotificationReadState(notificationState));
+        }
+      }
+    };
 
     const hydrateFromSupabase = async () => {
-      setIsLoading(true);
       setError(null);
       const sessionEmail = await getSupabaseSessionEmail();
       if (!sessionEmail || sessionEmail !== currentUserEmail.trim().toLowerCase()) return;
@@ -1401,18 +1417,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       const normalizedCompanies = companies.map(normalizeDatabasePartnerCompany).map(normalizePartnerCompany);
       const normalizedSurveys = storedSurveys.map(normalizeCustomForm);
       const normalizedResponses = storedResponses.map(normalizeSurveyResponse);
-      const cachedNotificationState = loadCachedNotificationReadState(currentUserEmail);
-      const notificationState = newestNotificationReadState(remoteNotificationState, cachedNotificationState);
-      const restoredReadIds = new Set(notificationState?.readNotificationIds ?? []);
-      readNotificationIdsRef.current = restoredReadIds;
-      knownSystemNotificationIdsRef.current = new Set();
-      setUnreadNotificationIds((current) => new Set(Array.from(current).filter((id) => !restoredReadIds.has(id))));
-      if (notificationState) {
-        cacheNotificationReadState(notificationState);
-        if (!remoteNotificationState || notificationState.updatedAt !== remoteNotificationState.updatedAt) {
-          persistRemote(saveNotificationReadState(notificationState));
-        }
-      }
+      applyNotificationReadState(remoteNotificationState);
       setPartnerCompanies(normalizedCompanies);
       setSurveys(normalizedSurveys);
       setResponses(normalizedResponses);
@@ -1431,15 +1436,93 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(hydratedCategoryLabels));
     };
 
-    const runHydration = () => {
-      void hydrateFromSupabase()
+    const refreshRecordType = async (recordType: ApplicationRecordType) => {
+      setError(null);
+      const sessionEmail = await getSupabaseSessionEmail();
+      if (!sessionEmail || sessionEmail !== currentUserEmail.trim().toLowerCase()) return;
+
+      switch (recordType) {
+        case 'partner_company': {
+          const storedCompanies = await loadApplicationRecords<PartnerCompany>('partner_company');
+          const companies = storedCompanies.length > 0 ? storedCompanies : await loadNormalizedPartnerCompanies();
+          if (cancelled) return;
+          const normalizedCompanies = companies.map(normalizeDatabasePartnerCompany).map(normalizePartnerCompany);
+          setPartnerCompanies(normalizedCompanies);
+          safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(normalizedCompanies));
+          return;
+        }
+        case 'survey': {
+          const storedSurveys = await loadApplicationRecords<CustomForm>('survey');
+          if (cancelled) return;
+          const normalizedSurveys = storedSurveys.map(normalizeCustomForm);
+          setSurveys(normalizedSurveys);
+          safeSetItem('survey_analytics_surveys_v6', JSON.stringify(normalizedSurveys));
+          return;
+        }
+        case 'survey_response': {
+          const storedResponses = await loadApplicationRecords<SurveyResponse>('survey_response');
+          if (cancelled) return;
+          const normalizedResponses = storedResponses.map(normalizeSurveyResponse);
+          setResponses(normalizedResponses);
+          setNotifications(groupResponsesToNotifications(normalizedResponses).slice(0, INITIAL_NOTIFICATION_SEED));
+          safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(normalizedResponses)));
+          return;
+        }
+        case 'archive_series': {
+          const storedSeries = await loadApplicationRecords<ArchiveSeries>('archive_series');
+          if (cancelled) return;
+          setArchiveSeries(storedSeries);
+          safeSetItem('survey_archive_series_v1', JSON.stringify(storedSeries));
+          return;
+        }
+        case 'category_labels': {
+          const storedCategoryLabels = await loadApplicationRecords<Record<SurveyType, string[]>>('category_labels');
+          if (cancelled) return;
+          const hydratedCategoryLabels = storedCategoryLabels[0] ?? {
+            Courier: [...DEFAULT_CATEGORIES.Courier],
+            Supplier: [...DEFAULT_CATEGORIES.Supplier],
+            Subcontractor: [...DEFAULT_CATEGORIES.Subcontractor],
+          };
+          setCategoryLabels(hydratedCategoryLabels);
+          safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(hydratedCategoryLabels));
+          return;
+        }
+        case 'notification_read_state': {
+          const remoteNotificationState = await loadNotificationReadState(currentUserEmail);
+          if (!cancelled) applyNotificationReadState(remoteNotificationState);
+          return;
+        }
+        default:
+          return;
+      }
+    };
+
+    const runHydration = (backgroundRefresh = false, recordType?: ApplicationRecordType) => {
+      if (backgroundRefresh) {
+        activeBackgroundRefreshes += 1;
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+
+      const operation = backgroundRefresh && recordType
+        ? refreshRecordType(recordType)
+        : hydrateFromSupabase();
+
+      void operation
       .catch((loadError) => {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : 'Unable to load shared Supabase data.');
         }
       })
       .finally(() => {
-        if (!cancelled) setIsLoading(false);
+        if (cancelled) return;
+        if (backgroundRefresh) {
+          activeBackgroundRefreshes -= 1;
+          if (activeBackgroundRefreshes === 0) setIsRefreshing(false);
+        } else {
+          setIsLoading(false);
+        }
       });
     };
 
@@ -1449,16 +1532,22 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         'partner_company', 'survey', 'survey_response', 'archive_series',
         'category_labels', 'notification_read_state',
       ].includes(recordType)) return;
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(runHydration, 100);
+      const existingTimer = refreshTimers.get(recordType);
+      if (existingTimer) clearTimeout(existingTimer);
+      refreshTimers.set(recordType, setTimeout(() => {
+        refreshTimers.delete(recordType);
+        runHydration(true, recordType);
+      }, 100));
     };
 
+    setIsRefreshing(false);
     runHydration();
     window.addEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
 
     return () => {
       cancelled = true;
-      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimers.forEach((timer) => clearTimeout(timer));
+      refreshTimers.clear();
       window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
     };
   }, [currentUserEmail, isAdmin]);
@@ -1491,14 +1580,12 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   };
 
   // Bulk update multiple survey forms simultaneously to prevent React state batching overwrites
-  const updateSurveysBulk = (updatedSurveysList: CustomForm[]) => {
+  const updateSurveysBulk = async (updatedSurveysList: CustomForm[]) => {
     const map = new Map(updatedSurveysList.map((s) => [s.id, normalizeCustomForm(s)]));
-    setSurveys((currentSurveys) => {
-      const updated = currentSurveys.map((s) => map.has(s.id) ? map.get(s.id)! : s);
-      safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
-      persistRemote(replaceApplicationRecords('survey', updated, (survey) => survey.id));
-      return updated;
-    });
+    const updated = surveys.map((survey) => map.get(survey.id) ?? survey);
+    setSurveys(updated);
+    safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
+    await persistRemoteAsync(replaceApplicationRecords('survey', updated, (survey) => survey.id));
   };
 
   // Renames one of a survey type's 5 categories (Categories Manager). Every
@@ -2183,6 +2270,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     previewMasterListImport,
     commitMasterListImport,
     isLoading,
+    isRefreshing,
     error,
     notifications: combinedNotifications,
     unreadCount: combinedUnreadNotificationIds.size,

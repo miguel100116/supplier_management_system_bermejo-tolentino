@@ -8,6 +8,7 @@ const DESTRUCTIVE_ACTION_PAGES = [
 ];
 
 const PARTNER_COMPANIES_SOURCE = readFileSync(new URL('../pages/PartnerCompaniesPage.tsx', import.meta.url), 'utf8');
+const SURVEY_FORMS_SOURCE = readFileSync(new URL('../pages/SurveyFormsPage.tsx', import.meta.url), 'utf8');
 const ARCHIVE_SOURCE = readFileSync(new URL('../pages/ArchivePage.tsx', import.meta.url), 'utf8');
 const REPOSITORY_SOURCE = readFileSync(new URL('./applicationRepository.ts', import.meta.url), 'utf8');
 
@@ -24,6 +25,7 @@ test('destructive actions do not rely on browser-side shared passcodes', () => {
 test('authorization-sensitive success messages follow awaited remote mutations', () => {
   assert.match(PARTNER_COMPANIES_SOURCE, /await onRemoveCompany\([\s\S]*?setSuccessMessage/);
   assert.match(PARTNER_COMPANIES_SOURCE, /await onRenewDocument\([\s\S]*?setSuccessMessage/);
+  assert.match(SURVEY_FORMS_SOURCE, /await onUpdateSurveysBulk\(updatedSurveysList\)[\s\S]*?successfully archived/);
   assert.match(ARCHIVE_SOURCE, /await onRestoreResponseGroup\([\s\S]*?setSuccessMessage/);
   assert.match(ARCHIVE_SOURCE, /await onDeleteArchivedResponseGroups!?\([\s\S]*?setSuccessMessage/);
 });

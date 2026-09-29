@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ClipboardList, Plus, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Archive, ClipboardList, Plus, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, ArrowRight } from 'lucide-react';
 import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../types/survey';
 import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
@@ -15,9 +15,10 @@ interface SurveyFormsPageProps {
   userEmail?: string;
   onSelectSurvey: (id: string) => void;
   onNavigateToCreate: () => void;
+  onNavigateToArchive: () => void;
   onFillForm: (id: string) => void;
-  onUpdateSurvey?: (survey: CustomForm) => void;
-  onUpdateSurveysBulk?: (updatedSurveysList: CustomForm[]) => void;
+  onUpdateSurvey?: (survey: CustomForm) => void | Promise<unknown>;
+  onUpdateSurveysBulk?: (updatedSurveysList: CustomForm[]) => void | Promise<unknown>;
   onArchiveResponses?: (surveyIds: string[], seriesLabel?: string) => void;
   isAdmin?: boolean;
 }
@@ -86,6 +87,7 @@ export function SurveyFormsPage({
   userEmail = '',
   onSelectSurvey,
   onNavigateToCreate,
+  onNavigateToArchive,
   onFillForm,
   onUpdateSurvey,
   onUpdateSurveysBulk,
@@ -120,6 +122,7 @@ export function SurveyFormsPage({
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [archiveError, setArchiveError] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
   const [resetError, setResetError] = useState('');
   const [resetSeriesLabel, setResetSeriesLabel] = useState('');
 
@@ -225,8 +228,8 @@ export function SurveyFormsPage({
     return deadlineDate;
   };
 
-  const activeTemplatesCount = useMemo(
-    () => surveys.filter((survey) => survey.status !== 'Archived').length,
+  const archivedTemplatesCount = useMemo(
+    () => surveys.filter((survey) => survey.status === 'Archived').length,
     [surveys]
   );
 
@@ -367,6 +370,7 @@ export function SurveyFormsPage({
     }
 
     const updatedSurveysList: CustomForm[] = [];
+    const statusChangedAt = new Date().toISOString();
     surveys.forEach((survey) => {
       if (selectedSurveyIds.has(survey.id)) {
         const updated = { ...survey };
@@ -375,6 +379,7 @@ export function SurveyFormsPage({
         }
         if (overrideStatus) {
           updated.status = newStatus;
+          updated.archivedAt = newStatus === 'Archived' ? statusChangedAt : undefined;
         }
         if (overrideAccess) {
           updated.accessDepartments = accessDepartments;
@@ -414,31 +419,40 @@ export function SurveyFormsPage({
     resetModifyState();
   };
 
-  const handleProceedArchive = () => {
+  const handleProceedArchive = async () => {
     if (!onUpdateSurveysBulk && !onUpdateSurvey) {
       setArchiveError('Survey update callback is not configured.');
       return;
     }
 
     const updatedSurveysList: CustomForm[] = [];
+    const archivedAt = new Date().toISOString();
     surveys.forEach((survey) => {
       if (selectedSurveyIds.has(survey.id)) {
-        updatedSurveysList.push({ ...survey, status: 'Archived' });
+        updatedSurveysList.push({ ...survey, status: 'Archived', archivedAt });
       }
     });
 
-    if (onUpdateSurveysBulk) {
-      onUpdateSurveysBulk(updatedSurveysList);
-    } else if (onUpdateSurvey) {
-      updatedSurveysList.forEach((s) => onUpdateSurvey(s));
-    }
-
-    alert("Selected survey forms have been successfully archived!");
-    setIsSelectMode(false);
-    setSelectedSurveyIds(new Set());
-    setIsModifyOpen(false);
-    setIsArchiveConfirmOpen(false);
     setArchiveError('');
+    setIsArchiving(true);
+
+    try {
+      if (onUpdateSurveysBulk) {
+        await onUpdateSurveysBulk(updatedSurveysList);
+      } else if (onUpdateSurvey) {
+        await Promise.all(updatedSurveysList.map((survey) => onUpdateSurvey(survey)));
+      }
+
+      alert("Selected survey forms have been successfully archived!");
+      setIsSelectMode(false);
+      setSelectedSurveyIds(new Set());
+      setIsModifyOpen(false);
+      setIsArchiveConfirmOpen(false);
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : 'Unable to archive the selected survey forms.');
+    } finally {
+      setIsArchiving(false);
+    }
   };
 
   const handleProceedReset = () => {
@@ -459,18 +473,7 @@ export function SurveyFormsPage({
   return (
     <div className="space-y-5">
       {/* Cards Row */}
-      <section className="grid gap-4 sm:grid-cols-2">
-        <div className="panel flex items-start justify-between gap-3 p-4 sm:items-center sm:p-5">
-          <div className="min-w-0 space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Total Active Templates</span>
-            <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{activeTemplatesCount}</h3>
-            <p className="text-xs text-slate-400 dark:text-slate-500">Configured forms for Microgenesis evaluations</p>
-          </div>
-          <div className="rounded-lg bg-blue-50 p-3.5 text-[#0063a9] dark:bg-blue-950/40 dark:text-blue-300">
-            <ClipboardList size={22} />
-          </div>
-        </div>
-
+      <section className="grid gap-4">
         {!isAdmin ? (
           totalCompanies === 0 ? (
             <div className="panel flex items-start justify-between gap-3 border-2 border-dashed border-slate-200 bg-slate-50/25 p-4 dark:border-slate-800/80 dark:bg-transparent sm:items-center sm:p-5">
@@ -568,21 +571,34 @@ export function SurveyFormsPage({
             
             <div className="flex flex-col gap-3 lg:items-end">
               {isAdmin && (
-                <button
-                  onClick={() => {
-                    setIsSelectMode(!isSelectMode);
-                    setSelectedSurveyIds(new Set());
-                    setIsModifyOpen(false);
-                  }}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold shadow-sm transition cursor-pointer border ${
-                    isSelectMode
-                      ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30'
-                      : 'bg-[#0063a9] text-white hover:bg-[#00528c] border-[#0063a9] dark:bg-blue-600 dark:hover:bg-blue-700 dark:border-blue-600'
-                  }`}
-                  type="button"
-                >
-                  {isSelectMode ? 'Cancel Selection' : 'Select Forms'}
-                </button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    onClick={onNavigateToArchive}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                    type="button"
+                  >
+                    <Archive size={16} />
+                    <span>Archived Forms</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {archivedTemplatesCount}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsSelectMode(!isSelectMode);
+                      setSelectedSurveyIds(new Set());
+                      setIsModifyOpen(false);
+                    }}
+                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold shadow-sm transition cursor-pointer border ${
+                      isSelectMode
+                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30'
+                        : 'bg-[#0063a9] text-white hover:bg-[#00528c] border-[#0063a9] dark:bg-blue-600 dark:hover:bg-blue-700 dark:border-blue-600'
+                    }`}
+                    type="button"
+                  >
+                    {isSelectMode ? 'Cancel Selection' : 'Select Forms'}
+                  </button>
+                </div>
               )}
               
               <div className="segmented-control mt-1">
@@ -1422,7 +1438,9 @@ export function SurveyFormsPage({
             <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
               <div 
                 className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
-                onClick={() => setIsArchiveConfirmOpen(false)}
+                onClick={() => {
+                  if (!isArchiving) setIsArchiveConfirmOpen(false);
+                }}
               />
               <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-rose-100 dark:border-rose-950/30 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
                 <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -1459,17 +1477,19 @@ export function SurveyFormsPage({
                       setIsArchiveConfirmOpen(false);
                       setArchiveError('');
                     }}
-                    className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
+                    disabled={isArchiving}
+                    className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition disabled:cursor-not-allowed disabled:opacity-50"
                     type="button"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleProceedArchive}
-                    className="px-4 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md"
+                    disabled={isArchiving}
+                    className="px-4 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md disabled:cursor-not-allowed disabled:opacity-60"
                     type="button"
                   >
-                    Proceed & Archive
+                    {isArchiving ? 'Archiving...' : 'Proceed & Archive'}
                   </button>
                 </div>
               </div>
