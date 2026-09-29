@@ -8,6 +8,7 @@ import { ArchiveSeries, FilterState, PartnerCompany, SurveyResponse, SurveyType 
 import { formatNumber, monthlyTrend, questionPerformance, responseVolume, seriesTrend, submissionCount, submissionScores, yearlyTrend } from '../utils/analytics';
 import { computeCompanyComposite, RankingMode } from '../utils/scoring';
 import { paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from '../features/analytics/domain/rankings';
+import { QuestionPerformanceRow } from '../features/analytics/components/QuestionPerformanceRow';
 
 interface AnalyticsPageProps {
   responses: SurveyResponse[];
@@ -211,7 +212,12 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
           <div className="border-b border-slate-100 px-4 py-4 dark:border-slate-800 sm:px-6"><h3 className="text-sm font-bold">Question performance</h3><p className="mt-1 text-xs text-slate-500">All scored criteria ranked from highest to lowest</p></div>
           <ol className="grid gap-x-6 px-4 sm:px-6 lg:grid-cols-2">
             {paginatedQuestionData.items.map((question, index) => (
-              <li key={question.question} className="flex items-center gap-3 border-b border-slate-100 py-3 dark:border-slate-800"><span className="w-6 text-center text-[11px] font-bold text-slate-400">{paginatedQuestionData.startIndex + index + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200" title={question.question}>{question.question}</span><span className="mt-1 block h-1.5 rounded-full bg-slate-100 dark:bg-slate-800"><span className="block h-full rounded-full bg-[#0078a8]" style={{ width: `${Math.max(0, Math.min(100, question.average))}%` }} /></span></span><span className="text-xs font-bold tabular-nums text-[#0078a8]">{question.average.toFixed(1)}</span></li>
+              <QuestionPerformanceRow
+                key={question.question}
+                rank={paginatedQuestionData.startIndex + index + 1}
+                question={question.question}
+                average={question.average}
+              />
             ))}
           </ol>
           {questionData.length > 0 && (
