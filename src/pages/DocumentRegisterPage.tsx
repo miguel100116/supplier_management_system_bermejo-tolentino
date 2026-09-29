@@ -17,6 +17,11 @@ import {
 import { ChartCard } from '../components/ChartCard';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { BRANCH_STATUS_OPTIONS, branchStatusBadgeClasses } from './PartnerCompaniesPage';
+import {
+  countRowsByDocumentStatus,
+  matchesDocumentFilter,
+  type DocumentStatusFilter,
+} from '../features/document-tracker/domain/filters';
 
 interface DocumentRegisterPageProps {
   partnerCompanies: PartnerCompany[];
@@ -157,6 +162,24 @@ function newFilterRow(): FilterRow {
     condition: defaultConditionForField(field),
     value: '',
   };
+}
+
+const DOCUMENT_STATUS_FILTER_OPTIONS: Array<{ value: DocumentStatusFilter; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'needs-attention', label: 'Needs attention' },
+  { value: 'Current', label: 'Current' },
+  { value: 'Expiring Soon', label: 'Expiring soon' },
+  { value: 'Expired', label: 'Expired' },
+  { value: 'Missing', label: 'Missing' },
+  { value: 'For Update', label: 'For update' },
+];
+
+function describeFilterRow(row: FilterRow): string {
+  const field = FILTERABLE_FIELDS.find((candidate) => candidate.key === row.field);
+  const condition = field
+    ? getConditionsForField(field).find((candidate) => candidate.value === row.condition)
+    : undefined;
+  return `${field?.label ?? row.field} ${condition?.label.toLowerCase() ?? row.condition} ${row.value}`;
 }
 
 // One category tab = one column set, mirroring the Master List's
@@ -365,6 +388,8 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
   const isMobile = useIsMobile();
   const [categoryKey, setCategoryKey] = useState<string>('supplier-local');
   const [searchQuery, setSearchQuery] = useState('');
+  const [documentFilter, setDocumentFilter] = useState('all');
+  const [documentStatusFilter, setDocumentStatusFilter] = useState<DocumentStatusFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [renewalTarget, setRenewalTarget] = useState<{ company: PartnerCompany; branchId: string; docName: string } | null>(null);
   const [renewalDate, setRenewalDate] = useState('');
@@ -479,6 +504,8 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
   useEffect(() => {
     setSortKey('company');
     setSortDirection('asc');
+    setDocumentFilter('all');
+    setDocumentStatusFilter('all');
   }, [categoryKey]);
 
   const handleSortClick = (key: MatrixSortKey) => {
@@ -490,7 +517,14 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
     }
   };
 
-  const effectiveNow = new Date();
+  // Keep the clock stable between meaningful time updates. This prevents
+  // every search/filter/modal state change from invalidating the expensive
+  // document-status matrix and compliance overview calculations.
+  const [effectiveNow, setEffectiveNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setEffectiveNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const currentDateStr = effectiveNow.toISOString().slice(0, 10);
 
   const isAllView = categoryKey === ALL_KEY;
@@ -575,6 +609,18 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
 
   const clearDraftRows = () => setDraftFilterRows([]);
 
+  const clearAppliedFilters = () => {
+    setSearchQuery('');
+    setDocumentFilter('all');
+    setDocumentStatusFilter('all');
+    setCustomFilterRows([]);
+    setDraftFilterRows([]);
+  };
+
+  const hasAppliedFilters = Boolean(
+    searchQuery.trim() || documentStatusFilter !== 'all' || customFilterRows.length > 0,
+  );
+
   // Every non-archived company in the selected category, unfiltered by
   // search - this is what the Compliance Overview summarizes, so switching
   // categories updates the KPIs/charts but typing in the search box doesn't.
@@ -647,6 +693,14 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
     return map;
   }, [displayRows, docColumns, effectiveNow]);
 
+  const documentStatusCounts = useMemo(
+    () => countRowsByDocumentStatus(
+      displayRows.map((row) => matrixCellData.get(row.key) ?? []),
+      documentFilter,
+    ),
+    [displayRows, matrixCellData, documentFilter],
+  );
+
   const rows = useMemo(() => {
     let list = displayRows;
     if (searchQuery.trim()) {
@@ -655,6 +709,13 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
         row.company.name.toLowerCase().includes(q) ||
         row.branch?.bpCode?.toLowerCase().includes(q)
       );
+    }
+    if (documentStatusFilter !== 'all') {
+      list = list.filter((row) => matchesDocumentFilter(
+        matrixCellData.get(row.key) ?? [],
+        documentFilter,
+        documentStatusFilter,
+      ));
     }
     // Apply every custom filter row that has a non-empty value.
     // All rows must match (AND logic) - if one row doesn't match, the
@@ -768,7 +829,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
       const cmp = primary !== 0 ? primary : fallback(a, b);
       return sortDirection === 'asc' ? cmp : -cmp;
     });
-  }, [displayRows, searchQuery, customFilterRows, matrixCellData, sortKey, sortDirection]);
+  }, [displayRows, searchQuery, documentFilter, documentStatusFilter, customFilterRows, matrixCellData, sortKey, sortDirection]);
 
   const pageCount = Math.max(1, Math.ceil(rows.length / DOCUMENT_ROWS_PER_PAGE));
   const paginatedRows = useMemo(() => {
@@ -778,7 +839,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [categoryKey, searchQuery, customFilterRows, sortKey, sortDirection]);
+  }, [categoryKey, searchQuery, documentFilter, documentStatusFilter, customFilterRows, sortKey, sortDirection]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, pageCount));
@@ -1584,30 +1645,60 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
 
       {!isAllView && categoryCompanies.length > 0 && (
         <div className="space-y-0">
-          {/* Search and optional Admin filters */}
+          {/* Search and document filters; advanced filters remain Admin-only */}
           <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="grid w-full flex-1 grid-cols-1 gap-2 sm:grid-cols-[minmax(220px,1fr)_minmax(170px,0.55fr)_minmax(180px,0.55fr)]">
+              <label className="relative min-w-0">
+                <span className="sr-only">Search document tracker</span>
+                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search company or BP code..."
+                  className="field !mt-0 w-full py-2.5 !pl-9 text-sm"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    aria-label="Clear document search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </label>
 
-            <label className="relative w-full sm:max-w-sm">
-              <span className="sr-only">Search document tracker</span>
-              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search company name or BP code..."
-                className="field !mt-0 w-full py-2.5 !pl-9 text-sm"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                  aria-label="Clear document search"
+              <label className="min-w-0">
+                <span className="sr-only">Filter by document</span>
+                <select
+                  value={documentFilter}
+                  onChange={(event) => setDocumentFilter(event.target.value)}
+                  className="field !mt-0 w-full py-2.5 text-sm"
                 >
-                  <X size={14} />
-                </button>
-              )}
-            </label>
+                  <option value="all">Any document</option>
+                  {docColumns.map((docName) => (
+                    <option key={docName} value={docName}>{docName}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="min-w-0">
+                <span className="sr-only">Filter by document status</span>
+                <select
+                  value={documentStatusFilter}
+                  onChange={(event) => setDocumentStatusFilter(event.target.value as DocumentStatusFilter)}
+                  className="field !mt-0 w-full py-2.5 text-sm"
+                >
+                  {DOCUMENT_STATUS_FILTER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} ({documentStatusCounts[option.value]})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
             <div className="ml-auto flex items-center gap-2">
               <span className="whitespace-nowrap text-xs font-semibold text-slate-400">
@@ -1639,6 +1730,55 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
             </div>
           </div>
 
+          {hasAppliedFilters && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Applied</span>
+              {searchQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                  title="Remove search filter"
+                >
+                  <span className="truncate">Search: {searchQuery.trim()}</span>
+                  <X size={11} className="shrink-0" />
+                </button>
+              )}
+              {documentStatusFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setDocumentStatusFilter('all')}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#0063a9] hover:border-blue-300 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300"
+                  title="Remove document status filter"
+                >
+                  <span className="truncate">
+                    {documentFilter === 'all' ? 'Any document' : documentFilter}: {DOCUMENT_STATUS_FILTER_OPTIONS.find((option) => option.value === documentStatusFilter)?.label}
+                  </span>
+                  <X size={11} className="shrink-0" />
+                </button>
+              )}
+              {customFilterRows.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => setCustomFilterRows((current) => current.filter((candidate) => candidate.id !== row.id))}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 hover:border-violet-300 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300"
+                  title="Remove advanced filter"
+                >
+                  <span className="truncate">{describeFilterRow(row)}</span>
+                  <X size={11} className="shrink-0" />
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={clearAppliedFilters}
+                className="ml-auto text-xs font-bold text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+
           {/* ── Inline Customize Filters panel ───────────────────────────── */}
           {isAdmin && isFilterPanelOpen && (
             <div className="mt-2 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
@@ -1648,7 +1788,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
                   <Filter size={14} className="text-[#0063a9]" />
                   <div>
                     <p className="text-sm font-bold text-slate-900 dark:text-white leading-none">Customize Filters</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Add filters to quickly find suppliers</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Advanced partner and document conditions use AND logic</p>
                   </div>
                 </div>
                 {draftFilterRows.length > 0 && (
@@ -1800,7 +1940,19 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
       ) : rows.length === 0 ? (
         <div className="panel py-20 text-center text-slate-400">
           <Package size={48} className="mx-auto mb-3 opacity-30 text-slate-300" />
-          <p className="text-sm font-semibold">No {category.label} companies found.</p>
+          <p className="text-sm font-semibold">
+            {hasAppliedFilters ? 'No records match the current filters.' : `No ${category.label} companies found.`}
+          </p>
+          {hasAppliedFilters && (
+            <button
+              type="button"
+              onClick={clearAppliedFilters}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-white"
+            >
+              <RotateCcw size={12} />
+              Clear filters
+            </button>
+          )}
         </div>
       ) : (
         <div className="panel p-0 overflow-hidden" ref={matrixPanelRef}>

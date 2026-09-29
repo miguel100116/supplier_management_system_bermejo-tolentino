@@ -21,6 +21,7 @@ import {
   replaceApplicationRecords,
   replaceProfiles,
   subscribeToApplicationChanges,
+  type PersistedProfile,
 } from './services/applicationRepository';
 import { hydrateChangedSharedStore, hydrateSharedClientStores } from './services/sharedStoreHydration';
 import { isOfficialAnalyticsResponse } from './features/analytics/domain/responseProvenance';
@@ -84,16 +85,7 @@ function applyAccessFilter(
   return list.filter((r) => effectiveSurveyTypes.includes(r.surveyType));
 }
 
-export interface AccountProfile {
-  email: string;
-  role: string;
-  designation: string;
-  department: string;
-  permissions?: {
-    pages: PageModuleKey[];
-    surveyTypes: SurveyType[];
-  };
-}
+export type AccountProfile = PersistedProfile;
 
 interface PersistedDepartmentPermission {
   department: string;
@@ -135,7 +127,7 @@ const adminNavItems: NavItem<PageKey>[] = [
     label: 'Partner Companies',
     icon: Users,
     children: [
-      { key: 'partner-companies', label: 'Partner Companies' },
+      { key: 'partner-companies', label: 'Partners' },
       { key: 'document-register', label: 'Document Tracker' },
       { key: 'supplier-ranking', label: 'Supplier Ranking' },
       { key: 'partners-feedback-hub', label: 'Feedback Hub' },
@@ -380,6 +372,7 @@ export default function App() {
     previewMasterListImport,
     commitMasterListImport,
     isLoading,
+    isRefreshing,
     error,
     notifications,
     unreadCount,
@@ -983,6 +976,7 @@ export default function App() {
           navigateTo('view-form');
         }}
         onNavigateToCreate={() => navigateTo('create-form')}
+        onNavigateToArchive={() => navigateTo('archive')}
         onFillForm={(id) => {
           setSelectedSurveyId(id);
           navigateTo('fill-form');
@@ -1273,7 +1267,7 @@ export default function App() {
             </div>
           )}
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-            <div className="min-w-0 flex-1">
+            <div className="relative min-w-0 flex-1">
               {isSupabaseConfigured && isLoading ? (
                 <div
                   className="flex min-h-64 items-center justify-center rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
@@ -1285,7 +1279,23 @@ export default function App() {
                     <p className="text-sm font-medium">Refreshing shared data...</p>
                   </div>
                 </div>
-              ) : pageContent}
+              ) : (
+                <>
+                  {pageContent}
+                  {isSupabaseConfigured && isRefreshing && (
+                    <div
+                      className="pointer-events-none absolute inset-x-0 top-3 z-40 flex justify-center px-4"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3.5 py-2 text-sm font-medium text-slate-600 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-300">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-[#0063a9] dark:border-slate-600 dark:border-t-blue-400" />
+                        <span>Refreshing shared data...</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
