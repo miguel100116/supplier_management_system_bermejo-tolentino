@@ -12,6 +12,38 @@ export interface CompanyRankingCandidate {
 
 export type RankedCompany<T extends CompanyRankingCandidate> = T & { rankScore: number };
 
+export const ANALYTICS_PAGE_SIZE = 20;
+
+export interface PaginatedAnalyticsItems<T> {
+  items: T[];
+  currentPage: number;
+  totalPages: number;
+  startIndex: number;
+}
+
+export function paginateAnalyticsItems<T>(
+  items: T[],
+  requestedPage: number,
+): PaginatedAnalyticsItems<T> {
+  const totalPages = Math.max(1, Math.ceil(items.length / ANALYTICS_PAGE_SIZE));
+  const currentPage = Math.min(Math.max(0, requestedPage), totalPages - 1);
+  const startIndex = currentPage * ANALYTICS_PAGE_SIZE;
+
+  return {
+    items: items.slice(startIndex, startIndex + ANALYTICS_PAGE_SIZE),
+    currentPage,
+    totalPages,
+    startIndex,
+  };
+}
+
+export function paginateCompanyRankings<T>(
+  companies: T[],
+  requestedPage: number,
+): PaginatedAnalyticsItems<T> {
+  return paginateAnalyticsItems(companies, requestedPage);
+}
+
 /**
  * Applies the selected ranking contract to a set of company summaries.
  * A single-type list compares the rounded, user-visible score before using

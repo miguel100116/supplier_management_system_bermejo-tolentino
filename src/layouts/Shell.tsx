@@ -130,13 +130,7 @@ export function Shell<T extends string>({
           </div>
 
           {/* Title Area */}
-          <div className="hidden sm:flex min-w-0 flex-1 items-center pl-6">
-            <h1 className="flex min-w-0 items-center gap-1.5 text-base font-bold leading-tight text-white">
-              <span className="hidden shrink-0 whitespace-nowrap lg:inline">Supplier Management System</span>
-              <span className="hidden shrink-0 text-blue-300/60 lg:inline">/</span>
-              <span className="min-w-0 truncate text-blue-100 font-medium">{title}</span>
-            </h1>
-          </div>
+          <div className="hidden sm:flex min-w-0 flex-1 items-center pl-6" />
         </div>
 
         {/* Header Actions */}

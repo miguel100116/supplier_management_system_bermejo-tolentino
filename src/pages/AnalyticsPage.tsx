@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { BarChart3, CalendarDays, ChevronDown, ChevronRight, Download, Info, SlidersHorizontal, Trophy, X } from 'lucide-react';
+import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Info, SlidersHorizontal, Trophy, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CompanyAnalysisPanel } from '../components/CompanyAnalysisPanel';
 import { StateMessage } from '../components/StateMessage';
@@ -7,7 +7,7 @@ import { formatCompositeScore, getBand } from '../data/questionWeights';
 import { ArchiveSeries, FilterState, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import { formatNumber, monthlyTrend, questionPerformance, responseVolume, seriesTrend, submissionCount, submissionScores, yearlyTrend } from '../utils/analytics';
 import { computeCompanyComposite, RankingMode } from '../utils/scoring';
-import { rankCompanySummaries } from '../features/analytics/domain/rankings';
+import { paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from '../features/analytics/domain/rankings';
 
 interface AnalyticsPageProps {
   responses: SurveyResponse[];
@@ -60,6 +60,8 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
   const [rankingMode, setRankingMode] = useState<RankingMode>('weighted');
   const [selectedCompany, setSelectedCompany] = useState<CompanySummary | null>(null);
   const [trendGranularity, setTrendGranularity] = useState<'monthly' | 'yearly' | 'series'>('monthly');
+  const [leaderboardPage, setLeaderboardPage] = useState(0);
+  const [questionPerformancePage, setQuestionPerformancePage] = useState(0);
 
   const selectedType = filters.surveyType.length === 1 ? filters.surveyType[0] : 'All';
   const totalSubmissions = useMemo(() => submissionCount(responses), [responses]);
@@ -85,12 +87,20 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
   }, [responses, rankingMode]);
 
   const visibleCompanies = useMemo(() => selectedType === 'All' ? companySummaries : companySummaries.filter((company) => company.type === selectedType), [companySummaries, selectedType]);
+  const paginatedCompanies = useMemo(
+    () => paginateCompanyRankings(visibleCompanies, leaderboardPage),
+    [visibleCompanies, leaderboardPage],
+  );
   const evaluatedNames = useMemo(() => new Set(responses.map((response) => response.companyId || `${response.surveyType}:${response.company}`)), [responses]);
   const eligiblePartners = useMemo(() => partnerCompanies.filter((company) => !company.isArchived && company.type !== 'Uncategorized' && activeSurveyTypes.includes(company.type)), [partnerCompanies, activeSurveyTypes]);
   const evaluatedPartnerCount = eligiblePartners.length ? eligiblePartners.filter((company) => evaluatedNames.has(company.id) || evaluatedNames.has(`${company.type}:${company.name}`)).length : visibleCompanies.length;
   const partnerDenominator = eligiblePartners.length || visibleCompanies.length;
   const volumeData = useMemo(() => responseVolume(responses, activeSurveyTypes), [responses, activeSurveyTypes]);
   const questionData = useMemo(() => questionPerformance(responses), [responses]);
+  const paginatedQuestionData = useMemo(
+    () => paginateAnalyticsItems(questionData, questionPerformancePage),
+    [questionData, questionPerformancePage],
+  );
   const trendData = useMemo(() => {
     if (trendGranularity === 'yearly') return yearlyTrend(responses).map((item) => ({ key: item.year, ...item }));
     if (trendGranularity === 'series') return seriesTrend(responses, archiveSeries).map((item) => ({ key: item.label, ...item }));
@@ -99,7 +109,10 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
   const selectedComposite = useMemo(() => selectedCompany ? computeCompanyComposite(selectedCompany.name, selectedCompany.type, responses) : null, [selectedCompany, responses]);
   const selectedLowestQuestions = useMemo(() => selectedCompany ? questionPerformance(responses.filter((response) => response.company === selectedCompany.name && response.surveyType === selectedCompany.type)).sort((left, right) => left.average - right.average).slice(0, 3) : [], [selectedCompany, responses]);
 
-  const selectType = (type: SurveyType | 'All') => setFilters({ ...filters, surveyType: type === 'All' ? [] : [type] });
+  const selectType = (type: SurveyType | 'All') => {
+    setLeaderboardPage(0);
+    setFilters({ ...filters, surveyType: type === 'All' ? [] : [type] });
+  };
   const toggleSeries = (id: string) => onChangeSelectedSeriesIds?.(selectedSeriesIds.includes(id) ? selectedSeriesIds.filter((seriesId) => seriesId !== id) : [...selectedSeriesIds, id]);
 
   if (!responses.length) {
@@ -132,14 +145,10 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
 
       <section className={`${panelClass} overflow-hidden`} aria-labelledby="company-leaderboard-heading">
         <div className="border-b border-slate-100 px-4 py-4 dark:border-slate-800 sm:px-6">
-          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div>
             <div>
               <div className="flex items-center gap-2"><Trophy size={18} className="text-[#0078a8]" aria-hidden="true" /><h2 id="company-leaderboard-heading" className="text-base font-bold text-slate-900 dark:text-white">Company Leaderboard</h2></div>
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Compare evaluated partners and select a company to review its category performance.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <PlaceholderButton title="Include inactive partners"><span className="h-3.5 w-6 rounded-full bg-slate-200 p-0.5 dark:bg-slate-700"><span className="block h-2.5 w-2.5 rounded-full bg-white" /></span>Include inactive</PlaceholderButton>
-              <PlaceholderButton title="Export leaderboard"><Download size={14} /> Export</PlaceholderButton>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900 sm:grid-cols-4">
@@ -152,12 +161,13 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
         <div className="px-4 py-3 sm:px-6">
           <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_5rem] border-b border-slate-100 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:border-slate-800 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]"><span>Rank</span><span>Company</span><span className="text-right">Score</span><span className="hidden text-right sm:block">Forms</span></div>
           <ol className="grid min-w-0 gap-x-5 xl:grid-cols-2">
-            {visibleCompanies.map((company, index) => {
+            {paginatedCompanies.items.map((company, index) => {
               const style = typeStyles[company.type];
+              const rank = paginatedCompanies.startIndex + index + 1;
               return (
                 <li key={`${company.type}:${company.name}`} className="min-w-0 border-b border-slate-100 dark:border-slate-800/70">
                   <button type="button" onClick={() => setSelectedCompany(company)} className="grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center px-2 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900/70 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]">
-                    <span className={`flex h-6 w-7 items-center justify-center rounded-md text-[11px] font-bold ${index === 0 ? 'bg-[#0078a8] text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'}`}>{index + 1}</span>
+                    <span className={`flex h-6 w-7 items-center justify-center rounded-md text-[11px] font-bold ${rank === 1 ? 'bg-[#0078a8] text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'}`}>{rank}</span>
                     <span className="min-w-0 pr-3"><span className="flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} /><span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={company.name}>{company.name}</span></span><span className="mt-0.5 block truncate pl-4 text-[10px] text-slate-400">{company.type} · {getBand(company.type, company.scorePercentage).label}</span></span>
                     <span className={`flex items-center justify-end gap-1 text-xs font-bold tabular-nums ${style.text}`}>{formatCompositeScore(company.type, company.scorePercentage).valueText}<ChevronRight size={13} /></span>
                     <span className="hidden text-right text-[11px] font-medium tabular-nums text-slate-400 sm:block">{company.count}</span>
@@ -167,7 +177,20 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
             })}
           </ol>
           {!visibleCompanies.length && <p className="py-10 text-center text-sm text-slate-500">No evaluated companies in this category.</p>}
-          <p className="pt-3 text-[10px] text-slate-400">Showing {visibleCompanies.length} evaluated compan{visibleCompanies.length === 1 ? 'y' : 'ies'} · Select a row for details</p>
+          {visibleCompanies.length > 0 && (
+            <div className="flex flex-col gap-3 pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[10px] text-slate-400">
+                Showing {paginatedCompanies.startIndex + 1}–{paginatedCompanies.startIndex + paginatedCompanies.items.length} of {visibleCompanies.length} evaluated companies · Select a row for details
+              </p>
+              {paginatedCompanies.totalPages > 1 && (
+                <nav className="flex items-center gap-2" aria-label="Company leaderboard pagination">
+                  <button type="button" onClick={() => setLeaderboardPage(paginatedCompanies.currentPage - 1)} disabled={paginatedCompanies.currentPage === 0} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900" aria-label="Previous leaderboard page"><ChevronLeft size={14} /> Previous</button>
+                  <span className="text-xs font-medium tabular-nums text-slate-500 dark:text-slate-400">Page {paginatedCompanies.currentPage + 1} of {paginatedCompanies.totalPages}</span>
+                  <button type="button" onClick={() => setLeaderboardPage(paginatedCompanies.currentPage + 1)} disabled={paginatedCompanies.currentPage === paginatedCompanies.totalPages - 1} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900" aria-label="Next leaderboard page">Next <ChevronRight size={14} /></button>
+                </nav>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
@@ -187,10 +210,22 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
         <article className={`${panelClass} overflow-hidden`}>
           <div className="border-b border-slate-100 px-4 py-4 dark:border-slate-800 sm:px-6"><h3 className="text-sm font-bold">Question performance</h3><p className="mt-1 text-xs text-slate-500">All scored criteria ranked from highest to lowest</p></div>
           <ol className="grid gap-x-6 px-4 sm:px-6 lg:grid-cols-2">
-            {questionData.map((question, index) => (
-              <li key={question.question} className="flex items-center gap-3 border-b border-slate-100 py-3 dark:border-slate-800"><span className="w-6 text-center text-[11px] font-bold text-slate-400">{index + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200" title={question.question}>{question.question}</span><span className="mt-1 block h-1.5 rounded-full bg-slate-100 dark:bg-slate-800"><span className="block h-full rounded-full bg-[#0078a8]" style={{ width: `${Math.max(0, Math.min(100, question.average))}%` }} /></span></span><span className="text-xs font-bold tabular-nums text-[#0078a8]">{question.average.toFixed(1)}</span></li>
+            {paginatedQuestionData.items.map((question, index) => (
+              <li key={question.question} className="flex items-center gap-3 border-b border-slate-100 py-3 dark:border-slate-800"><span className="w-6 text-center text-[11px] font-bold text-slate-400">{paginatedQuestionData.startIndex + index + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200" title={question.question}>{question.question}</span><span className="mt-1 block h-1.5 rounded-full bg-slate-100 dark:bg-slate-800"><span className="block h-full rounded-full bg-[#0078a8]" style={{ width: `${Math.max(0, Math.min(100, question.average))}%` }} /></span></span><span className="text-xs font-bold tabular-nums text-[#0078a8]">{question.average.toFixed(1)}</span></li>
             ))}
           </ol>
+          {questionData.length > 0 && (
+            <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <p className="text-[10px] text-slate-400">Showing {paginatedQuestionData.startIndex + 1}–{paginatedQuestionData.startIndex + paginatedQuestionData.items.length} of {questionData.length} scored questions</p>
+              {paginatedQuestionData.totalPages > 1 && (
+                <nav className="flex items-center gap-2" aria-label="Question performance pagination">
+                  <button type="button" onClick={() => setQuestionPerformancePage(paginatedQuestionData.currentPage - 1)} disabled={paginatedQuestionData.currentPage === 0} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900" aria-label="Previous questions page"><ChevronLeft size={14} /> Previous</button>
+                  <span className="text-xs font-medium tabular-nums text-slate-500 dark:text-slate-400">Page {paginatedQuestionData.currentPage + 1} of {paginatedQuestionData.totalPages}</span>
+                  <button type="button" onClick={() => setQuestionPerformancePage(paginatedQuestionData.currentPage + 1)} disabled={paginatedQuestionData.currentPage === paginatedQuestionData.totalPages - 1} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900" aria-label="Next questions page">Next <ChevronRight size={14} /></button>
+                </nav>
+              )}
+            </div>
+          )}
         </article>
       </section>
 
@@ -214,7 +249,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
 function AnalyticsHeader({ dataScope, onChangeDataScope, rankingMode, onChangeRankingMode }: { dataScope: 'current' | 'all-time' | 'custom'; onChangeDataScope?: (scope: 'current' | 'all-time' | 'custom') => void; rankingMode: RankingMode; onChangeRankingMode: (mode: RankingMode) => void }) {
   return (
     <header className="space-y-4">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><h1 className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">Analytics</h1><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Review evaluation results, identify performance gaps, and compare partner companies.</p></div><div className="flex flex-wrap gap-2"><PlaceholderButton title="Choose a custom date range"><CalendarDays size={14} /> Date range <ChevronDown size={13} /></PlaceholderButton><PlaceholderButton title="Open advanced filters"><SlidersHorizontal size={14} /> Filters</PlaceholderButton></div></div>
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><p className="text-sm text-slate-500 dark:text-slate-400">Review evaluation results, identify performance gaps, and compare partner companies.</p><div className="flex flex-wrap gap-2"><PlaceholderButton title="Choose a custom date range"><CalendarDays size={14} /> Date range <ChevronDown size={13} /></PlaceholderButton><PlaceholderButton title="Open advanced filters"><SlidersHorizontal size={14} /> Filters</PlaceholderButton></div></div>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">{(['current', 'all-time', 'custom'] as const).map((scope) => (<button key={scope} type="button" onClick={() => onChangeDataScope?.(scope)} className={`rounded-md px-4 py-2 text-xs font-semibold ${dataScope === scope ? 'bg-[#0078a8] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'}`}>{scope === 'current' ? 'Current' : scope === 'all-time' ? 'All time' : 'Custom'}</button>))}</div><label className="flex items-center gap-2 text-xs font-semibold text-slate-500">Company ranking<select value={rankingMode} onChange={(event) => onChangeRankingMode(event.target.value as RankingMode)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><option value="weighted">Volume-weighted</option><option value="pure">Pure average</option></select></label></div>
     </header>
   );
