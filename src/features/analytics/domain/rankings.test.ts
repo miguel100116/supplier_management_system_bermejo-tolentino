@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SurveyResponse } from '../../../types/survey';
-import { getCompanyPerformanceRanking, rankCompanySummaries } from './rankings';
+import { getCompanyPerformanceRanking, paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from './rankings';
 
 function courierResponse(company: string, responseId: string, rating: number): SurveyResponse {
   return {
@@ -61,4 +61,28 @@ test('performance ranking honors active survey types and least-performing direct
 
   const result = getCompanyPerformanceRanking(responses, ['Courier'], 'pure', 'lowest', 1);
   assert.deepEqual(result.map((item) => item.company), ['Low Courier']);
+});
+
+test('company leaderboard pagination returns no more than 20 companies and preserves rank offsets', () => {
+  const companies = Array.from({ length: 45 }, (_, index) => `Company ${index + 1}`);
+
+  const secondPage = paginateCompanyRankings(companies, 1);
+  assert.equal(secondPage.items.length, 20);
+  assert.equal(secondPage.items[0], 'Company 21');
+  assert.equal(secondPage.startIndex, 20);
+  assert.equal(secondPage.totalPages, 3);
+
+  const clampedPage = paginateCompanyRankings(companies.slice(0, 5), 2);
+  assert.equal(clampedPage.currentPage, 0);
+  assert.deepEqual(clampedPage.items, companies.slice(0, 5));
+});
+
+test('question performance pagination returns no more than 20 ranked questions', () => {
+  const questions = Array.from({ length: 41 }, (_, index) => `Question ${index + 1}`);
+
+  const secondPage = paginateAnalyticsItems(questions, 1);
+  assert.equal(secondPage.items.length, 20);
+  assert.equal(secondPage.items[0], 'Question 21');
+  assert.equal(secondPage.startIndex, 20);
+  assert.equal(secondPage.totalPages, 3);
 });
