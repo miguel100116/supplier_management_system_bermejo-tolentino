@@ -83,7 +83,7 @@ export function OutstandingEvaluationsPage({ surveys, partnerCompanies, response
               </p>
 
               {group.outstanding.length === 0 ? (
-                <StateMessage title="Fully covered" message={`Every ${group.type.toLowerCase()} partner has at least one evaluation this period.`} />
+                <StateMessage compact title="Fully covered" message={`Every ${group.type.toLowerCase()} partner has at least one evaluation this period.`} />
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {group.outstanding.map((company) => (
@@ -103,6 +103,7 @@ export function OutstandingEvaluationsPage({ surveys, partnerCompanies, response
 
       {groups.every((g) => !g.hasAssignedForm) && (
         <StateMessage
+          compact
           title="No active survey forms"
           message="Publish a survey form under Evaluations to start tracking outstanding company coverage."
         />

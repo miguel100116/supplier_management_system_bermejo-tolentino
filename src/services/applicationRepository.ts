@@ -28,6 +28,7 @@ export const APPLICATION_RECORD_TYPES = [
   'reminder_settings',
   'compliance_snapshot',
   'active_company_snapshot',
+  'evaluation_import_archive',
 ] as const;
 
 export type ApplicationRecordType = typeof APPLICATION_RECORD_TYPES[number];

@@ -1,4 +1,5 @@
 import { parseActiveCompanySnapshot } from '../features/active-companies/domain/activeCompanySnapshots';
+import { parseEvaluationImportArchive } from '../features/evaluation-imports/domain/importArchive';
 import { LEGACY_OVERALL_CATEGORY, OVERALL_CATEGORY } from '../data/questionCategories';
 
 type JsonObject = Record<string, unknown>;
@@ -405,6 +406,11 @@ export function parseApplicationRecordPayload(
       const snapshot = parseActiveCompanySnapshot(value);
       if (snapshot.id !== recordId) throw new Error(`${label}.id does not match its database record ID.`);
       return snapshot;
+    }
+    case 'evaluation_import_archive': {
+      const archive = parseEvaluationImportArchive(value);
+      if (archive.id !== recordId) throw new Error(`${label}.id does not match its database record ID.`);
+      return archive;
     }
     default: throw new Error(`Unsupported application record type: ${recordType}.`);
   }

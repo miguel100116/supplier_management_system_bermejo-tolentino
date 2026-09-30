@@ -86,8 +86,7 @@ export function CategoriesManagerPage({ categoryLabels, onRenameCategory, onRest
   return (
     <div className="space-y-5">
       <div className="panel px-5 py-4">
-        <h2 className="text-sm font-bold text-slate-800 dark:text-white">Categories Manager</h2>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
           Each partner type is evaluated across 5 categories. Renaming a category here updates it everywhere it's
           used - survey question categories, the radar chart, bar charts, reports, and the survey editor's category
           dropdown.

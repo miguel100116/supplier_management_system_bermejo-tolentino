@@ -375,6 +375,16 @@ Decision: Partner Company archive mutations record the current ISO timestamp in 
 
 Evidence: `src/types/survey.ts`, `src/services/applicationRecordSchemas.ts`, `src/pages/PartnerCompaniesPage.tsx`, `src/features/partner-companies/components/partnerCompaniesPresentation.test.ts`.
 
+### 2026-09-30 - Archive source files for evaluation imports
+
+Status: implemented locally; Supabase migration has not been applied
+
+Decision: Store the original Supplier, Subcontractor, and Courier Microsoft Forms exports in the private `evaluation-import-archives` Storage bucket before committing parsed responses. Persist validated file metadata in Admin-only `evaluation_import_archive` application records and expose recent files with authenticated downloads on the Import Evaluation Responses page. Restrict files to 25 MB and the supported CSV/XLS/XLSX types; remove the uploaded object if metadata persistence fails.
+
+Consequences: The import is stopped if the original file cannot be archived, preventing a successful response import without its source file. Migration `202609300001_evaluation_import_archives.sql` creates the private bucket, Admin-only object policies, and application-record type. Apply that reviewed migration to the intended Supabase environment before relying on this workflow; it has not been applied remotely.
+
+Evidence: `src/features/evaluation-imports/`, `src/pages/ImportEvaluationsPage.tsx`, `src/services/applicationRepository.ts`, `src/services/applicationRecordSchemas.ts`, `supabase/migrations/202609300001_evaluation_import_archives.sql`.
+
 ### 2026-09-30 - Lazy-load authenticated application pages
 
 Status: accepted and locally verified; production web-vitals measurement remains pending

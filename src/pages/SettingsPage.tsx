@@ -12,7 +12,6 @@ import {
   RefreshCw,
   RotateCcw,
   Sun,
-  UploadCloud,
   UserCog,
   Users,
 } from 'lucide-react';
@@ -26,7 +25,6 @@ interface SettingsPageProps {
   department?: string;
   darkMode: boolean;
   onToggleDarkMode: () => void;
-  onOpenImportEvaluations: () => void;
   onResetSystemData: () => void;
   onLogout: () => void;
   accountsCount: number;
@@ -49,7 +47,6 @@ export function SettingsPage({
   department,
   darkMode,
   onToggleDarkMode,
-  onOpenImportEvaluations,
   onResetSystemData,
   onLogout,
   accountsCount,
@@ -199,20 +196,6 @@ export function SettingsPage({
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Administrative data-management tools.</p>
 
         <div className="space-y-3">
-          <button
-            onClick={onOpenImportEvaluations}
-            type="button"
-            className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-800 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-900 transition cursor-pointer"
-          >
-            <div className="flex items-center gap-3">
-              <UploadCloud size={18} className="text-[#0063a9] dark:text-blue-400 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Import Evaluation Responses</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Bulk-import raw Microsoft Forms survey exports into analytics.</p>
-              </div>
-            </div>
-          </button>
-
           <button
             onClick={onResetSystemData}
             type="button"

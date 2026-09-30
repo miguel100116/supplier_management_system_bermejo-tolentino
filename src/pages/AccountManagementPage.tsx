@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Shield, Search, Plus, UserCog, Mail, Briefcase, Trash2, Edit2, AlertCircle, RotateCcw, Check, CheckSquare, Square } from 'lucide-react';
+import { Shield, Search, Plus, Mail, Briefcase, Trash2, Edit2, AlertCircle, RotateCcw, Check, CheckSquare, Square } from 'lucide-react';
 import type { AccountProfile } from '../App';
 import { PageModuleKey, getDefaultPermissions, getDepartmentDefaultPermissions } from '../utils/rbac';
 import { SurveyType } from '../types/survey';
@@ -311,13 +311,7 @@ export function AccountManagementPage({
       {/* Header section */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
-              <UserCog size={20} />
-            </span>
-            <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">Account Management</h2>
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Manage system access, roles, organizational details, and custom permissions for all user accounts.
           </p>
         </div>
