@@ -100,6 +100,7 @@ function parsePartnerCompany(value: unknown, recordId: string, label: string): J
   isoDate(candidate.createdAt, `${label}.createdAt`);
   optionalDate(candidate.registeredAt, `${label}.registeredAt`);
   optionalBoolean(candidate.isArchived, `${label}.isArchived`);
+  optionalDate(candidate.archivedAt, `${label}.archivedAt`);
   optionalNumber(candidate.evaluationRank, `${label}.evaluationRank`);
   if (candidate.branches !== undefined) {
     if (!Array.isArray(candidate.branches) || candidate.branches.length > 500) throw new Error(`${label}.branches must be a bounded list.`);

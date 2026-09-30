@@ -70,6 +70,8 @@ export interface PartnerCompany {
   // is tracked independently and no longer affects evaluation eligibility.
   registeredAt?: string;
   isArchived?: boolean;
+  // Set when the record is archived and cleared when it is restored.
+  archivedAt?: string;
   accreditationStatus?: AccreditationStatus;
   // Only meaningful when type === 'Supplier'. 1-20, admin-curated via the
   // Supplier Ranking page - determines which 20 of the non-archived

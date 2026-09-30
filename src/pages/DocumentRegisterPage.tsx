@@ -1293,7 +1293,6 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Compliance Overview</h3>
-                <p className="text-[11px] font-medium text-slate-400">{viewLabel}</p>
               </div>
               <div className="relative" ref={customizeRef}>
                 <button

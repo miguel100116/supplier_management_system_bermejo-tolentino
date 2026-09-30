@@ -1,11 +1,9 @@
-import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { BarChart3, FileText, LayoutDashboard, Moon, Sun, FilePlus, ClipboardCheck, ArrowLeft, Clock3, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
 import { AccountMenu } from './components/AccountMenu';
 import { NotificationBell } from './components/NotificationBell';
 import { EmployeeNotificationBell } from './components/EmployeeNotificationBell';
 import { Shell, NavItem } from './layouts/Shell';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage, MicrosoftAuth } from './pages/LoginPage';
 import { PasswordRecoveryPage } from './pages/PasswordRecoveryPage';
 import { restoreMicrosoftAccount, logoutMicrosoft, isMsalConfigured } from './services/msalAuth';
@@ -25,28 +23,7 @@ import {
 } from './services/applicationRepository';
 import { hydrateChangedSharedStore, hydrateSharedClientStores } from './services/sharedStoreHydration';
 import { isOfficialAnalyticsResponse } from './features/analytics/domain/responseProvenance';
-import { NotificationLogsPage } from './pages/NotificationLogsPage';
-import { EmployeeNotificationLogsPage } from './pages/EmployeeNotificationLogsPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { SurveyExplorerPage } from './pages/SurveyExplorerPage';
-import { CreateSurveyPage } from './pages/CreateSurveyPage';
-import { SurveyDetailsPage } from './pages/SurveyDetailsPage';
-import { SurveyFillerPage, SurveyFillerHandle } from './pages/SurveyFillerPage';
-import { PartnerCompaniesPage } from './pages/PartnerCompaniesPage';
-import { DocumentRegisterPage } from './pages/DocumentRegisterPage';
-import { SupplierRankingPage } from './pages/SupplierRankingPage';
-import { SurveyFormsPage } from './pages/SurveyFormsPage';
-import { PresentPage } from './pages/PresentPage';
-import { ArchivePage } from './pages/ArchivePage';
-import { ImportEvaluationsPage } from './pages/ImportEvaluationsPage';
-import { AccountManagementPage } from './pages/AccountManagementPage';
-import { PartnersFeedbackHubPage } from './pages/PartnersFeedbackHubPage';
-import { MySubmissionsPage } from './pages/MySubmissionsPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { SettingsPage } from './pages/SettingsPage';
-import { OutstandingEvaluationsPage } from './pages/OutstandingEvaluationsPage';
-import { ExportHistoryPage } from './pages/ExportHistoryPage';
-import { CategoriesManagerPage } from './pages/CategoriesManagerPage';
+import type { SurveyFillerHandle } from './pages/SurveyFillerPage';
 import { logAdminActivity } from './utils/adminActivityLog';
 import { useSurveyData } from './hooks/useSurveyData';
 import { applyFilters, initialFilters } from './utils/analytics';
@@ -54,6 +31,31 @@ import { FilterState, SurveyType, CustomForm, SurveyResponse } from './types/sur
 import { PageModuleKey, getDefaultPermissions, getEffectiveSurveyTypes, hasPageAccess, getDepartmentDefaultPermissions } from './utils/rbac';
 import { clearSessionActivity, recordSessionActivity, useIdleSessionTimeout } from './hooks/useIdleSessionTimeout';
 import { formatSessionTimeRemaining } from './utils/sessionTimeout';
+
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(({ AnalyticsPage }) => ({ default: AnalyticsPage })));
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then(({ DashboardPage }) => ({ default: DashboardPage })));
+const NotificationLogsPage = lazy(() => import('./pages/NotificationLogsPage').then(({ NotificationLogsPage }) => ({ default: NotificationLogsPage })));
+const EmployeeNotificationLogsPage = lazy(() => import('./pages/EmployeeNotificationLogsPage').then(({ EmployeeNotificationLogsPage }) => ({ default: EmployeeNotificationLogsPage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then(({ ReportsPage }) => ({ default: ReportsPage })));
+const SurveyExplorerPage = lazy(() => import('./pages/SurveyExplorerPage').then(({ SurveyExplorerPage }) => ({ default: SurveyExplorerPage })));
+const CreateSurveyPage = lazy(() => import('./pages/CreateSurveyPage').then(({ CreateSurveyPage }) => ({ default: CreateSurveyPage })));
+const SurveyDetailsPage = lazy(() => import('./pages/SurveyDetailsPage').then(({ SurveyDetailsPage }) => ({ default: SurveyDetailsPage })));
+const SurveyFillerPage = lazy(() => import('./pages/SurveyFillerPage').then(({ SurveyFillerPage }) => ({ default: SurveyFillerPage })));
+const PartnerCompaniesPage = lazy(() => import('./pages/PartnerCompaniesPage').then(({ PartnerCompaniesPage }) => ({ default: PartnerCompaniesPage })));
+const DocumentRegisterPage = lazy(() => import('./pages/DocumentRegisterPage').then(({ DocumentRegisterPage }) => ({ default: DocumentRegisterPage })));
+const SupplierRankingPage = lazy(() => import('./pages/SupplierRankingPage').then(({ SupplierRankingPage }) => ({ default: SupplierRankingPage })));
+const SurveyFormsPage = lazy(() => import('./pages/SurveyFormsPage').then(({ SurveyFormsPage }) => ({ default: SurveyFormsPage })));
+const PresentPage = lazy(() => import('./pages/PresentPage').then(({ PresentPage }) => ({ default: PresentPage })));
+const ArchivePage = lazy(() => import('./pages/ArchivePage').then(({ ArchivePage }) => ({ default: ArchivePage })));
+const ImportEvaluationsPage = lazy(() => import('./pages/ImportEvaluationsPage').then(({ ImportEvaluationsPage }) => ({ default: ImportEvaluationsPage })));
+const AccountManagementPage = lazy(() => import('./pages/AccountManagementPage').then(({ AccountManagementPage }) => ({ default: AccountManagementPage })));
+const PartnersFeedbackHubPage = lazy(() => import('./pages/PartnersFeedbackHubPage').then(({ PartnersFeedbackHubPage }) => ({ default: PartnersFeedbackHubPage })));
+const MySubmissionsPage = lazy(() => import('./pages/MySubmissionsPage').then(({ MySubmissionsPage }) => ({ default: MySubmissionsPage })));
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then(({ ProfilePage }) => ({ default: ProfilePage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(({ SettingsPage }) => ({ default: SettingsPage })));
+const OutstandingEvaluationsPage = lazy(() => import('./pages/OutstandingEvaluationsPage').then(({ OutstandingEvaluationsPage }) => ({ default: OutstandingEvaluationsPage })));
+const ExportHistoryPage = lazy(() => import('./pages/ExportHistoryPage').then(({ ExportHistoryPage }) => ({ default: ExportHistoryPage })));
+const CategoriesManagerPage = lazy(() => import('./pages/CategoriesManagerPage').then(({ CategoriesManagerPage }) => ({ default: CategoriesManagerPage })));
 
 // Shared by userAccessibleResponses/userAccessibleAllTimeResponses below - the
 // same role/department/survey-type scoping rule applied to either the
@@ -1281,7 +1283,18 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  {pageContent}
+                  <Suspense
+                    fallback={(
+                      <div className="flex min-h-64 items-center justify-center rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950" role="status" aria-live="polite">
+                        <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
+                          <div className="h-7 w-7 animate-spin rounded-full border-4 border-slate-300 border-t-[#0063a9] dark:border-slate-700 dark:border-t-blue-500" />
+                          <p className="text-sm font-medium">Loading page...</p>
+                        </div>
+                      </div>
+                    )}
+                  >
+                    {pageContent}
+                  </Suspense>
                   {isSupabaseConfigured && isRefreshing && (
                     <div
                       className="pointer-events-none absolute inset-x-0 top-3 z-40 flex justify-center px-4"

@@ -41,10 +41,10 @@ import { CATEGORY_BUCKET_KEYS, computeCategoryRankSummary } from '../utils/categ
 import { getRequiredDocumentKeys, isExpiryDocument } from '../utils/documentRequirements';
 import { findMissingProfileFields, MISSING_FIELD_LABELS, MissingProfileField } from '../utils/dataCompleteness';
 import { ImportResult } from '../utils/masterListImport';
-import { TableFilterBar } from '../components/TableFilterBar';
 import { isWithinDateRange } from '../utils/tableFilters';
 import { ActiveCompaniesModal } from '../features/active-companies/components/ActiveCompaniesModal';
 import { ActiveCompanyUploadCards } from '../features/active-companies/components/ActiveCompanyUploadCards';
+import { PartnerCompaniesFilterToolbar } from '../features/partner-companies/components/PartnerCompaniesFilterToolbar';
 
 const MISSING_FIELD_ICONS: Record<MissingProfileField, typeof MapPin> = {
   address: MapPin,
@@ -190,6 +190,7 @@ export function PartnerCompaniesPage({
   const [registeredFrom, setRegisteredFrom] = useState('');
   const [registeredTo, setRegisteredTo] = useState('');
   const [documentFilter, setDocumentFilter] = useState<'all' | 'current' | 'expiring' | 'expired' | 'missing'>('all');
+  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
   const [isCategorySummaryOpen, setIsCategorySummaryOpen] = useState(true);
   const [importReplace, setImportReplace] = useState(false);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
@@ -241,6 +242,7 @@ export function PartnerCompaniesPage({
   // Destructive-action confirmation state. Authorization is enforced by the
   // authenticated Admin route and Supabase RLS, not a browser-side passcode.
   const [companyToDelete, setCompanyToDelete] = useState<PartnerCompany | null>(null);
+  const [companyToArchive, setCompanyToArchive] = useState<PartnerCompany | null>(null);
 
   // Master List import state
   const importFileInputRef = useRef<HTMLInputElement>(null);
@@ -282,6 +284,19 @@ export function PartnerCompaniesPage({
     } catch {
       return dateString;
     }
+  };
+
+  const formatDateTime = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    const d = new Date(dateString);
+    if (Number.isNaN(d.getTime())) return dateString;
+    return d.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
   };
 
   const handleSort = (key: SortKey) => {
@@ -495,18 +510,19 @@ export function PartnerCompaniesPage({
     }
   };
 
-  const toggleArchive = async (company: PartnerCompany, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const updateArchiveStatus = async (company: PartnerCompany): Promise<boolean> => {
+    const nextIsArchived = !company.isArchived;
     const updated: PartnerCompany = {
       ...company,
-      isArchived: !company.isArchived
+      isArchived: nextIsArchived,
+      archivedAt: nextIsArchived ? new Date().toISOString() : undefined,
     };
     setErrorMessage('');
     try {
       await onUpdateCompany(updated);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to update the partner company.');
-      return;
+      return false;
     }
     
     // update current selected company if open
@@ -516,6 +532,22 @@ export function PartnerCompaniesPage({
 
     setSuccessMessage(`"${company.name}" successfully ${updated.isArchived ? 'archived' : 'restored to active'}.`);
     setTimeout(() => setSuccessMessage(''), 4000);
+    return true;
+  };
+
+  const toggleArchive = async (company: PartnerCompany, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!company.isArchived) {
+      setCompanyToArchive(company);
+      return;
+    }
+    await updateArchiveStatus(company);
+  };
+
+  const confirmArchive = async () => {
+    if (!companyToArchive) return;
+    const didArchive = await updateArchiveStatus(companyToArchive);
+    if (didArchive) setCompanyToArchive(null);
   };
 
   // Filter and sort companies based on tabs
@@ -596,6 +628,13 @@ export function PartnerCompaniesPage({
   useEffect(() => {
     setCurrentPage(1);
   }, [statusTab, activeTab, originFilter, searchQuery, sortConfig, registeredFrom, registeredTo, documentFilter]);
+
+  const advancedFilterCount = [
+    sortConfig && (sortConfig.key !== 'name' || sortConfig.direction !== 'asc'),
+    registeredFrom,
+    registeredTo,
+    documentFilter !== 'all',
+  ].filter(Boolean).length;
 
   const totalPages = Math.max(1, Math.ceil(filteredCompanies.length / COMPANIES_PAGE_SIZE));
   // Clamp defensively (e.g. the list shrinks from a delete while on a later
@@ -776,46 +815,46 @@ export function PartnerCompaniesPage({
         </button>
 
         {isCategorySummaryOpen && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 border-t border-slate-100 dark:border-slate-800 p-4">
-            <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
-              <table className="w-full min-w-[480px] text-sm">
+          <div className="grid min-w-0 grid-cols-1 lg:grid-cols-2 gap-4 border-t border-slate-100 dark:border-slate-800 p-4">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-slate-100 dark:border-slate-800">
+              <table className="w-full table-fixed text-sm">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-900/50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    <th className="px-4 py-2">Category</th>
-                    <th className="px-4 py-2 text-right">Branches</th>
+                    <th className="px-3 py-2 sm:px-4">Category</th>
+                    <th className="w-20 px-3 py-2 text-right sm:w-24 sm:px-4">Branches</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {CATEGORY_BUCKET_KEYS.map((key) => (
                     <tr key={key}>
-                      <td className="px-4 py-2 font-medium text-slate-600 dark:text-slate-300">{key}</td>
-                      <td className="px-4 py-2 text-right font-bold tabular-nums text-slate-800 dark:text-slate-100">{categoryRankSummary.buckets[key] ?? 0}</td>
+                      <td className="break-words px-3 py-2 font-medium text-slate-600 dark:text-slate-300 sm:px-4">{key}</td>
+                      <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-800 dark:text-slate-100 sm:px-4">{categoryRankSummary.buckets[key] ?? 0}</td>
                     </tr>
                   ))}
                   <tr className="bg-slate-50 dark:bg-slate-900/40">
-                    <td className="px-4 py-2 font-bold text-slate-700 dark:text-slate-200">Total</td>
-                    <td className="px-4 py-2 text-right font-black tabular-nums text-[#0063a9]">{categoryRankSummary.total}</td>
+                    <td className="px-3 py-2 font-bold text-slate-700 dark:text-slate-200 sm:px-4">Total</td>
+                    <td className="px-3 py-2 text-right font-black tabular-nums text-[#0063a9] sm:px-4">{categoryRankSummary.total}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <div className="self-start overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
-              <table className="w-full min-w-[480px] text-sm">
+            <div className="min-w-0 self-start overflow-hidden rounded-xl border border-slate-100 dark:border-slate-800">
+              <table className="w-full table-fixed text-sm">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-900/50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    <th className="px-4 py-2">Supplier Rank</th>
-                    <th className="px-4 py-2 text-right">Branches</th>
+                    <th className="px-3 py-2 sm:px-4">Supplier Rank</th>
+                    <th className="w-20 px-3 py-2 text-right sm:w-24 sm:px-4">Branches</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   <tr>
-                    <td className="px-4 py-2 font-medium text-slate-600 dark:text-slate-300">Major</td>
-                    <td className="px-4 py-2 text-right font-bold tabular-nums text-slate-800 dark:text-slate-100">{categoryRankSummary.major}</td>
+                    <td className="px-3 py-2 font-medium text-slate-600 dark:text-slate-300 sm:px-4">Major</td>
+                    <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-800 dark:text-slate-100 sm:px-4">{categoryRankSummary.major}</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2 font-medium text-slate-600 dark:text-slate-300">Regular</td>
-                    <td className="px-4 py-2 text-right font-bold tabular-nums text-slate-800 dark:text-slate-100">{categoryRankSummary.regular}</td>
+                    <td className="px-3 py-2 font-medium text-slate-600 dark:text-slate-300 sm:px-4">Regular</td>
+                    <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-800 dark:text-slate-100 sm:px-4">{categoryRankSummary.regular}</td>
                   </tr>
                 </tbody>
               </table>
@@ -825,112 +864,61 @@ export function PartnerCompaniesPage({
         )}
       </div>
 
-      {/* Registry Filter Options Bar */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-3">
-        {/* Status filter remains available without the former KPI cards. */}
-        <div className="flex flex-nowrap overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 dark:border-transparent dark:bg-slate-950 w-full sm:w-auto" style={{ scrollbarWidth: 'none' }}>
-          {(Object.keys(STATUS_TAB_LABELS) as Array<keyof typeof STATUS_TAB_LABELS>).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={`shrink-0 whitespace-nowrap rounded-md px-4 py-2 text-xs font-bold transition-all duration-150 cursor-pointer ${
-                statusTab === tab
-                  ? 'bg-[#0063a9] text-white shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-              onClick={() => setStatusTab(tab)}
-            >
-              {STATUS_TAB_LABELS[tab]}
-            </button>
-          ))}
-        </div>
-
-        {/* Affiliation category tabs */}
-        <div className="flex flex-nowrap overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 dark:border-transparent dark:bg-slate-950 w-full sm:w-auto" style={{ scrollbarWidth: 'none' }}>
-          {(['All', 'Courier', 'Supplier', 'Subcontractor', 'Uncategorized'] as const).map((tab) => (
-            <button
-              key={tab}
-              className={`shrink-0 whitespace-nowrap rounded-md py-2 px-4 text-xs font-bold transition-all duration-150 cursor-pointer ${
-                activeTab === tab
-                  ? 'bg-[#0063a9] text-white shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab === 'All' ? 'All categories' : tab === 'Uncategorized' ? 'Uncategorized' : `${tab}s`}
-            </button>
-          ))}
-        </div>
-
-        {/* Local/Foreign sub-filter - only meaningful for Suppliers */}
-        {activeTab === 'Supplier' && (
-          <div className="flex flex-nowrap rounded-lg border border-slate-200 bg-white p-1 dark:border-transparent dark:bg-slate-950">
-            {(['All', 'Local', 'Foreign'] as const).map((origin) => (
-              <button
-                key={origin}
-                className={`shrink-0 flex items-center gap-1 whitespace-nowrap rounded-md py-2 px-3 text-xs font-bold transition-all duration-150 cursor-pointer ${
-                  originFilter === origin
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-                onClick={() => setOriginFilter(origin)}
-              >
-                {origin === 'Foreign' && <Globe size={12} />}
-                {origin === 'Local' && <MapPin size={12} />}
-                <span>{origin}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Name / BP Code search */}
-        <div className="relative w-full sm:w-64">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search name or BP code..."
-            className="field text-xs py-2 !pl-9"
-          />
-        </div>
-
-        {/* Register Button (admin only) - opens a modal with Manual Entry / Upload Excel tabs */}
-        {isAdmin && (
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            {onPreviewMasterListImport && (
-              <input
-                ref={importFileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={handleImportFileSelected}
-              />
-            )}
-            <button
-              onClick={() => setIsActiveCompaniesOpen(true)}
-              className="secondary-button min-h-10 w-full gap-1.5 px-4 text-xs font-bold sm:w-auto"
-              type="button"
-            >
-              <Building size={15} aria-hidden="true" />
-              <span>Active Companies by Type</span>
-              <ChevronRight size={14} className="text-slate-400" aria-hidden="true" />
-            </button>
-            <button
-              onClick={() => {
-                setErrorMessage('');
-                setRegisterModalTab('manual');
-                setIsRegisterOpen(true);
-              }}
-              className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-[#0063a9] px-5 py-2.5 text-xs font-bold text-white shadow-xs transition duration-150 hover:bg-[#00528c] sm:w-auto"
-              type="button"
-            >
-              <Plus size={16} />
-              <span>Register New Partner</span>
-            </button>
-          </div>
-        )}
-      </div>
+      <PartnerCompaniesFilterToolbar
+        statusTab={statusTab}
+        statusLabels={STATUS_TAB_LABELS}
+        onStatusChange={setStatusTab}
+        categoryTab={activeTab}
+        onCategoryChange={setActiveTab}
+        originFilter={originFilter}
+        onOriginChange={setOriginFilter}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        isAdmin={isAdmin}
+        importFileInputRef={importFileInputRef}
+        onImportFileSelected={handleImportFileSelected}
+        onOpenActiveCompanies={() => setIsActiveCompaniesOpen(true)}
+        onOpenRegister={() => {
+          setErrorMessage('');
+          setRegisterModalTab('manual');
+          setIsRegisterOpen(true);
+        }}
+        isAdvancedFiltersOpen={isAdvancedFiltersOpen}
+        onToggleAdvancedFilters={() => setIsAdvancedFiltersOpen((open) => !open)}
+        advancedFilterCount={advancedFilterCount}
+        sortOptions={[
+          { value: 'name-asc', label: 'Company: A–Z' },
+          { value: 'name-desc', label: 'Company: Z–A' },
+          { value: 'registeredAt-desc', label: 'Registered: newest first' },
+          { value: 'registeredAt-asc', label: 'Registered: oldest first' },
+          { value: 'docStatus-desc', label: 'Documents: most urgent first' },
+        ]}
+        sortValue={sortConfig ? `${sortConfig.key}-${sortConfig.direction}` : 'name-asc'}
+        onSortChange={(value) => {
+          const separator = value.lastIndexOf('-');
+          setSortConfig({
+            key: value.slice(0, separator) as SortKey,
+            direction: value.slice(separator + 1) as 'asc' | 'desc',
+          });
+        }}
+        registeredFrom={registeredFrom}
+        registeredTo={registeredTo}
+        onRegisteredFromChange={setRegisteredFrom}
+        onRegisteredToChange={setRegisteredTo}
+        documentFilter={documentFilter}
+        onDocumentFilterChange={setDocumentFilter}
+        resultCount={filteredCompanies.length}
+        onReset={() => {
+          setStatusTab('Active');
+          setSearchQuery('');
+          setActiveTab('All');
+          setOriginFilter('All');
+          setRegisteredFrom('');
+          setRegisteredTo('');
+          setDocumentFilter('all');
+          setSortConfig(null);
+        }}
+      />
 
       {importError && (
         <div className="rounded-lg bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 text-xs font-semibold flex items-center gap-2 dark:bg-rose-950/20 dark:border-rose-900">
@@ -939,13 +927,14 @@ export function PartnerCompaniesPage({
         </div>
       )}
 
-      {/* Registry Header */}
+      {/* Registry description stays immediately above the table. */}
       <div className="panel px-5 py-4">
         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
           {STATUS_TAB_LABELS[statusTab]} Registry List ({filteredCompanies.length}) &bull; Click row to edit/renew
         </span>
       </div>
 
+      {/*
       <TableFilterBar
         sortOptions={[
           { value: 'name-asc', label: 'Company: A–Z' },
@@ -993,6 +982,7 @@ export function PartnerCompaniesPage({
           </select>
         </label>
       </TableFilterBar>
+      */}
 
       {filteredCompanies.length === 0 ? (
         <div className="panel py-20 text-center text-slate-400">
@@ -1034,6 +1024,7 @@ export function PartnerCompaniesPage({
                     </div>
                   </th>
                   <th className="px-5 py-3">Registration Date</th>
+                  {statusTab === 'Archived' && <th className="px-5 py-3">Archived Date &amp; Time</th>}
                   <th
                     className="px-5 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors"
                     onClick={() => handleSort('docStatus')}
@@ -1088,6 +1079,14 @@ export function PartnerCompaniesPage({
                       <td className="px-5 py-3.5 align-top whitespace-nowrap text-slate-500 dark:text-slate-400 text-xs">
                         {formatDate(c.registeredAt || c.createdAt)}
                       </td>
+                      {statusTab === 'Archived' && (
+                        <td
+                          className="px-5 py-3.5 align-top whitespace-nowrap text-slate-500 dark:text-slate-400 text-xs"
+                          title={c.archivedAt ?? undefined}
+                        >
+                          {formatDateTime(c.archivedAt)}
+                        </td>
+                      )}
                       <td className="px-5 py-3.5 align-top whitespace-nowrap text-xs font-medium">
                         {c.isArchived ? (
                           <span className="text-slate-400 italic">Archived</span>
@@ -2309,6 +2308,46 @@ export function PartnerCompaniesPage({
                 type="button"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Archive confirmation modal. Supabase RLS remains the authorization boundary. */}
+      {companyToArchive && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div
+            className="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-transparent dark:bg-slate-950 animate-in fade-in zoom-in-95 duration-150"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="archive-partner-title"
+          >
+            <div className="flex items-center gap-3 text-rose-500">
+              <Archive size={24} className="shrink-0" />
+              <h3 id="archive-partner-title" className="text-lg font-bold text-slate-900 dark:text-white">Archive Partner Company?</h3>
+            </div>
+
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              Are you sure you want to archive <strong className="text-slate-800 dark:text-slate-200">"{companyToArchive.name}"</strong>? The company will move to the Archived registry and can be restored later.
+            </p>
+
+            <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
+              <button
+                onClick={() => setCompanyToArchive(null)}
+                className="secondary-button"
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmArchive}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 cursor-pointer"
+                type="button"
+              >
+                <Archive size={14} />
+                Confirm Archive
               </button>
             </div>
           </div>
