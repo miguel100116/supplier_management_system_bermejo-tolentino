@@ -397,6 +397,16 @@ Consequences: The production main `App` chunk measured approximately 1.51 MB aft
 
 Evidence: `src/App.tsx`; `npm run lint`, `npm test` (110 tests), and `npm run build` passed on 2026-09-30.
 
+### 2026-09-30 - Prioritize post-login primary data
+
+Status: implemented and locally verified; real-user latency measurement remains pending
+
+Decision: After authorization, wait for partner companies, surveys, and evaluation responses before removing the content loading state. Hydrate archive series, category labels, and notification read state in the background. Defer notification grouping and compressed response-cache serialization until after the first paint. Request up to 1,000 rows per page, continue at the first missing offset if the hosted API truncates a page, and use up to 12 bounded parallel follow-up requests. The additive startup-RLS migration wraps stable, row-independent authorization helpers in scalar selects; its access predicates are regression-tested against the applied policy.
+
+Consequences: Supporting settings and notification hydration no longer extend the dashboard's initial loading screen. The documented 6,355-row response dataset fits in one parallel follow-up batch after the first page and uses six page requests instead of twelve at the configured limit. A lower hosted API limit causes contiguous follow-up reads rather than silently omitting rows. The RLS optimization must be applied to the intended Supabase environment before it affects hosted queries; it has not been applied remotely. Core records still come from Supabase, and real staging/production latency remains unmeasured.
+
+Evidence: `src/hooks/useSurveyData.ts`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`, `src/services/sharedPersistenceMigration.test.ts`, `supabase/migrations/202609300002_cache_startup_rls_helpers.sql`; 115 tests, TypeScript checks, and production build passed locally on 2026-09-30. Hosted query latency is not yet measured.
+
 ### 2026-09-25 - Non-blocking authenticated startup hydration
 
 Status: accepted and locally verified; staging latency has not been measured in this workspace

@@ -1380,35 +1380,11 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       setError(null);
       const sessionEmail = await getSupabaseSessionEmail();
       if (!sessionEmail || sessionEmail !== currentUserEmail.trim().toLowerCase()) return;
-      let [storedCompanies, storedSurveys, storedResponses, storedSeries, storedCategoryLabels, remoteNotificationState] = await Promise.all([
+      const [storedCompanies, storedSurveys, storedResponses] = await Promise.all([
         loadApplicationRecords<PartnerCompany>('partner_company'),
         loadApplicationRecords<CustomForm>('survey'),
         loadApplicationRecords<SurveyResponse>('survey_response'),
-        loadApplicationRecords<ArchiveSeries>('archive_series'),
-        loadApplicationRecords<Record<SurveyType, string[]>>('category_labels'),
-        loadNotificationReadState(currentUserEmail),
       ]);
-
-      const migrationKey = 'survey_shared_supabase_migrated_v1';
-      if (isAdmin && localStorage.getItem(migrationKey) !== 'true') {
-        if (storedSeries.length === 0) {
-          try {
-            const localSeries = JSON.parse(localStorage.getItem('survey_archive_series_v1') ?? '[]') as ArchiveSeries[];
-            if (localSeries.length > 0) {
-              await upsertApplicationRecords('archive_series', localSeries, (series) => series.id);
-              storedSeries = localSeries;
-            }
-          } catch {
-            // Invalid legacy cache is ignored; the empty remote value wins.
-          }
-        }
-        if (storedCategoryLabels.length === 0) {
-          const localLabels = getStoredCategoryLabels();
-          await upsertApplicationRecords('category_labels', [localLabels], () => 'global');
-          storedCategoryLabels = [localLabels];
-        }
-        localStorage.setItem(migrationKey, 'true');
-      }
       const companies = storedCompanies.length > 0
         ? storedCompanies
         : await loadNormalizedPartnerCompanies();
@@ -1417,23 +1393,71 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       const normalizedCompanies = companies.map(normalizeDatabasePartnerCompany).map(normalizePartnerCompany);
       const normalizedSurveys = storedSurveys.map(normalizeCustomForm);
       const normalizedResponses = storedResponses.map(normalizeSurveyResponse);
-      applyNotificationReadState(remoteNotificationState);
       setPartnerCompanies(normalizedCompanies);
       setSurveys(normalizedSurveys);
       setResponses(normalizedResponses);
-      setArchiveSeries(storedSeries);
-      const hydratedCategoryLabels = storedCategoryLabels[0] ?? {
-        Courier: [...DEFAULT_CATEGORIES.Courier],
-        Supplier: [...DEFAULT_CATEGORIES.Supplier],
-        Subcontractor: [...DEFAULT_CATEGORIES.Subcontractor],
-      };
-      setCategoryLabels(hydratedCategoryLabels);
-      setNotifications(groupResponsesToNotifications(normalizedResponses).slice(0, INITIAL_NOTIFICATION_SEED));
       safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(normalizedCompanies));
       safeSetItem('survey_analytics_surveys_v6', JSON.stringify(normalizedSurveys));
-      safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(normalizedResponses)));
-      safeSetItem('survey_archive_series_v1', JSON.stringify(storedSeries));
-      safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(hydratedCategoryLabels));
+
+      // The dashboard's primary records are ready. Load supporting settings and
+      // notification state in the background so they don't extend the login
+      // loading screen. Defer CPU-heavy derived/cache work until after paint.
+      const scheduleAfterPaint = (work: () => void) => {
+        window.requestAnimationFrame(() => {
+          window.setTimeout(() => {
+            if (!cancelled) work();
+          }, 0);
+        });
+      };
+      scheduleAfterPaint(() => {
+        setNotifications(groupResponsesToNotifications(normalizedResponses).slice(0, INITIAL_NOTIFICATION_SEED));
+        safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(normalizedResponses)));
+      });
+
+      void (async () => {
+        let [storedSeries, storedCategoryLabels, remoteNotificationState] = await Promise.all([
+          loadApplicationRecords<ArchiveSeries>('archive_series'),
+          loadApplicationRecords<Record<SurveyType, string[]>>('category_labels'),
+          loadNotificationReadState(currentUserEmail),
+        ]);
+
+        const migrationKey = 'survey_shared_supabase_migrated_v1';
+        if (isAdmin && localStorage.getItem(migrationKey) !== 'true') {
+          if (storedSeries.length === 0) {
+            try {
+              const localSeries = JSON.parse(localStorage.getItem('survey_archive_series_v1') ?? '[]') as ArchiveSeries[];
+              if (localSeries.length > 0) {
+                await upsertApplicationRecords('archive_series', localSeries, (series) => series.id);
+                storedSeries = localSeries;
+              }
+            } catch {
+              // Invalid legacy cache is ignored; the empty remote value wins.
+            }
+          }
+          if (storedCategoryLabels.length === 0) {
+            const localLabels = getStoredCategoryLabels();
+            await upsertApplicationRecords('category_labels', [localLabels], () => 'global');
+            storedCategoryLabels = [localLabels];
+          }
+          localStorage.setItem(migrationKey, 'true');
+        }
+        if (cancelled) return;
+
+        setArchiveSeries(storedSeries);
+        const hydratedCategoryLabels = storedCategoryLabels[0] ?? {
+          Courier: [...DEFAULT_CATEGORIES.Courier],
+          Supplier: [...DEFAULT_CATEGORIES.Supplier],
+          Subcontractor: [...DEFAULT_CATEGORIES.Subcontractor],
+        };
+        setCategoryLabels(hydratedCategoryLabels);
+        applyNotificationReadState(remoteNotificationState);
+        safeSetItem('survey_archive_series_v1', JSON.stringify(storedSeries));
+        safeSetItem(CATEGORIES_STORAGE_KEY, JSON.stringify(hydratedCategoryLabels));
+      })().catch((loadError) => {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : 'Unable to load supporting Supabase data.');
+        }
+      });
     };
 
     const refreshRecordType = async (recordType: ApplicationRecordType) => {

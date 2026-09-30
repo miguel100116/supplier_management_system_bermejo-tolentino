@@ -10,6 +10,10 @@ const rlsMigration = readFileSync(
   new URL('../../supabase/migrations/20260921013124_consolidate_application_rls.sql', import.meta.url),
   'utf8',
 ).toLowerCase();
+const startupRlsMigration = readFileSync(
+  new URL('../../supabase/migrations/202609300002_cache_startup_rls_helpers.sql', import.meta.url),
+  'utf8',
+).toLowerCase();
 const provenanceMigration = readFileSync(
   new URL('../../supabase/migrations/202609220001_response_provenance.sql', import.meta.url),
   'utf8',
@@ -78,4 +82,27 @@ test('consolidates application policies to one policy per operation', () => {
       new RegExp(`create policy "application_records_${operation}"[\\s\\S]*?for ${operation} to authenticated`),
     );
   }
+});
+
+test('caches startup RLS helpers without changing the existing select predicates', () => {
+  const policy = (sql: string, name: string) => {
+    const match = sql.match(new RegExp(`create policy "${name}"[\\s\\S]*?;`));
+    assert.ok(match, `missing policy ${name}`);
+    return match[0]
+      .replace(/\(\s*select\s+((?:private|public)\.[a-z_]+\(\))\s*\)/g, '$1')
+      .replace(/\s+/g, ' ')
+      .replace(/\(\s+/g, '(')
+      .replace(/\s+\)/g, ')')
+      .trim();
+  };
+
+  for (const name of ['app_profiles_select', 'application_records_select']) {
+    assert.equal(policy(startupRlsMigration, name), policy(rlsMigration, name));
+  }
+  assert.match(startupRlsMigration, /\(select private\.is_app_admin\(\)\)/);
+  assert.match(startupRlsMigration, /\(select private\.my_app_designation\(\)\)/);
+  assert.match(startupRlsMigration, /\(select private\.my_app_department\(\)\)/);
+  assert.match(startupRlsMigration, /\(select private\.my_app_email\(\)\)/);
+  assert.match(startupRlsMigration, /\(select public\.is_confirmed_mgenesis_user\(\)\)/);
+  assert.doesNotMatch(startupRlsMigration, /\b(delete from|truncate table|drop table|disable row level security)\b/);
 });

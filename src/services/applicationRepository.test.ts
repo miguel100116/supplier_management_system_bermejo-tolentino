@@ -4,7 +4,9 @@ import test from 'node:test';
 import type { SurveyResponse } from '../types/survey';
 import {
   APPLICATION_RECORD_TYPES,
+  batchApplicationRecordPageRanges,
   applicationRecordPageRanges,
+  incompleteApplicationRecordPageRange,
   parsePersistedProfile,
   surveyResponseRecordId,
 } from './applicationRepository';
@@ -46,11 +48,38 @@ test('uses the submission and question IDs as the stable response-row key', () =
 test('splits application-record reads into complete, non-overlapping pages', () => {
   assert.deepEqual(applicationRecordPageRanges(0), []);
   assert.deepEqual(applicationRecordPageRanges(1), [[0, 0]]);
+  assert.deepEqual(applicationRecordPageRanges(1_001), [[0, 999], [1_000, 1_000]]);
   assert.deepEqual(applicationRecordPageRanges(1_001, 500), [
     [0, 499],
     [500, 999],
     [1_000, 1_000],
   ]);
+});
+
+test('fetches the documented response dataset in one bounded follow-up page batch', () => {
+  const remainingPages = applicationRecordPageRanges(6_355).slice(1);
+  const batches = batchApplicationRecordPageRanges(remainingPages);
+
+  assert.equal(remainingPages.length, 6);
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].length, 6);
+  assert.deepEqual(batches.flat(), remainingPages);
+  assert.deepEqual(batchApplicationRecordPageRanges(remainingPages, 5).map((batch) => batch.length), [5, 1]);
+  assert.deepEqual(batchApplicationRecordPageRanges(remainingPages, 0), []);
+});
+
+test('keeps application-record page requests within the configured Supabase API row limit', () => {
+  const config = readFileSync(new URL('../../supabase/config.toml', import.meta.url), 'utf8');
+  const maxRows = Number(config.match(/^max_rows\s*=\s*(\d+)/m)?.[1]);
+  assert.ok(Number.isInteger(maxRows) && maxRows > 0);
+  assert.ok(applicationRecordPageRanges(maxRows + 1).every(([from, to]) => to - from + 1 <= maxRows));
+});
+
+test('finds the contiguous remainder when Supabase caps a requested page', () => {
+  assert.deepEqual(incompleteApplicationRecordPageRange(0, 999, 500), [500, 999]);
+  assert.deepEqual(incompleteApplicationRecordPageRange(500, 999, 250), [750, 999]);
+  assert.equal(incompleteApplicationRecordPageRange(0, 999, 1_000), null);
+  assert.equal(incompleteApplicationRecordPageRange(0, 999, 0), null);
 });
 
 test('keeps frontend application record types aligned with the latest database constraint', () => {
