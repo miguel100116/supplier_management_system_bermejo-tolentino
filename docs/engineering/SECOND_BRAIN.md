@@ -367,6 +367,26 @@ Evidence: `docs/engineering/RESPONSE_PROVENANCE_RUNBOOK.md`, `supabase/verificat
 
 ## Active modernization state
 
+### 2026-09-30 - Timestamp archived Partner Companies
+
+Status: accepted and locally verified
+
+Decision: Partner Company archive mutations record the current ISO timestamp in `archivedAt`; restoring a company clears that field. The Archived registry displays the timestamp in the user's local date/time format and leaves legacy records without a timestamp as `N/A`.
+
+Evidence: `src/types/survey.ts`, `src/services/applicationRecordSchemas.ts`, `src/pages/PartnerCompaniesPage.tsx`, `src/features/partner-companies/components/partnerCompaniesPresentation.test.ts`.
+
+### 2026-09-30 - Lazy-load authenticated application pages
+
+Status: accepted and locally verified; production web-vitals measurement remains pending
+
+Context: `src/App.tsx` eagerly imported every route-level page, including charting and export-heavy modules, so the main browser bundle was approximately 4.75 MB before gzip.
+
+Decision: Keep authentication and the application shell available in the initial bundle, load route pages through `React.lazy`, and render them inside a route-level `Suspense` fallback. Unselected page elements remain unmounted, so their dynamic imports are not requested during startup.
+
+Consequences: The production main `App` chunk measured approximately 1.51 MB after the change, while heavy pages are emitted as separate route chunks. First navigation to a page may show the existing lightweight loading state while that route chunk downloads; application behavior and Supabase hydration boundaries remain unchanged.
+
+Evidence: `src/App.tsx`; `npm run lint`, `npm test` (110 tests), and `npm run build` passed on 2026-09-30.
+
 ### 2026-09-25 - Non-blocking authenticated startup hydration
 
 Status: accepted and locally verified; staging latency has not been measured in this workspace

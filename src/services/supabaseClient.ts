@@ -6,7 +6,7 @@ const runtimeConfig = typeof window !== 'undefined' ? window.__SMS_RUNTIME_CONFI
 const supabaseUrl = runtimeConfig?.supabaseUrl || import.meta.env?.VITE_SUPABASE_URL;
 const supabaseKey = runtimeConfig?.supabasePublishableKey || import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
+export const isSupabaseConfigured = import.meta.env?.PROD || Boolean(supabaseUrl && supabaseKey);
 
 // Falls back to a harmless placeholder client when unconfigured so importing
 // this module never crashes the app - callers should check
