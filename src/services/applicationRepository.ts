@@ -134,8 +134,8 @@ interface ApplicationRecordRow<T> {
 }
 
 const WRITE_CHUNK_SIZE = 300;
-const READ_PAGE_SIZE = 500;
-const READ_PAGE_CONCURRENCY = 6;
+const READ_PAGE_SIZE = 1_000;
+const READ_PAGE_CONCURRENCY = 12;
 
 export function applicationRecordPageRanges(totalCount: number, pageSize = READ_PAGE_SIZE): Array<[number, number]> {
   if (!Number.isInteger(totalCount) || totalCount <= 0 || !Number.isInteger(pageSize) || pageSize <= 0) return [];
@@ -144,6 +144,35 @@ export function applicationRecordPageRanges(totalCount: number, pageSize = READ_
     ranges.push([from, Math.min(from + pageSize - 1, totalCount - 1)]);
   }
   return ranges;
+}
+
+export function batchApplicationRecordPageRanges(
+  ranges: Array<[number, number]>,
+  batchSize = READ_PAGE_CONCURRENCY,
+): Array<Array<[number, number]>> {
+  if (!Number.isInteger(batchSize) || batchSize <= 0) return [];
+  const batches: Array<Array<[number, number]>> = [];
+  for (let index = 0; index < ranges.length; index += batchSize) {
+    batches.push(ranges.slice(index, index + batchSize));
+  }
+  return batches;
+}
+
+export function incompleteApplicationRecordPageRange(
+  from: number,
+  to: number,
+  receivedCount: number,
+): [number, number] | null {
+  if (
+    !Number.isInteger(from)
+    || !Number.isInteger(to)
+    || !Number.isInteger(receivedCount)
+    || from < 0
+    || to < from
+    || receivedCount < 0
+  ) return null;
+  if (receivedCount === 0 || receivedCount >= to - from + 1) return null;
+  return [from + receivedCount, to];
 }
 
 function requireConfigured(): void {
@@ -197,6 +226,35 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
     }
   };
 
+  const loadCompleteRange = async (
+    from: number,
+    to: number,
+    expectedCount: number,
+  ): Promise<ApplicationRecordRow<T>[]> => {
+    if (expectedCount <= 0) return [];
+    const { data, error } = await supabase
+      .from('application_records')
+      .select('record_id,payload,created_at')
+      .eq('record_type', recordType)
+      .order('record_id')
+      .range(from, to);
+    if (error) throw new Error(`Unable to load ${recordType} records: ${error.message}`);
+    const rows = (data ?? []) as unknown as ApplicationRecordRow<T>[];
+    if (rows.length === 0) {
+      throw new Error(
+        `Supabase returned an incomplete ${recordType} page at row ${from}. Check the hosted Data API row limit and retry.`,
+      );
+    }
+    const remainingRange = incompleteApplicationRecordPageRange(from, to, rows.length);
+    if (!remainingRange) return rows;
+    const remainingRows = await loadCompleteRange(
+      remainingRange[0],
+      remainingRange[1],
+      expectedCount - rows.length,
+    );
+    return [...rows, ...remainingRows];
+  };
+
   const firstPage = await supabase
     .from('application_records')
     .select('record_id,payload,created_at', { count: 'exact' })
@@ -208,23 +266,35 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
   appendRows(firstRows);
 
   if (typeof firstPage.count === 'number') {
+    const expectedFirstPageCount = Math.min(firstPage.count, READ_PAGE_SIZE);
+    if (expectedFirstPageCount > 0 && firstRows.length === 0) {
+      throw new Error(`Supabase returned an empty first ${recordType} page despite reporting available rows.`);
+    }
+    const firstPageRemainder = incompleteApplicationRecordPageRange(
+      0,
+      expectedFirstPageCount - 1,
+      firstRows.length,
+    );
+    if (firstPageRemainder) {
+      appendRows(await loadCompleteRange(
+        firstPageRemainder[0],
+        firstPageRemainder[1],
+        expectedFirstPageCount - firstRows.length,
+      ));
+    }
+
     const remainingRanges = applicationRecordPageRanges(firstPage.count).slice(1);
-    for (let index = 0; index < remainingRanges.length; index += READ_PAGE_CONCURRENCY) {
-      const batch = remainingRanges.slice(index, index + READ_PAGE_CONCURRENCY);
-      const pages = await Promise.all(batch.map(([from, to]) => supabase
-        .from('application_records')
-        .select('record_id,payload,created_at')
-        .eq('record_type', recordType)
-        .order('record_id')
-        .range(from, to)));
-      for (const page of pages) {
-        if (page.error) throw new Error(`Unable to load ${recordType} records: ${page.error.message}`);
-        appendRows((page.data ?? []) as unknown as ApplicationRecordRow<T>[]);
-      }
+    for (const batch of batchApplicationRecordPageRanges(remainingRanges)) {
+      const pages = await Promise.all(batch.map(([from, to]) =>
+        loadCompleteRange(from, to, to - from + 1)));
+      for (const page of pages) appendRows(page);
     }
   } else {
-    // Retain compatibility if a backend cannot return an exact count.
-    for (let from = READ_PAGE_SIZE; firstRows.length === READ_PAGE_SIZE; from += READ_PAGE_SIZE) {
+    // Without an exact count, advance by rows actually received. If the API
+    // caps a requested page, this continues at the first missing offset.
+    let from = firstRows.length;
+    let previousRows = firstRows;
+    while (previousRows.length > 0) {
       const { data, error } = await supabase
         .from('application_records')
         .select('record_id,payload,created_at')
@@ -234,7 +304,8 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
       if (error) throw new Error(`Unable to load ${recordType} records: ${error.message}`);
       const rows = (data ?? []) as unknown as ApplicationRecordRow<T>[];
       appendRows(rows);
-      if (rows.length < READ_PAGE_SIZE) break;
+      from += rows.length;
+      previousRows = rows;
     }
   }
   if (invalidCount > 0 && typeof window !== 'undefined') {
