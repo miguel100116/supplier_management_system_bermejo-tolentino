@@ -474,7 +474,7 @@ export function SurveyFormsPage({
     <div className="space-y-5">
       {/* Cards Row */}
       <section className="grid gap-4">
-        {!isAdmin ? (
+        {!isAdmin && (
           totalCompanies === 0 ? (
             <div className="panel flex items-start justify-between gap-3 border-2 border-dashed border-slate-200 bg-slate-50/25 p-4 dark:border-slate-800/80 dark:bg-transparent sm:items-center sm:p-5">
               <div className="min-w-0 flex-1 space-y-1">
@@ -529,24 +529,6 @@ export function SurveyFormsPage({
             </div>
           </button>
           )
-        ) : (
-          <div className="panel p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between border-dashed border-2 border-slate-200 dark:border-slate-800/80 bg-slate-50/25 dark:bg-transparent">
-            <div className="space-y-1 flex-1">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Template Engine</span>
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Custom Microsoft Forms</h3>
-              <p className="text-xs text-slate-400 dark:text-slate-500">Instantly generate feedback schemas & notify employees</p>
-            </div>
-            <div className="flex flex-wrap gap-2.5 shrink-0 w-full sm:w-auto">
-              <button
-                onClick={onNavigateToCreate}
-                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-xs font-bold shadow-sm transition cursor-pointer"
-                type="button"
-              >
-                <Plus size={15} />
-                <span>Create Form</span>
-              </button>
-            </div>
-          </div>
         )}
       </section>
 
@@ -572,6 +554,14 @@ export function SurveyFormsPage({
             <div className="flex flex-col gap-3 lg:items-end">
               {isAdmin && (
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    onClick={onNavigateToCreate}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 cursor-pointer"
+                    type="button"
+                  >
+                    <Plus size={16} />
+                    <span>Create Form</span>
+                  </button>
                   <button
                     onClick={onNavigateToArchive}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer"
@@ -663,6 +653,7 @@ export function SurveyFormsPage({
 
         {filteredSurveys.length === 0 ? (
           <StateMessage
+            compact
             title="No survey forms found"
             message={
               surveys.length === 0

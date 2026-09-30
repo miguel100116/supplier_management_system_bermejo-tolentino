@@ -45,6 +45,8 @@ interface ShellProps<T extends string> {
   action: ReactNode;
   children: ReactNode;
   pageHeading?: string;
+  hideModuleContext?: boolean;
+  compactPageHeader?: boolean;
   sidebarExtra?: (isCollapsed: boolean) => ReactNode;
 }
 
@@ -66,6 +68,8 @@ export function Shell<T extends string>({
   action,
   children,
   pageHeading,
+  hideModuleContext = false,
+  compactPageHeader = false,
   sidebarExtra,
 }: ShellProps<T>) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -77,7 +81,7 @@ export function Shell<T extends string>({
   const ActiveIcon = activePageItem?.icon ?? Menu;
   const moduleLabel = activePageItem?.label ?? title;
   const contentHeading = pageHeading || title;
-  const showModuleContext = moduleLabel !== contentHeading;
+  const showModuleContext = !hideModuleContext && moduleLabel !== contentHeading;
 
   // Auto-expand whichever group currently contains the active page, without
   // collapsing groups the user has already opened manually.
@@ -340,7 +344,7 @@ export function Shell<T extends string>({
         {/* Page Content - Below Header */}
         <main className="min-w-0 flex-1 transition-colors duration-300 dark:bg-slate-900">
           <div className="px-3 py-4 sm:px-4 sm:py-6 lg:px-8">
-            <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${compactPageHeader ? 'mb-3' : 'mb-6'}`}>
               <div className="min-w-0">
                 {showModuleContext && (
                   <p className="mb-1 break-words text-[10px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400 sm:text-xs">

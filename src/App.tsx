@@ -145,6 +145,7 @@ const adminNavItems: NavItem<PageKey>[] = [
       { key: 'pending-review', label: 'Outstanding Evaluations' },
       { key: 'explorer', label: 'Raw Data Explorer' },
       { key: 'archive', label: 'Archive Center' },
+      { key: 'import-evaluations', label: 'Import Evaluation Responses' },
       { key: 'categories-manager', label: 'Categories Manager' },
     ],
   },
@@ -1045,7 +1046,6 @@ export default function App() {
         department={profile.department}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((value) => !value)}
-        onOpenImportEvaluations={() => navigateTo('import-evaluations')}
         onResetSystemData={handleResetAllData}
         onLogout={handleLogout}
         accountsCount={accounts.length}
@@ -1165,7 +1165,11 @@ export default function App() {
       />
     ),
     'import-evaluations': (
-      <ImportEvaluationsPage onPreview={previewRawEvaluations} onCommit={commitRawEvaluations} />
+      <ImportEvaluationsPage
+        currentUserEmail={account || ''}
+        onPreview={previewRawEvaluations}
+        onCommit={commitRawEvaluations}
+      />
     ),
     'categories-manager': (
       <CategoriesManagerPage
@@ -1202,6 +1206,8 @@ export default function App() {
         }}
         title={activeTitle}
         pageHeading={pageHeading}
+        hideModuleContext={activePage === 'dashboard' || activePage === 'account-management'}
+        compactPageHeader={activePage === 'analytics'}
         action={
           <div className="flex min-w-0 items-center divide-x divide-blue-400/25">
             {isAdmin ? (
@@ -1455,42 +1461,49 @@ export default function App() {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-              {isAdmin ? (
-                <SettingsPage
-                  email={account || ''}
-                  role={profile.role}
-                  designation={profile.designation}
-                  department={profile.department}
-                  darkMode={darkMode}
-                  onToggleDarkMode={() => setDarkMode((value) => !value)}
-                  onOpenImportEvaluations={() => {
-                    setIsSettingsModalOpen(false);
-                    navigateTo('import-evaluations');
-                  }}
-                  onResetSystemData={handleResetAllData}
-                  onLogout={handleLogout}
-                  accountsCount={accounts.length}
-                  activePartnerCompaniesCount={partnerCompanies.filter((company) => !company.isArchived).length}
-                  totalResponsesCount={responses.length}
-                />
-              ) : (
-                <ProfilePage
-                  email={account || ''}
-                  role={profile.role}
-                  designation={profile.designation}
-                  department={profile.department}
-                  darkMode={darkMode}
-                  onToggleDarkMode={() => setDarkMode((value) => !value)}
-                  onLogout={handleLogout}
-                  responses={userAccessibleAllTimeResponses}
-                  onViewAllSubmissions={() => {
-                    setIsSettingsModalOpen(false);
-                    navigateTo('my-submissions');
-                  }}
-                />
+            <Suspense
+              fallback={(
+                <div className="flex min-h-64 flex-1 items-center justify-center p-4 sm:p-6" role="status" aria-live="polite">
+                  <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
+                    <div className="h-7 w-7 animate-spin rounded-full border-4 border-slate-300 border-t-[#0063a9] dark:border-slate-700 dark:border-t-blue-500" />
+                    <p className="text-sm font-medium">Loading settings...</p>
+                  </div>
+                </div>
               )}
-            </div>
+            >
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                {isAdmin ? (
+                  <SettingsPage
+                    email={account || ''}
+                    role={profile.role}
+                    designation={profile.designation}
+                    department={profile.department}
+                    darkMode={darkMode}
+                    onToggleDarkMode={() => setDarkMode((value) => !value)}
+                    onResetSystemData={handleResetAllData}
+                    onLogout={handleLogout}
+                    accountsCount={accounts.length}
+                    activePartnerCompaniesCount={partnerCompanies.filter((company) => !company.isArchived).length}
+                    totalResponsesCount={responses.length}
+                  />
+                ) : (
+                  <ProfilePage
+                    email={account || ''}
+                    role={profile.role}
+                    designation={profile.designation}
+                    department={profile.department}
+                    darkMode={darkMode}
+                    onToggleDarkMode={() => setDarkMode((value) => !value)}
+                    onLogout={handleLogout}
+                    responses={userAccessibleAllTimeResponses}
+                    onViewAllSubmissions={() => {
+                      setIsSettingsModalOpen(false);
+                      navigateTo('my-submissions');
+                    }}
+                  />
+                )}
+              </div>
+            </Suspense>
           </div>
         </div>
       )}

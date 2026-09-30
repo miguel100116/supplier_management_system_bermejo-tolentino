@@ -32,6 +32,7 @@ const validApplicationRecords: Record<(typeof APPLICATION_RECORD_TYPES)[number],
   reminder_settings: { id: 'global', payload: { id: 'global', frequencyHours: '24', updatedAt: now } },
   compliance_snapshot: { id: 'Supplier', payload: { id: 'Supplier', snapshots: [{ date: now, rate: 95, total: 20 }] } },
   active_company_snapshot: { id: 'supplier-snapshot-1', payload: { id: 'supplier-snapshot-1', surveyType: 'Supplier', uploadedAt: now, uploadedBy: 'admin@mgenesis.com', sourceFileName: 'suppliers.xlsx', companies: ['Supplier One'] } },
+  evaluation_import_archive: { id: 'import-archive-1', payload: { id: 'import-archive-1', surveyType: 'Supplier', uploadedAt: now, uploadedBy: 'admin@mgenesis.com', sourceFileName: 'supplier-results.xlsx', storagePath: 'supplier/2026-09-24/import-archive-1.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fileSize: 128, importBatchId: 'client-csv:supplier:sha256' } },
 };
 
 test('uses the submission and question IDs as the stable response-row key', () => {
@@ -54,7 +55,7 @@ test('splits application-record reads into complete, non-overlapping pages', () 
 
 test('keeps frontend application record types aligned with the latest database constraint', () => {
   const migration = readFileSync(
-    new URL('../../supabase/migrations/202609230001_active_company_snapshots.sql', import.meta.url),
+    new URL('../../supabase/migrations/202609300001_evaluation_import_archives.sql', import.meta.url),
     'utf8',
   );
   const constraint = migration.match(/add constraint application_records_record_type_check check \(record_type in \(([\s\S]*?)\)\);/i);

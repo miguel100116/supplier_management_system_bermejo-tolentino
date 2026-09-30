@@ -146,7 +146,7 @@ A **Data Scope** toggle (shared across Dashboard and Analytics) further switches
 | **Account Management** | Configure roles, ranks, departments, and per-user/per-department permissions. |
 | **Notifications** | Audit trail of incoming survey responses and document-expiry alerts, opened as a modal from the header bell rather than a separate sidebar destination. |
 | **Archive Center** | Browse and restore archived feedback submissions and series. |
-| **Import Evaluation Responses** | Bulk-import external evaluation data (Excel/CSV) into the system. |
+| **Import Evaluation Responses** | Bulk-import external evaluation data (Excel/CSV) into the system. Original source files are stored in a private Supabase Storage archive, with Admin-only download access. |
 | **Categories Manager** | Rename the display labels of scoring categories per survey type. |
 | **Settings / Profile** | A large modal opened from the account-session dropdown. Employees retain their full profile, impact, recent-submission, preference, and session view; Admins retain the complete Settings view with activity, import, and cache-management tools. |
 

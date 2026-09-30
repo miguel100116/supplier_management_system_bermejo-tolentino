@@ -44,8 +44,7 @@ export function ExportHistoryPage() {
     <div className="space-y-5">
       <section className="panel flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-base font-semibold">Export History</h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Every report generated from this browser. {history.length} logged.
           </p>
         </div>

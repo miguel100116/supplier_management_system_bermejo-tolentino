@@ -12,9 +12,13 @@ import {
   UserPlus,
   SkipForward,
   Building2,
+  Download,
+  LockKeyhole,
 } from 'lucide-react';
 import { SurveyType } from '../types/survey';
 import { RawEvalImportSummary, RawEvalPreview, CompanyDecision } from '../utils/rawEvaluationImport';
+import { useEvaluationImportArchives } from '../features/evaluation-imports/hooks/useEvaluationImportArchives';
+import { EvaluationImportArchive, MAX_EVALUATION_IMPORT_FILE_BYTES } from '../features/evaluation-imports/domain/importArchive';
 
 const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
 
@@ -24,6 +28,7 @@ function hasAcceptedExtension(fileName: string) {
 }
 
 interface ImportEvaluationsPageProps {
+  currentUserEmail: string;
   onPreview: (file: File, surveyType: SurveyType) => Promise<RawEvalPreview>;
   onCommit: (preview: RawEvalPreview, decisions: Record<string, CompanyDecision>) => RawEvalImportSummary;
 }
@@ -33,12 +38,13 @@ interface CardState {
   result: RawEvalImportSummary | null;
   error: string;
   pendingPreview: RawEvalPreview | null;
+  pendingFile: File | null;
   decisions: Record<string, CompanyDecision>;
   stagedFile: File | null;
 }
 
 function emptyCardState(): CardState {
-  return { isImporting: false, result: null, error: '', pendingPreview: null, decisions: {}, stagedFile: null };
+  return { isImporting: false, result: null, error: '', pendingPreview: null, pendingFile: null, decisions: {}, stagedFile: null };
 }
 
 function formatFileSize(bytes: number): string {
@@ -57,7 +63,8 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluationsPageProps) {
+export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommit }: ImportEvaluationsPageProps) {
+  const { archives, isLoading: isLoadingArchives, loadError: archiveLoadError, archiveSourceFile, downloadSourceFile } = useEvaluationImportArchives(currentUserEmail);
   const [state, setState] = useState<Record<SurveyType, CardState>>({
     Supplier: emptyCardState(),
     Subcontractor: emptyCardState(),
@@ -65,6 +72,8 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
   });
 
   const [dragOverType, setDragOverType] = useState<SurveyType | null>(null);
+  const [downloadingArchiveId, setDownloadingArchiveId] = useState<string | null>(null);
+  const [archiveActionError, setArchiveActionError] = useState('');
   const dragCounters = useRef<Record<SurveyType, number>>({ Supplier: 0, Subcontractor: 0, Courier: 0 });
 
   const fileInputs = {
@@ -77,13 +86,22 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
     setState((prev) => ({ ...prev, [surveyType]: { ...prev[surveyType], ...patch } }));
   };
 
-  const runCommit = (surveyType: SurveyType, preview: RawEvalPreview, decisions: Record<string, CompanyDecision>) => {
+  const runCommit = async (surveyType: SurveyType, preview: RawEvalPreview, decisions: Record<string, CompanyDecision>, sourceFile: File) => {
     patchCard(surveyType, { isImporting: true, pendingPreview: null, error: '' });
     try {
+      // Keep the original export before committing parsed rows. A failed source
+      // archive therefore stops this import instead of silently losing its file.
+      await archiveSourceFile(sourceFile, surveyType, preview.importBatchId);
       const summary = onCommit(preview, decisions);
-      patchCard(surveyType, { isImporting: false, result: summary });
+      patchCard(surveyType, { isImporting: false, result: summary, pendingFile: null });
     } catch (err) {
-      patchCard(surveyType, { isImporting: false, error: err instanceof Error ? err.message : 'Failed to import this file.' });
+      patchCard(surveyType, {
+        isImporting: false,
+        pendingPreview: null,
+        pendingFile: null,
+        stagedFile: sourceFile,
+        error: err instanceof Error ? err.message : 'Unable to archive or import this file.',
+      });
     }
   };
 
@@ -94,13 +112,13 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
       const unmatched = preview.companyMatches.filter((m) => m.status === 'unmatched');
 
       if (unmatched.length === 0) {
-        runCommit(surveyType, preview, {});
+        await runCommit(surveyType, preview, {}, file);
         return;
       }
 
       const defaults: Record<string, CompanyDecision> = {};
       unmatched.forEach((m) => { defaults[m.normalizedName] = 'add-as-partner'; });
-      patchCard(surveyType, { isImporting: false, pendingPreview: preview, decisions: defaults });
+      patchCard(surveyType, { isImporting: false, pendingPreview: preview, pendingFile: file, decisions: defaults });
     } catch (err) {
       patchCard(surveyType, { isImporting: false, error: err instanceof Error ? err.message : 'Failed to read this file.' });
     }
@@ -112,6 +130,10 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
   const stageFile = (surveyType: SurveyType, file: File) => {
     if (!hasAcceptedExtension(file.name)) {
       patchCard(surveyType, { error: `"${file.name}" isn't an Excel or CSV file (.xlsx/.xls/.csv).`, stagedFile: null });
+      return;
+    }
+    if (file.size <= 0 || file.size > MAX_EVALUATION_IMPORT_FILE_BYTES) {
+      patchCard(surveyType, { error: 'The file must be between 1 byte and 25 MB.', stagedFile: null });
       return;
     }
     patchCard(surveyType, { stagedFile: file, error: '', result: null });
@@ -195,6 +217,26 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
       keys.forEach((k) => { next[k] = decision; });
       return { ...prev, [surveyType]: { ...prev[surveyType], decisions: next } };
     });
+  };
+
+  const handleDownloadArchive = async (archive: EvaluationImportArchive) => {
+    setDownloadingArchiveId(archive.id);
+    setArchiveActionError('');
+    try {
+      const blob = await downloadSourceFile(archive);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = archive.sourceFileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      setArchiveActionError(error instanceof Error ? error.message : 'Unable to download the archived source file.');
+    } finally {
+      setDownloadingArchiveId(null);
+    }
   };
 
   return (
@@ -321,6 +363,7 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
                     <CheckCircle2 size={15} className="shrink-0" />
                     <span className="text-xs font-bold">Import complete</span>
                   </div>
+                  <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Original source file saved to the private Supabase archive.</p>
 
                   <div className="grid grid-cols-1 gap-2 text-xs min-[420px]:grid-cols-2">
                     <div className="bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
@@ -430,6 +473,51 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
         </div>
       )}
 
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-labelledby="evaluation-import-archive-title">
+        <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <LockKeyhole size={16} className="text-[#0063a9] dark:text-blue-400" aria-hidden="true" />
+            <h3 id="evaluation-import-archive-title" className="text-sm font-bold text-slate-800 dark:text-slate-100">Stored Source Files</h3>
+          </div>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Original Microsoft Forms exports are kept in private Supabase Storage. Only Admins can view or download them.</p>
+        </div>
+
+        {archiveLoadError && <p role="alert" className="px-5 py-3 text-xs text-rose-600 dark:text-rose-400">{archiveLoadError}</p>}
+        {archiveActionError && <p role="alert" className="px-5 py-3 text-xs text-rose-600 dark:text-rose-400">{archiveActionError}</p>}
+        {isLoadingArchives ? (
+          <div className="flex items-center gap-2 px-5 py-5 text-xs text-slate-500" role="status">
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" /> Loading stored files...
+          </div>
+        ) : archives.length === 0 ? (
+          <p className="px-5 py-5 text-xs text-slate-500 dark:text-slate-400">No source files have been archived yet.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {archives.slice(0, 20).map((archive) => (
+              <li key={archive.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <FileSpreadsheet size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={archive.sourceFileName}>{archive.sourceFileName}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      {archive.surveyType} · {formatFileSize(archive.fileSize)} · {new Date(archive.uploadedAt).toLocaleString()} · {archive.uploadedBy}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadArchive(archive)}
+                  disabled={downloadingArchiveId !== null}
+                  className="secondary-button min-h-9 shrink-0 gap-1.5 px-3 text-xs disabled:opacity-60"
+                >
+                  {downloadingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
+                  Download
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       {modalSurveyType && modalCard?.pendingPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-transparent dark:bg-slate-950 relative animate-in fade-in zoom-in-95 duration-150 max-h-[85vh] flex flex-col">
@@ -519,7 +607,7 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
 
             <div className="flex items-center justify-end gap-3 mt-5 border-t border-slate-100 dark:border-slate-800 pt-4 shrink-0">
               <button
-                onClick={() => patchCard(modalSurveyType, { pendingPreview: null })}
+                onClick={() => patchCard(modalSurveyType, { pendingPreview: null, pendingFile: null })}
                 className="secondary-button py-2 px-4 text-xs"
                 type="button"
               >
@@ -527,7 +615,11 @@ export function ImportEvaluationsPage({ onPreview, onCommit }: ImportEvaluations
               </button>
               <button
                 type="button"
-                onClick={() => runCommit(modalSurveyType, modalCard.pendingPreview!, modalCard.decisions)}
+                onClick={() => {
+                  if (modalCard.pendingFile) {
+                    void runCommit(modalSurveyType, modalCard.pendingPreview!, modalCard.decisions, modalCard.pendingFile);
+                  }
+                }}
                 className="bg-[#0063a9] hover:bg-[#00528c] text-white flex items-center justify-center gap-1.5 py-2.5 px-5 text-xs font-bold rounded-lg transition cursor-pointer"
               >
                 <CheckCircle2 size={14} />
