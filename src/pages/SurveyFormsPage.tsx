@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useModalEscape } from '../hooks/useModalEscape';
 import { Archive, ClipboardList, Plus, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, ArrowRight } from 'lucide-react';
 import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../types/survey';
 import { StateMessage } from '../components/StateMessage';
@@ -121,6 +122,13 @@ export function SurveyFormsPage({
   // authenticated Admin route and Supabase RLS, not a browser-side passcode.
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  useModalEscape(isArchiveConfirmOpen || isResetConfirmOpen, () => {
+    if (isResetConfirmOpen) setIsResetConfirmOpen(false);
+    else setIsArchiveConfirmOpen(false);
+  }, 60);
+  useModalEscape(isCompanyPickerOpen, () => setIsCompanyPickerOpen(false), 55);
+  useModalEscape(isModifyOpen, () => setIsModifyOpen(false), 50);
+  useModalEscape(isModalOpen, () => setIsModalOpen(false), 50);
   const [archiveError, setArchiveError] = useState('');
   const [isArchiving, setIsArchiving] = useState(false);
   const [resetError, setResetError] = useState('');

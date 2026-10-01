@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useModalEscape } from '../hooks/useModalEscape';
 import { ArrowLeft, Trash, Calendar, CalendarClock, Users, ClipboardCheck, AlertTriangle, Eye, Pencil, Building2, Check } from 'lucide-react';
 import { CustomForm, SurveyResponse, PartnerCompany } from '../types/survey';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
@@ -23,6 +24,9 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  useModalEscape(showDeleteConfirm, () => setShowDeleteConfirm(false), 50);
+  useModalEscape(Boolean(selectedSubmissionId), () => setSelectedSubmissionId(null), 50);
+  useModalEscape(showPreview, () => setShowPreview(false), 50);
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [submissionSort, setSubmissionSort] = useState<'date-desc' | 'date-asc' | 'company-asc' | 'company-desc'>('date-desc');
   const [submissionFrom, setSubmissionFrom] = useState('');

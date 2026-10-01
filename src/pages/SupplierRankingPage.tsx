@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useModalEscape } from '../hooks/useModalEscape';
 import { AlertTriangle, Building2, ChevronDown, Eraser, GripVertical, History, Search, Trophy, X } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
 import { getRankingLog, logRankingChange, RankingLogEntry, RankingSnapshotSlot } from '../utils/supplierRankingLog';
@@ -48,6 +49,8 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
   const [logSort, setLogSort] = useState<'date-desc' | 'date-asc' | 'actor-asc' | 'actor-desc'>('date-desc');
   const [logDateFrom, setLogDateFrom] = useState('');
   const [logDateTo, setLogDateTo] = useState('');
+  useModalEscape(showOngoingWarning, () => setShowOngoingWarning(false), 60);
+  useModalEscape(Boolean(viewingEntry), () => setViewingEntry(null), 55);
 
   useEffect(() => {
     const refresh = () => setLogEntries(getRankingLog());

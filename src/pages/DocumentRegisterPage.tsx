@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useModalEscape } from '../hooks/useModalEscape';
 import { Search, Globe, MapPin, Truck, Package, Briefcase, RefreshCw, X, Check, Users, ShieldCheck, Clock, XCircle, Gauge, LayoutGrid, Settings2, RotateCcw, AlertTriangle, History, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, BellPlus, Plus, SlidersHorizontal, Trash2, Filter } from 'lucide-react';
 import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { BranchRecord, BranchStatus, ComplianceDocument, DocumentStatus, PartnerCompany, PartnerCompanyType, SupplierOrigin } from '../types/survey';
@@ -449,6 +450,10 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
   const isHeaderStuckRef = useRef(false);
   const [stickyHeader, setStickyHeader] = useState<{ left: number; width: number; colWidths: number[] } | null>(null);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  useModalEscape(isNotificationSettingsOpen, () => setIsNotificationSettingsOpen(false), 50);
+  useModalEscape(Boolean(renewalTarget), () => setRenewalTarget(null), 50);
+  useModalEscape(Boolean(flagFlow), () => setFlagFlow(null), 50);
+  useModalEscape(Boolean(expiryStatusTarget), () => setExpiryStatusTarget(null), 50);
   const [notificationRules, setNotificationRules] = useState<DocNotificationRule[]>(DEFAULT_NOTIFICATION_RULES);
   // Portals "Add Notification" into Shell's page-heading row (same slot
   // DashboardPage's header actions use) so it sits on the title line instead

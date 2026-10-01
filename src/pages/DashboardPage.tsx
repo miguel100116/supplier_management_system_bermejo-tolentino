@@ -142,6 +142,7 @@ const badgeColors: Record<string, string> = {
 };
 
 import { createPortal } from 'react-dom';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 export function DashboardPage({
   responses = [],
@@ -167,6 +168,7 @@ export function DashboardPage({
   const [catalogTab, setCatalogTab] = useState<'All' | 'Analytics' | 'Surveys' | 'Submissions'>('All');
   const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null);
   const [headerPortalTarget, setHeaderPortalTarget] = useState<Element | null>(null);
+  useModalEscape(isAddOpen, () => setIsAddOpen(false));
 
   useEffect(() => {
     setHeaderPortalTarget(document.getElementById('shell-header-action'));

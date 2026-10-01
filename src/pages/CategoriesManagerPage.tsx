@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useModalEscape } from '../hooks/useModalEscape';
 import { AlertTriangle, Ban, ChevronRight, Layers, PackageSearch, RotateCcw, Save, Truck, X } from 'lucide-react';
 import { SurveyType } from '../types/survey';
 import { DEFAULT_CATEGORIES } from '../data/questionCategories';
@@ -24,6 +25,8 @@ export function CategoriesManagerPage({ categoryLabels, onRenameCategory, onRest
   const [draftLabels, setDraftLabels] = useState<string[]>([]);
   const [pendingAction, setPendingAction] = useState<'save' | 'restore' | null>(null);
   const [validationError, setValidationError] = useState('');
+  useModalEscape(Boolean(pendingAction), () => setPendingAction(null), 60);
+  useModalEscape(Boolean(openType), () => setOpenType(null), 50);
 
   const openEditor = (type: SurveyType) => {
     setOpenType(type);

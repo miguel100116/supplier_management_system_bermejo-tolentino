@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useModalEscape } from '../../hooks/useModalEscape';
 import {
   X,
   CheckCircle2,
@@ -192,6 +193,9 @@ export function SendToPartnerWizard({
   const [tempBulkComments, setTempBulkComments] = useState<Record<string, boolean>>({});
   const [bulkPreviewItem, setBulkPreviewItem] = useState<BulkReportCaptureItem | null>(null);
   const [bulkPreviewWindow, setBulkPreviewWindow] = useState<Window | null>(null);
+  useModalEscape(bulkModificationsModalOpen, () => setBulkModificationsModalOpen(false), 50);
+  useModalEscape(Boolean(bulkCommentsModalCompany), () => setBulkCommentsModalCompany(null), 50);
+  useModalEscape(isCommentsModalOpen, () => setIsCommentsModalOpen(false), 50);
 
   // Stable identity across re-renders (e.g. the page-level 5s sentReports poll)
   // so it's safe to depend on inside BulkHiddenChartCapturer's effect.

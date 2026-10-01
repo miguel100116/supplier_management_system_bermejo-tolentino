@@ -9,6 +9,7 @@ import { formatNumber, monthlyTrend, questionPerformance, responseVolume, series
 import { computeCompanyComposite, RankingMode } from '../utils/scoring';
 import { paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from '../features/analytics/domain/rankings';
 import { QuestionPerformanceRow } from '../features/analytics/components/QuestionPerformanceRow';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface AnalyticsPageProps {
   responses: SurveyResponse[];
@@ -63,6 +64,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
   const [trendGranularity, setTrendGranularity] = useState<'monthly' | 'yearly' | 'series'>('monthly');
   const [leaderboardPage, setLeaderboardPage] = useState(0);
   const [questionPerformancePage, setQuestionPerformancePage] = useState(0);
+  useModalEscape(Boolean(selectedCompany), () => setSelectedCompany(null));
 
   const selectedType = filters.surveyType.length === 1 ? filters.surveyType[0] : 'All';
   const totalSubmissions = useMemo(() => submissionCount(responses), [responses]);
