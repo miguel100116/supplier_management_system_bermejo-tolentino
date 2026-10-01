@@ -136,7 +136,7 @@ export function CategoriesManagerPage({ categoryLabels, onRenameCategory, onRest
           <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 flex flex-col max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-5 py-4 shrink-0">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Categories Manager</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category Labels</p>
                 <h3 className="text-base font-bold text-slate-800 dark:text-white">{openType} Categories</h3>
               </div>
               <button type="button" onClick={closeEditor} className="icon-button" title="Close">

@@ -270,3 +270,7 @@ Summarized from the project's git commit history (first commit July 18, 2026 thr
 | 2026-07-31 | Dashboards | Documents Tracker Dashboard update; Employee Evaluation Tracker Dashboard update. |
 | 2026-08-03 | Latest updates | Final committed round of updates ("Last few updates") ahead of this handoff. |
 | 2026-08-04 (uncommitted) | Pre-handoff cleanup | Live-chat feature removed from the working tree; Supabase backend groundwork added (draft schema plus partial client wiring); environment-flag and `.env.example` setup notes added ahead of go-live. See Known Issues #3–6. |
+
+### Admin evaluation navigation
+
+Admins open Evaluations > Evaluation Workspace and switch between Forms (form management), Responses (submitted answer inspection), and Coverage (company evaluation coverage). Archive Center and Import Evaluation Responses remain separate destinations. Evaluation Settings contains Category Labels. Existing route permissions and persistence contracts are unchanged.

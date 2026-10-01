@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useModalEscape } from '../hooks/useModalEscape';
-import { Archive, ClipboardList, Plus, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, ArrowRight } from 'lucide-react';
+import { ClipboardList, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, ArrowRight } from 'lucide-react';
 import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../types/survey';
 import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
 import { getAllCompaniesOfType, getSurveyEvaluationCompanies } from '../utils/analytics';
 import { getReminderFrequency, saveReminderFrequency } from '../utils/reminderSettings';
 import { TableFilterBar } from '../components/TableFilterBar';
+import { SurveyFormsToolbar } from '../features/evaluations/components/SurveyFormsToolbar';
 import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
+import { getSurveyStatus } from '../utils/surveyStatus';
+import { parseDDMMYYYY } from '../utils/time';
 
 interface SurveyFormsPageProps {
   surveys: CustomForm[];
@@ -16,7 +19,6 @@ interface SurveyFormsPageProps {
   userEmail?: string;
   onSelectSurvey: (id: string) => void;
   onNavigateToCreate: () => void;
-  onNavigateToArchive: () => void;
   onFillForm: (id: string) => void;
   onUpdateSurvey?: (survey: CustomForm) => void | Promise<unknown>;
   onUpdateSurveysBulk?: (updatedSurveysList: CustomForm[]) => void | Promise<unknown>;
@@ -88,7 +90,6 @@ export function SurveyFormsPage({
   userEmail = '',
   onSelectSurvey,
   onNavigateToCreate,
-  onNavigateToArchive,
   onFillForm,
   onUpdateSurvey,
   onUpdateSurveysBulk,
@@ -100,6 +101,22 @@ export function SurveyFormsPage({
   const [tableSort, setTableSort] = useState<'title-asc' | 'title-desc' | 'deadline-asc' | 'deadline-desc' | 'created-desc'>('title-asc');
   const [deadlineFrom, setDeadlineFrom] = useState('');
   const [deadlineTo, setDeadlineTo] = useState('');
+  const [statusRefresh, setStatusRefresh] = useState(0);
+
+  useEffect(() => {
+    const now = Date.now();
+    const nextDeadlineEnd = surveys
+      .filter((survey) => survey.status !== 'Archived')
+      .map((survey) => parseDDMMYYYY(survey.deadlineDate))
+      .filter((date): date is Date => date !== null)
+      .map((date) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime())
+      .filter((time) => time > now)
+      .sort((a, b) => a - b)[0];
+    if (nextDeadlineEnd === undefined) return;
+    const timer = setTimeout(() => setStatusRefresh((count) => count + 1), Math.min(nextDeadlineEnd - now, 2_147_483_647));
+    return () => clearTimeout(timer);
+  }, [surveys, statusRefresh]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // State for bulk modification
@@ -236,11 +253,6 @@ export function SurveyFormsPage({
     return deadlineDate;
   };
 
-  const archivedTemplatesCount = useMemo(
-    () => surveys.filter((survey) => survey.status === 'Archived').length,
-    [surveys]
-  );
-
   const filteredSurveys = useMemo(() => {
     const matching = surveys.filter((survey) => {
       // If Archived, it must not be seen in the table
@@ -329,7 +341,7 @@ export function SurveyFormsPage({
     setSelectedSurveyIds(new Set([survey.id]));
     setIsSelectMode(false);
     setModifyStep(1);
-    setNewStatus(survey.status === 'Paused' ? 'Paused' : survey.status === 'Completed' ? 'Completed' : 'Running');
+    setNewStatus(getSurveyStatus(survey));
     setNewDeadlineDate(ddmmToYyyymmdd(survey.deadlineDate || ''));
     setAccessDepartments(survey.accessDepartments?.length ? survey.accessDepartments : departmentOptions);
     setAccessRoles(survey.accessRoles?.length ? survey.accessRoles : roleOptions);
@@ -389,6 +401,7 @@ export function SurveyFormsPage({
           updated.status = newStatus;
           updated.archivedAt = newStatus === 'Archived' ? statusChangedAt : undefined;
         }
+        if (overrideDeadline) updated.status = getSurveyStatus(updated);
         if (overrideAccess) {
           updated.accessDepartments = accessDepartments;
           updated.accessRoles = accessRoles;
@@ -481,9 +494,9 @@ export function SurveyFormsPage({
   return (
     <div className="space-y-5">
       {/* Cards Row */}
-      <section className="grid gap-4">
-        {!isAdmin && (
-          totalCompanies === 0 ? (
+      {!isAdmin && (
+        <section className="grid gap-4">
+          {totalCompanies === 0 ? (
             <div className="panel flex items-start justify-between gap-3 border-2 border-dashed border-slate-200 bg-slate-50/25 p-4 dark:border-slate-800/80 dark:bg-transparent sm:items-center sm:p-5">
               <div className="min-w-0 flex-1 space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Your Evaluation Progress</span>
@@ -536,70 +549,52 @@ export function SurveyFormsPage({
               </span>
             </div>
           </button>
-          )
-        )}
-      </section>
+          )}
+        </section>
+      )}
 
       {/* Main List Section */}
       <section className="panel">
-        <div className="mb-4 flex flex-col gap-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <div className="flex items-center gap-3">
+        {isAdmin ? (
+          <>
+            <SurveyFormsToolbar
+              surveyType={surveyType}
+              onSurveyTypeChange={setSurveyType}
+              search={search}
+              onSearchChange={setSearch}
+              sort={tableSort}
+              onSortChange={setTableSort}
+              deadlineFrom={deadlineFrom}
+              deadlineTo={deadlineTo}
+              onDeadlineFromChange={setDeadlineFrom}
+              onDeadlineToChange={setDeadlineTo}
+              onResetFilters={() => {
+                setTableSort('title-asc');
+                setDeadlineFrom('');
+                setDeadlineTo('');
+              }}
+              onCreateForm={onNavigateToCreate}
+              isSelectMode={isSelectMode}
+              onToggleSelection={() => {
+                setIsSelectMode(!isSelectMode);
+                setSelectedSurveyIds(new Set());
+                setIsModifyOpen(false);
+              }}
+            />
+            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
+              {filteredSurveys.length} {filteredSurveys.length === 1 ? 'form' : 'forms'}
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
                 <h3 className="text-base font-semibold">Active Survey Forms</h3>
-                {isAdmin && isSelectMode && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800 uppercase tracking-wider">
-                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-                    Bulk Mode Active
-                  </span>
-                )}
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Interactive forms for evaluating performance metrics, contracts, and service level agreements.
+                </p>
               </div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Interactive forms for evaluating performance metrics, contracts, and service level agreements.
-              </p>
-            </div>
-            
-            <div className="flex flex-col gap-3 lg:items-end">
-              {isAdmin && (
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <button
-                    onClick={onNavigateToCreate}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 cursor-pointer"
-                    type="button"
-                  >
-                    <Plus size={16} />
-                    <span>Create Form</span>
-                  </button>
-                  <button
-                    onClick={onNavigateToArchive}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 cursor-pointer"
-                    type="button"
-                  >
-                    <Archive size={16} />
-                    <span>Archived Forms</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {archivedTemplatesCount}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsSelectMode(!isSelectMode);
-                      setSelectedSurveyIds(new Set());
-                      setIsModifyOpen(false);
-                    }}
-                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold shadow-sm transition cursor-pointer border ${
-                      isSelectMode
-                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30'
-                        : 'bg-[#0063a9] text-white hover:bg-[#00528c] border-[#0063a9] dark:bg-blue-600 dark:hover:bg-blue-700 dark:border-blue-600'
-                    }`}
-                    type="button"
-                  >
-                    {isSelectMode ? 'Cancel Selection' : 'Select Forms'}
-                  </button>
-                </div>
-              )}
-              
-              <div className="segmented-control mt-1">
+              <div className="segmented-control max-w-full">
                 {surveyTypeOptions.map((option) => (
                   <button
                     key={option}
@@ -612,52 +607,48 @@ export function SurveyFormsPage({
                 ))}
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Search */}
-        <div className="mb-5">
-          <label className="field-label">
-            Search Templates
-            <div className="mt-1 flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white pl-3 pr-3 transition focus-within:border-azure focus-within:ring-2 focus-within:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:focus-within:ring-blue-950">
-              <Search size={16} className="shrink-0 text-[#0063a9] dark:text-blue-300" />
-              <span className="h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
-              <input
-                className="w-full bg-transparent py-2.5 text-sm text-ink outline-none placeholder:text-slate-400 dark:text-slate-100"
-                placeholder="Search survey title or description..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
+            <div className="mb-5">
+              <TableFilterBar
+                sortOptions={[
+                  { value: 'title-asc', label: 'Title: A–Z' },
+                  { value: 'title-desc', label: 'Title: Z–A' },
+                  { value: 'deadline-asc', label: 'Deadline: earliest first' },
+                  { value: 'deadline-desc', label: 'Deadline: latest first' },
+                  { value: 'created-desc', label: 'Created: newest first' },
+                ]}
+                sortValue={tableSort}
+                onSortChange={setTableSort}
+                resultCount={filteredSurveys.length}
+                dateFrom={deadlineFrom}
+                dateTo={deadlineTo}
+                onDateFromChange={setDeadlineFrom}
+                onDateToChange={setDeadlineTo}
+                dateLabel="Deadline range"
+                onReset={() => {
+                  setSearch('');
+                  setSurveyType('All');
+                  setTableSort('title-asc');
+                  setDeadlineFrom('');
+                  setDeadlineTo('');
+                }}
+              >
+                <label className="min-w-[220px] flex-1">
+                  <span className="sr-only">Search survey forms</span>
+                  <span className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white pl-3 pr-3 transition focus-within:border-azure focus-within:ring-2 focus-within:ring-blue-100 dark:border-slate-800 dark:bg-slate-900 dark:focus-within:ring-blue-950">
+                    <Search size={16} className="shrink-0 text-[#0063a9] dark:text-blue-300" />
+                    <span className="h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
+                    <input
+                      className="w-full bg-transparent py-2 text-sm text-ink outline-none placeholder:text-slate-400 dark:text-slate-100"
+                      placeholder="Search survey title or description..."
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                    />
+                  </span>
+                </label>
+              </TableFilterBar>
             </div>
-          </label>
-        </div>
-
-        <div className="mb-5">
-          <TableFilterBar
-            sortOptions={[
-              { value: 'title-asc', label: 'Title: A–Z' },
-              { value: 'title-desc', label: 'Title: Z–A' },
-              { value: 'deadline-asc', label: 'Deadline: earliest first' },
-              { value: 'deadline-desc', label: 'Deadline: latest first' },
-              { value: 'created-desc', label: 'Created: newest first' },
-            ]}
-            sortValue={tableSort}
-            onSortChange={setTableSort}
-            resultCount={filteredSurveys.length}
-            dateFrom={deadlineFrom}
-            dateTo={deadlineTo}
-            onDateFromChange={setDeadlineFrom}
-            onDateToChange={setDeadlineTo}
-            dateLabel="Deadline range"
-            onReset={() => {
-              setSearch('');
-              setSurveyType('All');
-              setTableSort('title-asc');
-              setDeadlineFrom('');
-              setDeadlineTo('');
-            }}
-          />
-        </div>
+          </>
+        )}
 
         {filteredSurveys.length === 0 ? (
           <StateMessage
@@ -697,6 +688,7 @@ export function SurveyFormsPage({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredSurveys.map((survey) => {
                   const deadlineLabel = formatDeadline(survey.deadlineDate);
+                  const effectiveStatus = getSurveyStatus(survey);
                   const totalForType = companyTotalsBySurveyId[survey.id] || 0;
                   const completedForType = companyCompletedBySurveyId[survey.id] || 0;
  
@@ -713,16 +705,7 @@ export function SurveyFormsPage({
                             />
                           )}
                           <div className="space-y-0.5 max-w-sm">
-                            <span
-                              className="font-bold text-slate-800 dark:text-slate-100 hover:text-[#0063a9] dark:hover:text-blue-400 cursor-pointer"
-                              onClick={() => {
-                                if (isSelectMode) {
-                                  handleToggleSelect(survey.id);
-                                } else {
-                                  onSelectSurvey(survey.id);
-                                }
-                              }}
-                            >
+                            <span className="font-bold text-slate-800 dark:text-slate-100">
                               {survey.title}
                             </span>
                             <p className="text-xs text-slate-400 dark:text-slate-500 line-clamp-1" title={survey.description}>
@@ -738,14 +721,14 @@ export function SurveyFormsPage({
                       </td>
                       <td className="px-4 py-3.5">
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${
-                          survey.status === 'Running' || !survey.status ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-400' :
-                          survey.status === 'Paused' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/20 dark:text-amber-400' :
-                          survey.status === 'Completed' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/20 dark:text-rose-400' :
+                          effectiveStatus === 'Running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-400' :
+                          effectiveStatus === 'Paused' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/20 dark:text-amber-400' :
+                          effectiveStatus === 'Completed' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/20 dark:text-rose-400' :
                           'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-400'
                         }`}>
-                          {survey.status === 'Running' || !survey.status ? 'ACTIVE' :
-                           survey.status === 'Completed' ? 'ENDED' :
-                           survey.status.toUpperCase()}
+                          {effectiveStatus === 'Running' ? 'ACTIVE' :
+                           effectiveStatus === 'Completed' ? 'ENDED' :
+                           effectiveStatus.toUpperCase()}
                         </span>
                       </td>
                       <td className="px-4 py-3.5">
@@ -1043,21 +1026,9 @@ export function SurveyFormsPage({
                     <>
                       {/* Section 1: Survey Status & Archive */}
                       <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                            Survey/s Status:
-                          </span>
-                          <button
-                            onClick={() => {
-                              setArchiveError('');
-                              setIsArchiveConfirmOpen(true);
-                            }}
-                            className="inline-flex items-center justify-center rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30 px-3 py-1.5 text-xs font-bold transition cursor-pointer"
-                            type="button"
-                          >
-                            Archive Form/s
-                          </button>
-                        </div>
+                        <span className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                          Survey Status
+                        </span>
 
                         {/* Radio Choice List */}
                         <div className="space-y-2 bg-slate-50/50 dark:bg-slate-950/30 rounded-xl p-3 border border-slate-100 dark:border-slate-800/60">
@@ -1193,6 +1164,19 @@ export function SurveyFormsPage({
                     </>
                   ) : (
                     <>
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => {
+                            setArchiveError('');
+                            setIsArchiveConfirmOpen(true);
+                          }}
+                          className="inline-flex items-center justify-center rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30 px-3 py-1.5 text-xs font-bold transition cursor-pointer"
+                          type="button"
+                        >
+                          Archive Form
+                        </button>
+                      </div>
+
                       {/* Section 3: Set Deadline */}
                       <div className="space-y-1.5">
                         <label className="text-sm font-bold text-slate-800 dark:text-slate-200 block uppercase tracking-wider">
@@ -1269,7 +1253,7 @@ export function SurveyFormsPage({
                   {modifyStep === 1 ? (
                     <button
                       onClick={() => setModifyStep(2)}
-                      className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 dark:border-slate-750 dark:text-slate-300 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
+                      className="ml-auto inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 dark:border-slate-750 dark:text-slate-300 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
                       type="button"
                     >
                       <span>Next</span>
@@ -1286,26 +1270,28 @@ export function SurveyFormsPage({
                     </button>
                   )}
 
-                  <div className="flex items-center gap-2.5">
-                    <button
-                      onClick={() => {
-                        setResetError('');
-                        setResetSeriesLabel(suggestSeriesLabel());
-                        setIsResetConfirmOpen(true);
-                      }}
-                      className="px-4 py-2.5 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 dark:border-rose-900/30 dark:hover:bg-rose-950/20 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
-                      type="button"
-                    >
-                      Reset Form/s
-                    </button>
-                    <button
-                      onClick={handleBulkSaveChanges}
-                      className="px-4 py-2.5 rounded-xl bg-[#0063a9] text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md"
-                      type="button"
-                    >
-                      Save Changes
-                    </button>
-                  </div>
+                  {modifyStep === 2 && (
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        onClick={() => {
+                          setResetError('');
+                          setResetSeriesLabel(suggestSeriesLabel());
+                          setIsResetConfirmOpen(true);
+                        }}
+                        className="px-4 py-2.5 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 dark:border-rose-900/30 dark:hover:bg-rose-950/20 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
+                        type="button"
+                      >
+                        Reset Form/s
+                      </button>
+                      <button
+                        onClick={handleBulkSaveChanges}
+                        className="px-4 py-2.5 rounded-xl bg-[#0063a9] text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md"
+                        type="button"
+                      >
+                        Save Changes
+                      </button>
+                    </div>
+                  )}
                 </div>
 
               </div>

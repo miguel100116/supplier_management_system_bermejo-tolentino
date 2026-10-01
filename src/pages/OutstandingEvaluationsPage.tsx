@@ -3,7 +3,6 @@ import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import { getSurveyEvaluationCompanies } from '../utils/analytics';
 import { StateMessage } from '../components/StateMessage';
-import { PageDescription } from '../components/PageDescription';
 
 interface OutstandingEvaluationsPageProps {
   surveys: CustomForm[];
@@ -44,7 +43,6 @@ export function OutstandingEvaluationsPage({ surveys, partnerCompanies, response
 
   return (
     <div className="space-y-5">
-      <PageDescription>See which partner companies have not received an evaluation for this period.</PageDescription>
       <section className="grid gap-4 sm:grid-cols-3">
         {groups.map((group) => (
           <article key={group.type} className="panel">

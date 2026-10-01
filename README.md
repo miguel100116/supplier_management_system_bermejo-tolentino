@@ -363,3 +363,7 @@ This system is **pre-production**. The most important open items (verified again
 ---
 
 *For a detailed, verified handoff of the system's exact current state — access administration, workflows, known issues, and release notes — see [`SYSTEM_TURNOVER.md`](SYSTEM_TURNOVER.md).*
+
+### Admin evaluation navigation
+
+Admins open Evaluations > Evaluation Workspace and switch between Forms (form management), Responses (submitted answer inspection), and Coverage (company evaluation coverage). Archive Center and Import Evaluation Responses remain separate destinations. Evaluation Settings contains Category Labels. Existing route permissions and persistence contracts are unchanged.

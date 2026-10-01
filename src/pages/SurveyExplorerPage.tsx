@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Search, ChevronLeft, CalendarClock, ChevronDown, Check } from 'lucide-react';
 import { SurveyResponse, CustomForm } from '../types/survey';
 import { isScoredQuestion } from '../data/questionWeights';
+import { getSurveyStatus } from '../utils/surveyStatus';
 
 interface SurveyExplorerPageProps {
   responses: SurveyResponse[];
@@ -52,16 +53,9 @@ export function SurveyExplorerPage({ responses, surveys = [] }: SurveyExplorerPa
   if (!selectedSurvey) {
     return (
       <div className="space-y-5">
-        <section className="panel">
-          <h3 className="text-base font-semibold">Survey Explorer</h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Select a survey to view its responses and inspect individual answers.
-          </p>
-        </section>
-
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {surveys.map(survey => {
-            const status = survey.status || 'Running';
+            const status = getSurveyStatus(survey);
             let statusColor = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20';
             let dotColor = 'bg-emerald-500';
             if (status === 'Paused') {

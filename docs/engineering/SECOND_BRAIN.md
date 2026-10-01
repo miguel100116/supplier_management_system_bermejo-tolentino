@@ -495,3 +495,15 @@ Decisions made:
 Known risks or blockers:
 Exact next step:
 ```
+
+### 2026-10-01 - Admin evaluation workspace navigation
+
+Decision: Group existing `survey-forms`, `explorer`, and `pending-review` routes under one Admin sidebar destination with Forms, Responses, and Coverage view buttons. Retain the existing route keys and authorization checks. Evaluation Settings reuses `categories-manager` with a Category Labels section; archive/import remain separate. This is a navigation change, with existing response matching and coverage rules retained.
+
+Evidence: `src/App.tsx`, `src/features/evaluations/components/EvaluationWorkspace.tsx`, `src/pages/CategoriesManagerPage.tsx`.
+
+### 2026-10-02 - Survey deadline status
+
+Decision: For a survey with a valid deadline, status remains Running or Paused through the deadline day and becomes Completed afterward; Archived always stays Archived. A future deadline supersedes a stale Completed value. Surveys without a valid deadline retain their saved manual status. The Forms page refreshes at the deadline boundary, and changing a deadline through Modify Settings reconciles the saved status.
+
+Evidence: src/utils/surveyStatus.ts, src/pages/SurveyFormsPage.tsx, src/utils/surveyCompletion.ts, src/utils/employeeNotifications.ts, src/utils/surveyStatus.test.ts.
