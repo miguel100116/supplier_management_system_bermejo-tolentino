@@ -5,6 +5,7 @@ interface NavChild<T extends string> {
   key: T;
   label: string;
   badgeCount?: number;
+  disabled?: boolean;
 }
 
 // A single clickable destination in the sidebar.
@@ -14,6 +15,7 @@ export interface NavLeaf<T extends string> {
   label: string;
   icon: LucideIcon;
   badgeCount?: number;
+  disabled?: boolean;
 }
 
 // A collapsible parent that groups related destinations (e.g. "Suppliers" ->
@@ -177,14 +179,18 @@ export function Shell<T extends string>({
                           <button
                             key={child.key}
                             type="button"
+                            disabled={child.disabled}
                             onClick={() => {
                               onPageChange(child.key);
                               setIsMobileNavOpen(false);
                             }}
+                            title={child.disabled ? 'Access restricted by an administrator' : undefined}
                             className={`flex w-full items-center gap-2.5 py-2.5 pl-8 pr-3.5 text-left text-sm font-medium transition ${
-                              active
-                                ? 'bg-blue-50 text-[#0063a9] font-bold dark:bg-blue-950/40 dark:text-blue-300'
-                                : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900'
+                              child.disabled
+                                ? 'cursor-not-allowed text-slate-300 dark:text-slate-600'
+                                : active
+                                  ? 'bg-blue-50 text-[#0063a9] font-bold dark:bg-blue-950/40 dark:text-blue-300'
+                                  : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900'
                             }`}
                           >
                             <span className="truncate">{child.label}</span>
@@ -201,14 +207,18 @@ export function Shell<T extends string>({
                   <button
                     key={page.key}
                     type="button"
+                    disabled={page.disabled}
                     onClick={() => {
                       onPageChange(page.key);
                       setIsMobileNavOpen(false);
                     }}
+                    title={page.disabled ? 'Access restricted by an administrator' : undefined}
                     className={`flex w-full items-center gap-2.5 px-3.5 py-3 text-left text-sm font-medium transition ${
-                      active
-                        ? 'bg-blue-50 text-[#0063a9] font-bold dark:bg-blue-950/40 dark:text-blue-300'
-                        : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900'
+                      page.disabled
+                        ? 'cursor-not-allowed text-slate-300 dark:text-slate-600'
+                        : active
+                          ? 'bg-blue-50 text-[#0063a9] font-bold dark:bg-blue-950/40 dark:text-blue-300'
+                          : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900'
                     }`}
                   >
                     <Icon size={16} className="shrink-0" />
@@ -276,11 +286,15 @@ export function Shell<T extends string>({
                               <button
                                 key={child.key}
                                 type="button"
+                                disabled={child.disabled}
                                 onClick={() => onPageChange(child.key)}
+                                title={child.disabled ? 'Access restricted by an administrator' : undefined}
                                 className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-[13px] font-medium transition ${
-                                  active
-                                    ? 'bg-blue-50 text-[#0063a9] font-bold dark:bg-blue-950/60 dark:text-blue-200'
-                                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white'
+                                  child.disabled
+                                    ? 'cursor-not-allowed text-slate-300 dark:text-slate-600'
+                                    : active
+                                      ? 'bg-blue-50 text-[#0063a9] font-bold dark:bg-blue-950/60 dark:text-blue-200'
+                                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white'
                                 }`}
                               >
                                 <span className="truncate">{child.label}</span>
@@ -305,13 +319,16 @@ export function Shell<T extends string>({
                   <button
                     key={page.key}
                     type="button"
+                    disabled={page.disabled}
                     onClick={() => onPageChange(page.key)}
+                    title={page.disabled ? 'Access restricted by an administrator' : isSidebarCollapsed ? page.label : undefined}
                     className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all duration-200 ${
-                      active
-                        ? 'bg-blue-50 text-[#0063a9] dark:bg-blue-950/60 dark:text-blue-200 shadow-sm font-bold'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white'
+                      page.disabled
+                        ? 'cursor-not-allowed text-slate-300 dark:text-slate-600'
+                        : active
+                          ? 'bg-blue-50 text-[#0063a9] dark:bg-blue-950/60 dark:text-blue-200 shadow-sm font-bold'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white'
                     } ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
-                    title={isSidebarCollapsed ? page.label : undefined}
                   >
                     <Icon size={18} className="shrink-0" />
                     {!isSidebarCollapsed && (
