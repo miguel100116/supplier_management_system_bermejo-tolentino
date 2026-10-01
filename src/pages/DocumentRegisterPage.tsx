@@ -16,6 +16,7 @@ import {
   restoreDefaultNotificationSettings,
 } from '../utils/documentNotificationSettings';
 import { ChartCard } from '../components/ChartCard';
+import { PageDescription } from '../components/PageDescription';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { BRANCH_STATUS_OPTIONS, branchStatusBadgeClasses } from './PartnerCompaniesPage';
 import {
@@ -1237,6 +1238,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
 
   return (
     <div className="space-y-6">
+      <PageDescription>Monitor partner compliance documents, track expiring or expired items, and send notifications to partners.</PageDescription>
       {mutationError && (
         <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-300">
           {mutationError}

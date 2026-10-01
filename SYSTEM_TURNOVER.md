@@ -75,7 +75,7 @@ An Admin account has unrestricted access to every module in the system:
 | Account Management | Configure system roles, ranks, departments, and user permissions |
 | Notification Logs | Audit trail of incoming survey responses and document-expiry alerts |
 | Archive Center | Browse and restore archived feedback submissions |
-| Import Evaluation Responses | Bulk-import external evaluation data (e.g. Excel/CSV) into the system |
+| Import Evaluation Responses | Import Supplier, Subcontractor, and Courier evaluation worksheets together from one Excel workbook |
 
 One built-in Admin identity, `admin@mgenesis.com`, ships as the seed account for a fresh deployment — it exists specifically so there is a way to sign in for the first time and start adding real employees through Account Management. From there, Admin rights can be granted to any other real mgenesis.com employee the same way any account is granted access (Section 1.1), simply by setting their System Role to Admin.
 
@@ -142,7 +142,7 @@ The system is organized into modules, each shown or hidden in the navigation acc
 | Account Management | Configure system roles, ranks, departments, and user permissions |
 | Notification Logs | Audit trail of incoming survey responses and document-expiry alerts |
 | Archive Center | Browse and restore archived feedback submissions |
-| Import Evaluation Responses | Bulk-import external evaluation data (e.g. Excel/CSV) into the system |
+| Import Evaluation Responses | Import Supplier, Subcontractor, and Courier evaluation worksheets together from one Excel workbook |
 
 **Settings**
 

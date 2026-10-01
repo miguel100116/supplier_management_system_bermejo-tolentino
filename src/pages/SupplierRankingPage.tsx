@@ -4,6 +4,7 @@ import { AlertTriangle, Building2, ChevronDown, Eraser, GripVertical, History, S
 import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
 import { getRankingLog, logRankingChange, RankingLogEntry, RankingSnapshotSlot } from '../utils/supplierRankingLog';
 import { TableFilterBar } from '../components/TableFilterBar';
+import { PageDescription } from '../components/PageDescription';
 import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 
 interface SupplierRankingPageProps {
@@ -193,6 +194,7 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
 
   return (
     <div className="space-y-5">
+      <PageDescription>Set the top 20 evaluable suppliers and their ranks. Suppliers outside the top 20 are excluded from evaluation.</PageDescription>
       <div className="panel px-5 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <Trophy size={16} className="text-[#0063a9]" />

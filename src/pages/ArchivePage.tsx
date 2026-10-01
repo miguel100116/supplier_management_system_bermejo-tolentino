@@ -9,10 +9,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ArchiveSeries, CustomForm, SurveyResponse, SurveyType } from '../types/survey';
+import { ArchiveSeries, CustomForm, PartnerCompany, PartnerCompanyType, SurveyResponse, SurveyType } from '../types/survey';
 import { exportArchivedResponsesAsExcel } from '../utils/archiveResponseTransfer';
 import type { ArchiveImportResult } from '../utils/archiveResponseTransfer';
 import { ChartCard } from '../components/ChartCard';
+import { PageDescription } from '../components/PageDescription';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { seriesTrend, companySeriesTrend } from '../utils/analytics';
 import { TableFilterBar } from '../components/TableFilterBar';
@@ -21,10 +22,12 @@ import { useModalEscape } from '../hooks/useModalEscape';
 
 interface ArchivePageProps {
   surveys: CustomForm[];
+  partnerCompanies: PartnerCompany[];
   archivedResponses: SurveyResponse[];
   archiveSeries?: ArchiveSeries[];
   onRenameArchiveSeries?: (id: string, newLabel: string) => void;
   onUpdateSurvey?: (survey: CustomForm) => Promise<CustomForm>;
+  onUpdatePartnerCompany: (company: PartnerCompany) => Promise<PartnerCompany>;
   onRestoreResponseGroup?: (responseId: string) => Promise<void>;
   onRestoreResponsesForSurvey?: (surveyId: string) => Promise<void>;
   onDeleteArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => Promise<void>;
@@ -35,10 +38,12 @@ interface ArchivePageProps {
 
 export function ArchivePage({
   surveys,
+  partnerCompanies,
   archivedResponses,
   archiveSeries = [],
   onRenameArchiveSeries,
   onUpdateSurvey,
+  onUpdatePartnerCompany,
   onRestoreResponseGroup,
   onRestoreResponsesForSurvey,
   onDeleteArchivedResponseGroups,
@@ -47,12 +52,14 @@ export function ArchivePage({
   isAdmin
 }: ArchivePageProps) {
   const isMobile = useIsMobile();
-  const [activeTab, setActiveTab] = useState<'surveys' | 'responses'>('surveys');
+  const [activeTab, setActiveTab] = useState<'surveys' | 'responses' | 'companies'>('surveys');
   const [searchQuery, setSearchQuery] = useState('');
+  const [companyTypeFilter, setCompanyTypeFilter] = useState<'All' | PartnerCompanyType>('All');
   const [tableSort, setTableSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('date-desc');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [confirmSurvey, setConfirmSurvey] = useState<CustomForm | null>(null);
+  const [confirmPartnerCompany, setConfirmPartnerCompany] = useState<PartnerCompany | null>(null);
   const [confirmResponseGroup, setConfirmResponseGroup] = useState<{ responseId: string; company: string; type: string } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -61,6 +68,11 @@ export function ArchivePage({
   const archivedSurveys = useMemo(() => {
     return surveys.filter((s) => s.status === 'Archived');
   }, [surveys]);
+
+  const archivedCompanies = useMemo(
+    () => partnerCompanies.filter((company) => company.isArchived),
+    [partnerCompanies]
+  );
 
   // Group responses primarily by named archive series (a period like "1st Half
   // 2026" can span multiple archive actions/surveys done under the same
@@ -141,6 +153,20 @@ export function ArchivePage({
     setTimeout(() => setSuccessMessage(null), 4000);
   };
 
+  const executeRestorePartnerCompany = async () => {
+    if (!confirmPartnerCompany) return;
+    setMutationError(null);
+    try {
+      await onUpdatePartnerCompany({ ...confirmPartnerCompany, isArchived: false, archivedAt: undefined });
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Unable to restore the partner company.');
+      return;
+    }
+    setSuccessMessage(`Company "${confirmPartnerCompany.name}" has been restored to Partners.`);
+    setConfirmPartnerCompany(null);
+    setTimeout(() => setSuccessMessage(null), 4000);
+  };
+
   const handleRestoreResponseGroup = (group: { responseId: string; company: string; type: string }) => {
     setConfirmResponseGroup(group);
   };
@@ -192,6 +218,26 @@ export function ArchivePage({
         return compareDate(b.sortKey, a.sortKey);
       });
   }, [groupedArchivedResponses, searchQuery, tableSort, dateFrom, dateTo]);
+
+  const filteredArchivedCompanies = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    return archivedCompanies
+      .filter((company) =>
+        (companyTypeFilter === 'All' || company.type === companyTypeFilter) &&
+        (!needle || company.name.toLowerCase().includes(needle) ||
+          (company.branches ?? []).some((branch) => branch.bpCode?.toLowerCase().includes(needle))) &&
+        isWithinDateRange(company.archivedAt, dateFrom, dateTo)
+      )
+      .sort((a, b) => {
+        if (tableSort === 'name-asc') return compareText(a.name, b.name);
+        if (tableSort === 'name-desc') return compareText(b.name, a.name);
+        if (!a.archivedAt && !b.archivedAt) return 0;
+        if (!a.archivedAt) return 1;
+        if (!b.archivedAt) return -1;
+        if (tableSort === 'date-asc') return compareDate(a.archivedAt, b.archivedAt);
+        return compareDate(b.archivedAt, a.archivedAt);
+      });
+  }, [archivedCompanies, companyTypeFilter, searchQuery, tableSort, dateFrom, dateTo]);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
@@ -258,6 +304,7 @@ export function ArchivePage({
   useModalEscape(confirmDeleteState.isOpen, () => setConfirmDeleteState({ isOpen: false }), 52);
   useModalEscape(Boolean(confirmResponseGroup), () => setConfirmResponseGroup(null), 51);
   useModalEscape(Boolean(confirmSurvey), () => setConfirmSurvey(null), 50);
+  useModalEscape(Boolean(confirmPartnerCompany), () => setConfirmPartnerCompany(null), 49);
   useModalEscape(Boolean(importResult), () => setImportResult(null), 50);
 
   const handleExportSelected = () => {
@@ -355,6 +402,7 @@ export function ArchivePage({
 
   return (
     <div className="space-y-6">
+      <PageDescription>Manage archived partner companies, restore archived surveys, and review preserved responses.</PageDescription>
       {successMessage && (
         <div className="bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/50 rounded-xl p-4 flex items-center gap-3 text-emerald-800 dark:text-emerald-300 text-sm animate-fade-in">
           <RefreshCw size={18} className="animate-spin-slow text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -368,7 +416,7 @@ export function ArchivePage({
       )}
 
       {/* Two Clickable Blocks (Bento Cards) */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {/* Block 1: Archived Survey */}
         <button
           onClick={() => {
@@ -426,13 +474,47 @@ export function ArchivePage({
             {groupedArchivedResponses.length}
           </span>
         </button>
+
+        {/* Block 3: Archived Companies */}
+        <button
+          onClick={() => {
+            setActiveTab('companies');
+            setSearchQuery('');
+            setCompanyTypeFilter('All');
+          }}
+          className={`panel p-6 flex items-start gap-4 text-left transition relative overflow-hidden cursor-pointer ${
+            activeTab === 'companies'
+              ? 'ring-2 ring-[#0063a9] bg-blue-50/20 dark:bg-blue-950/10 border-blue-200 dark:border-blue-900'
+              : 'hover:border-slate-300 hover:bg-slate-50/30'
+          }`}
+          id="btn-archive-companies"
+        >
+          <div className={`p-3 rounded-xl shrink-0 ${
+            activeTab === 'companies' ? 'bg-[#0063a9] text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+          }`}>
+            <Building2 size={24} />
+          </div>
+          <div className="space-y-1 flex-1 pr-12">
+            <h3 className="text-lg font-bold text-slate-950 dark:text-white">Archived Companies</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+              View archived partner records and restore companies to the active registry.
+            </p>
+          </div>
+          <span className="absolute top-6 right-6 inline-flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-black text-slate-700 dark:text-slate-300">
+            {archivedCompanies.length}
+          </span>
+        </button>
       </div>
 
       {/* List Container with Search */}
       <div className="panel p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-            {activeTab === 'surveys' ? 'Archived Surveys Directory' : 'Archived Responses Logs'}
+            {activeTab === 'surveys'
+              ? 'Archived Surveys Directory'
+              : activeTab === 'companies'
+                ? 'Archived Companies Directory'
+                : 'Archived Responses Logs'}
           </h2>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
@@ -468,11 +550,25 @@ export function ArchivePage({
               </div>
             )}
 
+            {activeTab === 'companies' && (
+              <select
+                value={companyTypeFilter}
+                onChange={(event) => setCompanyTypeFilter(event.target.value as 'All' | PartnerCompanyType)}
+                className="field !mt-0 w-full py-2 text-xs sm:w-48"
+                aria-label="Filter archived companies by type"
+              >
+                <option value="All">All company types</option>
+                {(['Courier', 'Supplier', 'Subcontractor', 'Uncategorized'] as PartnerCompanyType[]).map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            )}
+
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
               <input
                 type="text"
-                placeholder={`Search archived ${activeTab === 'surveys' ? 'surveys' : 'responses'}...`}
+                placeholder={`Search archived ${activeTab === 'surveys' ? 'surveys' : activeTab === 'companies' ? 'companies' : 'responses'}...`}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-9 py-2 text-xs text-slate-700 dark:text-slate-300 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0063a9]"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -490,7 +586,11 @@ export function ArchivePage({
           ]}
           sortValue={tableSort}
           onSortChange={setTableSort}
-          resultCount={activeTab === 'surveys' ? filteredArchivedSurveys.length : filteredGroupedResponses.length}
+          resultCount={activeTab === 'surveys'
+            ? filteredArchivedSurveys.length
+            : activeTab === 'companies'
+              ? filteredArchivedCompanies.length
+              : filteredGroupedResponses.length}
           dateFrom={dateFrom}
           dateTo={dateTo}
           onDateFromChange={setDateFrom}
@@ -501,6 +601,7 @@ export function ArchivePage({
             setTableSort('date-desc');
             setDateFrom('');
             setDateTo('');
+            setCompanyTypeFilter('All');
           }}
         />
 
@@ -564,6 +665,64 @@ export function ArchivePage({
                           >
                             <RefreshCw size={12} />
                             <span>Restore Form</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'companies' && (
+          <div>
+            {filteredArchivedCompanies.length === 0 ? (
+              <div className="text-center py-10 text-slate-500">
+                <Building2 size={32} className="mx-auto mb-2 text-slate-300" />
+                <p className="text-sm">No archived companies match these filters.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full min-w-[680px] border-collapse text-sm text-left">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
+                      <th className="px-4 py-3">Company</th>
+                      <th className="px-4 py-3">Type</th>
+                      <th className="px-4 py-3">Date Archived</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredArchivedCompanies.map((company) => (
+                      <tr key={company.id} className="align-middle hover:bg-slate-50/40 dark:hover:bg-slate-900/10">
+                        <td className="px-4 py-4">
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-slate-900 dark:text-slate-100">{company.name}</span>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                              {company.branches?.length ?? 0} {company.branches?.length === 1 ? 'branch' : 'branches'}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {company.type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
+                          {company.archivedAt
+                            ? new Date(company.archivedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                            : 'Not recorded'}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <button
+                            onClick={() => setConfirmPartnerCompany(company)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#0063a9] text-[#0063a9] hover:bg-blue-50 dark:border-blue-500 dark:text-blue-400 dark:hover:bg-blue-950/20 px-3 py-1.5 text-xs font-bold transition cursor-pointer"
+                            type="button"
+                          >
+                            <RefreshCw size={12} />
+                            <span>Restore Company</span>
                           </button>
                         </td>
                       </tr>
@@ -811,6 +970,40 @@ export function ArchivePage({
                 onClick={executeRestoreSurvey}
                 className="px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl bg-[#0063a9] hover:bg-[#00528c] text-white cursor-pointer transition"
                 id="btn-confirm-restore-survey"
+              >
+                Confirm Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmPartnerCompany && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" id="confirm-restore-partner-company-modal">
+          <div className="bg-white dark:bg-slate-950 rounded-2xl max-w-md w-full border border-slate-100 dark:border-slate-800/80 p-6 shadow-xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/40 text-[#0063a9] dark:text-blue-400 rounded-xl shrink-0">
+                <Building2 size={24} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Restore Company?</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Are you sure you want to restore <strong>"{confirmPartnerCompany.name}"</strong> to the active Partners registry?
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setConfirmPartnerCompany(null)}
+                className="px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 cursor-pointer transition"
+                id="btn-cancel-restore-partner-company"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeRestorePartnerCompany}
+                className="px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl bg-[#0063a9] hover:bg-[#00528c] text-white cursor-pointer transition"
+                id="btn-confirm-restore-partner-company"
               >
                 Confirm Restore
               </button>

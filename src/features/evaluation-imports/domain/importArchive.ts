@@ -6,7 +6,7 @@ export const MAX_EVALUATION_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
 
 export interface EvaluationImportArchive {
   id: string;
-  surveyType: SurveyType;
+  surveyType: SurveyType | 'Combined';
   uploadedAt: string;
   uploadedBy: string;
   sourceFileName: string;
@@ -40,7 +40,8 @@ export function parseEvaluationImportArchive(value: unknown): EvaluationImportAr
   }
 
   const candidate = value as Partial<EvaluationImportArchive>;
-  const validSurveyType = candidate.surveyType === 'Courier'
+  const validSurveyType = candidate.surveyType === 'Combined'
+    || candidate.surveyType === 'Courier'
     || candidate.surveyType === 'Supplier'
     || candidate.surveyType === 'Subcontractor';
   const validTimestamp = typeof candidate.uploadedAt === 'string' && !Number.isNaN(Date.parse(candidate.uploadedAt));

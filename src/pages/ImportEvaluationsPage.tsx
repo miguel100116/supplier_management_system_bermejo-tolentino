@@ -1,51 +1,37 @@
 import { useRef, useState } from 'react';
 import {
-  UploadCloud,
-  FileSpreadsheet,
-  Loader2,
-  CheckCircle2,
   AlertTriangle,
-  Truck,
-  Package,
-  HardHat,
-  X,
-  UserPlus,
-  SkipForward,
   Building2,
+  CalendarDays,
+  CheckCircle2,
   Download,
+  FileSpreadsheet,
+  HardHat,
+  Loader2,
   LockKeyhole,
+  Package,
+  Truck,
+  UploadCloud,
+  X,
 } from 'lucide-react';
-import { SurveyType } from '../types/survey';
-import { RawEvalImportSummary, RawEvalPreview, CompanyDecision } from '../utils/rawEvaluationImport';
+import type { SurveyType } from '../types/survey';
+import type { CompanyDecision, RawEvalImportSummary, RawEvalPreview } from '../utils/rawEvaluationImport';
 import { useEvaluationImportArchives } from '../features/evaluation-imports/hooks/useEvaluationImportArchives';
-import { EvaluationImportArchive, MAX_EVALUATION_IMPORT_FILE_BYTES } from '../features/evaluation-imports/domain/importArchive';
+import { MAX_EVALUATION_IMPORT_FILE_BYTES } from '../features/evaluation-imports/domain/importArchive';
+import type { EvaluationImportArchive } from '../features/evaluation-imports/domain/importArchive';
 import { useModalEscape } from '../hooks/useModalEscape';
 
-const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
-
-function hasAcceptedExtension(fileName: string) {
-  const lower = fileName.toLowerCase();
-  return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
-}
+const SURVEY_TYPES: SurveyType[] = ['Supplier', 'Subcontractor', 'Courier'];
+const FORM_CARDS: Array<{ surveyType: SurveyType; title: string; formLabel: string; icon: typeof Package }> = [
+  { surveyType: 'Supplier', title: 'Supplier', formLabel: 'Form 20-002, Form 2', icon: Package },
+  { surveyType: 'Subcontractor', title: 'Subcontractor', formLabel: 'Form 20-002, Form 3', icon: HardHat },
+  { surveyType: 'Courier', title: 'Courier', formLabel: 'Form 20-002, Form 4', icon: Truck },
+];
 
 interface ImportEvaluationsPageProps {
   currentUserEmail: string;
   onPreview: (file: File, surveyType: SurveyType) => Promise<RawEvalPreview>;
-  onCommit: (preview: RawEvalPreview, decisions: Record<string, CompanyDecision>) => RawEvalImportSummary;
-}
-
-interface CardState {
-  isImporting: boolean;
-  result: RawEvalImportSummary | null;
-  error: string;
-  pendingPreview: RawEvalPreview | null;
-  pendingFile: File | null;
-  decisions: Record<string, CompanyDecision>;
-  stagedFile: File | null;
-}
-
-function emptyCardState(): CardState {
-  return { isImporting: false, result: null, error: '', pendingPreview: null, pendingFile: null, decisions: {}, stagedFile: null };
+  onCommitBatch: (entries: Array<{ preview: RawEvalPreview; decisions: Record<string, CompanyDecision> }>) => Promise<RawEvalImportSummary[]>;
 }
 
 function formatFileSize(bytes: number): string {
@@ -54,173 +40,115 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const FORM_CARDS: { surveyType: SurveyType; title: string; formLabel: string; icon: typeof Package }[] = [
-  { surveyType: 'Supplier', title: 'Supplier', formLabel: 'Form 20-002, Form 2', icon: Package },
-  { surveyType: 'Subcontractor', title: 'Subcontractor', formLabel: 'Form 20-002, Form 3', icon: HardHat },
-  { surveyType: 'Courier', title: 'Courier', formLabel: 'Form 20-002, Form 4', icon: Truck },
-];
-
-function formatDate(iso: string) {
+function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommit }: ImportEvaluationsPageProps) {
-  const { archives, isLoading: isLoadingArchives, loadError: archiveLoadError, archiveSourceFile, downloadSourceFile } = useEvaluationImportArchives(currentUserEmail);
-  const [state, setState] = useState<Record<SurveyType, CardState>>({
-    Supplier: emptyCardState(),
-    Subcontractor: emptyCardState(),
-    Courier: emptyCardState(),
-  });
+function emptyPreviews(): Record<SurveyType, RawEvalPreview | null> {
+  return { Supplier: null, Subcontractor: null, Courier: null };
+}
 
-  const [dragOverType, setDragOverType] = useState<SurveyType | null>(null);
+function emptyDecisions(): Record<SurveyType, Record<string, CompanyDecision>> {
+  return { Supplier: {}, Subcontractor: {}, Courier: {} };
+}
+
+export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBatch }: ImportEvaluationsPageProps) {
+  const { archives, isLoading: isLoadingArchives, loadError: archiveLoadError, archiveSourceFile, downloadSourceFile } = useEvaluationImportArchives(currentUserEmail);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [previews, setPreviews] = useState<Record<SurveyType, RawEvalPreview | null>>(emptyPreviews);
+  const [decisions, setDecisions] = useState<Record<SurveyType, Record<string, CompanyDecision>>>(emptyDecisions);
+  const [summaries, setSummaries] = useState<RawEvalImportSummary[] | null>(null);
+  const [error, setError] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isReviewingCompanies, setIsReviewingCompanies] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [downloadingArchiveId, setDownloadingArchiveId] = useState<string | null>(null);
   const [archiveActionError, setArchiveActionError] = useState('');
-  const dragCounters = useRef<Record<SurveyType, number>>({ Supplier: 0, Subcontractor: 0, Courier: 0 });
 
-  const fileInputs = {
-    Supplier: useRef<HTMLInputElement>(null),
-    Subcontractor: useRef<HTMLInputElement>(null),
-    Courier: useRef<HTMLInputElement>(null),
-  };
+  const readyPreviews = SURVEY_TYPES.map((surveyType) => previews[surveyType]).filter(
+    (preview): preview is RawEvalPreview => preview !== null,
+  );
+  const workbookReady = readyPreviews.length === SURVEY_TYPES.length && !isScanning;
+  const unmatchedCompanies = readyPreviews.flatMap((preview) => preview.companyMatches
+    .filter((match) => match.status === 'unmatched')
+    .map((match) => ({ surveyType: preview.surveyType, match })));
 
-  const patchCard = (surveyType: SurveyType, patch: Partial<CardState>) => {
-    setState((prev) => ({ ...prev, [surveyType]: { ...prev[surveyType], ...patch } }));
-  };
-
-  const runCommit = async (surveyType: SurveyType, preview: RawEvalPreview, decisions: Record<string, CompanyDecision>, sourceFile: File) => {
-    patchCard(surveyType, { isImporting: true, pendingPreview: null, error: '' });
-    try {
-      // Keep the original export before committing parsed rows. A failed source
-      // archive therefore stops this import instead of silently losing its file.
-      await archiveSourceFile(sourceFile, surveyType, preview.importBatchId);
-      const summary = onCommit(preview, decisions);
-      patchCard(surveyType, { isImporting: false, result: summary, pendingFile: null });
-    } catch (err) {
-      patchCard(surveyType, {
-        isImporting: false,
-        pendingPreview: null,
-        pendingFile: null,
-        stagedFile: sourceFile,
-        error: err instanceof Error ? err.message : 'Unable to archive or import this file.',
-      });
-    }
-  };
-
-  const processFile = async (surveyType: SurveyType, file: File) => {
-    patchCard(surveyType, { isImporting: true, result: null, error: '', pendingPreview: null });
-    try {
-      const preview = await onPreview(file, surveyType);
-      const unmatched = preview.companyMatches.filter((m) => m.status === 'unmatched');
-
-      if (unmatched.length === 0) {
-        await runCommit(surveyType, preview, {}, file);
-        return;
-      }
-
-      const defaults: Record<string, CompanyDecision> = {};
-      unmatched.forEach((m) => { defaults[m.normalizedName] = 'add-as-partner'; });
-      patchCard(surveyType, { isImporting: false, pendingPreview: preview, pendingFile: file, decisions: defaults });
-    } catch (err) {
-      patchCard(surveyType, { isImporting: false, error: err instanceof Error ? err.message : 'Failed to read this file.' });
-    }
-  };
-
-  // Selecting/dropping a file only stages it - nothing is parsed or imported
-  // until the admin confirms with the Import button, so picking the wrong
-  // file is a one-click undo (the X) instead of an already-started import.
-  const stageFile = (surveyType: SurveyType, file: File) => {
-    if (!hasAcceptedExtension(file.name)) {
-      patchCard(surveyType, { error: `"${file.name}" isn't an Excel or CSV file (.xlsx/.xls/.csv).`, stagedFile: null });
-      return;
-    }
-    if (file.size <= 0 || file.size > MAX_EVALUATION_IMPORT_FILE_BYTES) {
-      patchCard(surveyType, { error: 'The file must be between 1 byte and 25 MB.', stagedFile: null });
-      return;
-    }
-    patchCard(surveyType, { stagedFile: file, error: '', result: null });
-  };
-
-  const clearStagedFile = (surveyType: SurveyType) => {
-    patchCard(surveyType, { stagedFile: null });
-  };
-
-  const confirmStagedImport = async (surveyType: SurveyType) => {
-    const file = state[surveyType].stagedFile;
-    if (!file) return;
-    patchCard(surveyType, { stagedFile: null });
-    await processFile(surveyType, file);
-  };
-
-  const handleFileSelected = (surveyType: SurveyType, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    stageFile(surveyType, file);
-  };
-
-  const handleDragEnter = (surveyType: SurveyType, e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (!e.dataTransfer.types.includes('Files')) return;
-    dragCounters.current[surveyType] += 1;
-    setDragOverType(surveyType);
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  };
-
-  const handleDragLeave = (surveyType: SurveyType, e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    dragCounters.current[surveyType] = Math.max(0, dragCounters.current[surveyType] - 1);
-    if (dragCounters.current[surveyType] === 0) {
-      setDragOverType((current) => (current === surveyType ? null : current));
-    }
-  };
-
-  const handleDrop = (surveyType: SurveyType, e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    dragCounters.current[surveyType] = 0;
-    setDragOverType((current) => (current === surveyType ? null : current));
-
-    const file = e.dataTransfer.files?.[0];
-    if (!file || state[surveyType].isImporting) return;
-    stageFile(surveyType, file);
-  };
-
-  // The three forms are one conceptual batch (one evaluation period, three
-  // subcategories) rather than three independent imports, so there's a
-  // single "Import" action that runs whichever cards currently have a
-  // staged file - each still resolves through its own preview/decision/
-  // commit flow independently, they just all kick off together.
-  const stagedCards = FORM_CARDS.filter(({ surveyType }) => state[surveyType].stagedFile);
-  const anyImporting = FORM_CARDS.some(({ surveyType }) => state[surveyType].isImporting);
-
-  const handleImportAll = () => {
-    stagedCards.forEach(({ surveyType }) => confirmStagedImport(surveyType));
-  };
-
-  const modalSurveyType = FORM_CARDS.find(({ surveyType }) => state[surveyType].pendingPreview)?.surveyType ?? null;
-  const modalCard = modalSurveyType ? state[modalSurveyType] : null;
-  useModalEscape(Boolean(modalSurveyType), () => {
-    if (modalSurveyType) patchCard(modalSurveyType, { pendingPreview: null });
-  });
-  const modalUnmatched = modalCard?.pendingPreview?.companyMatches.filter((m) => m.status === 'unmatched') ?? [];
-
-  const setDecision = (surveyType: SurveyType, key: string, decision: CompanyDecision) => {
-    setState((prev) => ({
-      ...prev,
-      [surveyType]: { ...prev[surveyType], decisions: { ...prev[surveyType].decisions, [key]: decision } },
+  const patchDecision = (surveyType: SurveyType, normalizedName: string, decision: CompanyDecision) => {
+    setDecisions((current) => ({
+      ...current,
+      [surveyType]: { ...current[surveyType], [normalizedName]: decision },
     }));
   };
 
-  const setAllDecisions = (surveyType: SurveyType, decision: CompanyDecision) => {
-    setState((prev) => {
-      const keys = Object.keys(prev[surveyType].decisions);
-      const next: Record<string, CompanyDecision> = {};
-      keys.forEach((k) => { next[k] = decision; });
-      return { ...prev, [surveyType]: { ...prev[surveyType], decisions: next } };
-    });
+  const inspectWorkbook = async (candidate: File) => {
+    const lowerName = candidate.name.toLowerCase();
+    if (!lowerName.endsWith('.xlsx') && !lowerName.endsWith('.xls')) {
+      setError('Choose one Excel workbook (.xlsx or .xls) containing the Supplier, Subcontractor, and Courier worksheets.');
+      return;
+    }
+    if (candidate.size <= 0 || candidate.size > MAX_EVALUATION_IMPORT_FILE_BYTES) {
+      setError('The workbook must be between 1 byte and 25 MB.');
+      return;
+    }
+
+    setFile(candidate);
+    setPreviews(emptyPreviews());
+    setDecisions(emptyDecisions());
+    setSummaries(null);
+    setError('');
+    setIsScanning(true);
+    try {
+      const parsed = await Promise.all(SURVEY_TYPES.map((surveyType) => onPreview(candidate, surveyType)));
+      const sourceHash = parsed[0]?.importBatchId.slice(parsed[0].importBatchId.lastIndexOf(':') + 1);
+      if (!sourceHash) throw new Error('Unable to identify this workbook for safe re-imports.');
+      const sharedBatchId = `client-workbook:${sourceHash}`;
+      const batchPreviews = parsed.map((preview) => ({ ...preview, importBatchId: sharedBatchId }));
+      const byType = Object.fromEntries(batchPreviews.map((preview) => [preview.surveyType, preview])) as Record<SurveyType, RawEvalPreview>;
+      if (SURVEY_TYPES.some((surveyType) => !byType[surveyType])) {
+        throw new Error('The workbook must contain one worksheet for each category: Supplier, Subcontractor, and Courier.');
+      }
+      setPreviews(byType);
+      setDecisions(Object.fromEntries(batchPreviews.map((preview) => [
+        preview.surveyType,
+        Object.fromEntries(preview.companyMatches
+          .filter((match) => match.status === 'unmatched')
+          .map((match) => [match.normalizedName, 'add-as-partner' as CompanyDecision])),
+      ])) as Record<SurveyType, Record<string, CompanyDecision>>);
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Unable to read the workbook.');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const runBatchImport = async (selectedDecisions = decisions) => {
+    if (!file || !workbookReady) return;
+    setIsImporting(true);
+    setError('');
+    setIsReviewingCompanies(false);
+    try {
+      await archiveSourceFile(file, 'Combined', readyPreviews[0].importBatchId);
+      const imported = await onCommitBatch(readyPreviews.map((preview) => ({
+        preview,
+        decisions: selectedDecisions[preview.surveyType],
+      })));
+      setSummaries(imported);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : 'Unable to archive or import this workbook.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleImport = () => {
+    if (!workbookReady) return;
+    if (unmatchedCompanies.length > 0) {
+      setIsReviewingCompanies(true);
+      return;
+    }
+    void runBatchImport();
   };
 
   const handleDownloadArchive = async (archive: EvaluationImportArchive) => {
@@ -232,289 +160,178 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommit }:
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.download = archive.sourceFileName;
-      document.body.appendChild(anchor);
       anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (error) {
-      setArchiveActionError(error instanceof Error ? error.message : 'Unable to download the archived source file.');
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setArchiveActionError(downloadError instanceof Error ? downloadError.message : 'Unable to download the archived workbook.');
     } finally {
       setDownloadingArchiveId(null);
     }
   };
 
+  useModalEscape(isReviewingCompanies, () => setIsReviewingCompanies(false));
+
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+      <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2.5">
-          <span className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
+          <span className="rounded-lg bg-blue-50 p-1.5 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
             <FileSpreadsheet size={20} />
           </span>
-          <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">
-            Import Evaluation Responses
-          </h2>
+          <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">Import Evaluation Responses</h2>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-3xl">
-          Stage the Supplier, Subcontractor, and Courier exports for one evaluation period below, then import them
-          together as a single batch. Company names are matched against the full Partner Registry (any
-          classification or archive state), and each source row's own "ID" column keeps re-uploads idempotent -
-          importing a refreshed export updates the same rows instead of duplicating them.
+        <p className="mt-1 max-w-3xl text-xs text-slate-500 dark:text-slate-400">
+          Upload one Excel workbook containing the Supplier, Subcontractor, and Courier evaluation worksheets. The system detects each form and imports all three categories together.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {FORM_CARDS.map(({ surveyType, title, formLabel, icon: Icon }) => {
-          const card = state[surveyType];
-          const isDragOver = dragOverType === surveyType;
-          return (
-            <div
-              key={surveyType}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col"
-            >
-              <div className="flex items-center gap-3 mb-1">
-                <span className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-[#0063a9] dark:text-blue-400">
-                  <Icon size={18} />
-                </span>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-white">{title} Evaluations</h3>
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{formLabel}</p>
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-label="Combined evaluation workbook upload">
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={(event) => {
+            const selected = event.target.files?.[0];
+            event.target.value = '';
+            if (selected) void inspectWorkbook(selected);
+          }}
+        />
+
+        {!file && (
+          <div
+            onDragEnter={(event) => { event.preventDefault(); setIsDragOver(true); }}
+            onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }}
+            onDragLeave={(event) => { event.preventDefault(); setIsDragOver(false); }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragOver(false);
+              const dropped = event.dataTransfer.files?.[0];
+              if (dropped) void inspectWorkbook(dropped);
+            }}
+            onClick={() => fileInput.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                fileInput.current?.click();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            className={`flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${isDragOver ? 'border-[#0063a9] bg-blue-50/70 dark:bg-blue-950/30' : 'border-slate-200 hover:border-[#0063a9]/60 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900/60'}`}
+          >
+            <FileSpreadsheet size={38} className="text-emerald-600" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-bold text-slate-800 dark:text-white">Drop combined evaluation workbook here</p>
+              <p className="mt-1 text-xs text-slate-500">or <span className="font-semibold text-[#0063a9] dark:text-blue-400">browse file</span></p>
+            </div>
+            <p className="text-[11px] text-slate-400">Supported format: Excel workbook (.xlsx/.xls), up to 25 MB</p>
+          </div>
+        )}
+
+        {file && (
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="rounded-lg bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"><FileSpreadsheet size={22} /></span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-slate-800 dark:text-white" title={file.name}>{file.name}</p>
+                <p className="text-xs text-slate-500">{formatFileSize(file.size)} · {isScanning ? 'Checking worksheets…' : 'Workbook selected'}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {isScanning && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Loader2 size={14} className="animate-spin" /> Detecting categories</span>}
+              {!isScanning && <button type="button" onClick={() => void inspectWorkbook(file)} className="secondary-button min-h-9 px-3 text-xs">Check again</button>}
+              <button
+                type="button"
+                onClick={() => { setFile(null); setPreviews(emptyPreviews()); setDecisions(emptyDecisions()); setSummaries(null); setError(''); }}
+                disabled={isScanning || isImporting}
+                title="Remove workbook"
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40 dark:hover:bg-rose-950/30"
+              ><X size={17} /></button>
+            </div>
+          </div>
+        )}
+
+        {error && <p role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-400"><AlertTriangle size={15} className="mt-0.5 shrink-0" />{error}</p>}
+
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {FORM_CARDS.map(({ surveyType, title, formLabel, icon: Icon }) => {
+            const preview = previews[surveyType];
+            const summary = summaries?.find((item) => item.surveyType === surveyType);
+            return (
+              <div key={surveyType} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                <div className="flex items-start gap-3">
+                  <span className="rounded-lg bg-blue-50 p-2 text-[#0063a9] dark:bg-blue-950/40 dark:text-blue-400"><Icon size={19} /></span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-white">{title} Evaluations</h3>
+                    <p className="mt-0.5 text-[11px] text-slate-400">{formLabel}</p>
+                  </div>
+                  {preview && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"><CheckCircle2 size={12} /> Worksheet found</span>}
+                </div>
+                <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+                  {preview ? (
+                    <>
+                      <p className="text-[10px] uppercase tracking-wide text-slate-400">Worksheet name</p>
+                      <p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={preview.sheetName}>{preview.sheetName}</p>
+                      <p className="mt-2 text-[11px] text-slate-500">{preview.rows.length} response rows detected</p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-400">{isScanning ? 'Looking for this evaluation form…' : 'Worksheet will be detected after upload'}</p>
+                  )}
+                  {summary && (
+                    <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs dark:bg-emerald-950/20">
+                      <p className="font-bold text-emerald-700 dark:text-emerald-400">Import complete · {summary.imported} submissions</p>
+                      {summary.replaced > 0 && <p className="mt-1 text-amber-700 dark:text-amber-400">{summary.replaced} existing submissions updated</p>}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              <input
-                ref={fileInputs[surveyType]}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={(e) => handleFileSelected(surveyType, e)}
-              />
-
-              {card.stagedFile ? (
-                <div className="mt-5 rounded-xl border-2 border-dashed border-[#0063a9]/40 bg-blue-50/40 dark:bg-blue-950/10 p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[#0063a9] dark:text-blue-400 shrink-0">
-                      <FileSpreadsheet size={18} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-slate-800 dark:text-white truncate" title={card.stagedFile.name}>
-                        {card.stagedFile.name}
-                      </p>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                        {formatFileSize(card.stagedFile.size)} - ready to import
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => clearStagedFile(surveyType)}
-                      disabled={card.isImporting}
-                      title="Remove this file"
-                      className="shrink-0 p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  onDragEnter={(e) => handleDragEnter(surveyType, e)}
-                  onDragOver={handleDragOver}
-                  onDragLeave={(e) => handleDragLeave(surveyType, e)}
-                  onDrop={(e) => handleDrop(surveyType, e)}
-                  onClick={() => !card.isImporting && fileInputs[surveyType].current?.click()}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if ((e.key === 'Enter' || e.key === ' ') && !card.isImporting) {
-                      e.preventDefault();
-                      fileInputs[surveyType].current?.click();
-                    }
-                  }}
-                  aria-disabled={card.isImporting}
-                  className={`mt-5 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors duration-150 ${
-                    card.isImporting
-                      ? 'cursor-wait opacity-60 border-slate-200 dark:border-slate-800'
-                      : isDragOver
-                      ? 'cursor-copy border-[#0063a9] bg-blue-50/60 dark:bg-blue-950/30'
-                      : 'cursor-pointer border-slate-200 dark:border-slate-700 hover:border-[#0063a9]/60 hover:bg-slate-50 dark:hover:bg-slate-900/60'
-                  }`}
-                >
-                  {card.isImporting ? (
-                    <Loader2 size={20} className="animate-spin text-[#0063a9] dark:text-blue-400" />
-                  ) : (
-                    <UploadCloud size={20} className={isDragOver ? 'text-[#0063a9] dark:text-blue-400' : 'text-slate-400'} />
-                  )}
-                  <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                    {card.isImporting ? 'Importing…' : isDragOver ? 'Drop to import' : 'Drag & drop Excel or CSV file here'}
-                  </p>
-                  {!card.isImporting && (
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                      or <span className="font-semibold text-[#0063a9] dark:text-blue-400">browse (.xlsx/.xls/.csv)</span>
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {card.error && (
-                <div className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 px-3 py-2.5 text-[11px] text-rose-700 dark:text-rose-400">
-                  <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                  <span>{card.error}</span>
-                </div>
-              )}
-
-              {card.result && (
-                <div className="mt-4 space-y-3">
-                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 size={15} className="shrink-0" />
-                    <span className="text-xs font-bold">Import complete</span>
-                  </div>
-                  <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Original source file saved to the private Supabase archive.</p>
-
-                  <div className="grid grid-cols-1 gap-2 text-xs min-[420px]:grid-cols-2">
-                    <div className="bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                      <span className="text-slate-400 font-medium block text-[10px] uppercase tracking-wider">Submissions</span>
-                      <strong className="text-slate-800 dark:text-slate-100 text-base">{card.result.imported}</strong>
-                    </div>
-                    <div className="bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                      <span className="text-slate-400 font-medium block text-[10px] uppercase tracking-wider">Rows in file</span>
-                      <strong className="text-slate-800 dark:text-slate-100 text-base">{card.result.totalRows}</strong>
-                    </div>
-                    {card.result.replaced > 0 && (
-                      <div className="bg-amber-50 dark:bg-amber-950/20 p-2.5 rounded-lg border border-amber-100 dark:border-amber-900 col-span-2">
-                        <span className="text-amber-700 dark:text-amber-400 font-medium block text-[10px] uppercase tracking-wider">Replaced (re-import)</span>
-                        <strong className="text-amber-800 dark:text-amber-300 text-base">{card.result.replaced}</strong>
-                      </div>
-                    )}
-                  </div>
-
-                  {card.result.dateRange && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Covers {formatDate(card.result.dateRange.earliest)} - {formatDate(card.result.dateRange.latest)}
-                    </p>
-                  )}
-
-                  {card.result.skippedBlank > 0 && (
-                    <p className="text-[11px] text-slate-400">{card.result.skippedBlank} blank row(s) skipped.</p>
-                  )}
-
-                  {card.result.missingRespondentInfo > 0 && (
-                    <p className="text-[11px] text-slate-400">
-                      {card.result.missingRespondentInfo} row(s) had no designation/department on file and were marked "Unspecified".
-                    </p>
-                  )}
-
-                  {card.result.needsReclassification.length > 0 && (
-                    <div className="rounded-lg border border-sky-200 dark:border-sky-900/50 bg-sky-50 dark:bg-sky-950/10 p-3">
-                      <p className="text-[11px] font-bold text-sky-700 dark:text-sky-400 flex items-center gap-1.5">
-                        <Building2 size={12} />
-                        {card.result.needsReclassification.length} matched compan{card.result.needsReclassification.length === 1 ? 'y needs' : 'ies need'} reclassification
-                      </p>
-                      <p className="text-[10px] text-sky-600/80 dark:text-sky-400/70 mt-1">
-                        Found in the Partner Registry under a different classification. Responses were still imported
-                        under their registry name - update the company's type in Partner Companies to fully activate it:
-                      </p>
-                      <ul className="mt-1.5 space-y-0.5 max-h-28 overflow-y-auto pr-1">
-                        {card.result.needsReclassification.map((n) => (
-                          <li key={n.canonicalName} className="text-[11px] text-sky-800 dark:text-sky-300 truncate">
-                            - {n.canonicalName} <span className="text-sky-500/80">({n.currentType}{n.isArchived ? ', archived' : ''})</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {card.result.addedCompanies.length > 0 && (
-                    <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/10 p-3">
-                      <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                        <UserPlus size={12} />
-                        {card.result.addedCompanies.length} new partner{card.result.addedCompanies.length === 1 ? '' : 's'} added
-                      </p>
-                      <p className="text-[10px] text-amber-600/80 dark:text-amber-400/70 mt-1">
-                        Added with just a name - insufficient data yet. Fill in address/contact/email in Partner Companies:
-                      </p>
-                      <ul className="mt-1.5 space-y-0.5 max-h-28 overflow-y-auto pr-1">
-                        {card.result.addedCompanies.map((name) => (
-                          <li key={name} className="text-[11px] text-amber-800 dark:text-amber-300 truncate">- {name}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {card.result.skippedCompanies.length > 0 && (
-                    <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-3">
-                      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                        <SkipForward size={12} />
-                        {card.result.skippedCompanies.length} company/ies skipped (not imported)
-                      </p>
-                      <ul className="mt-1.5 space-y-0.5 max-h-24 overflow-y-auto pr-1">
-                        {card.result.skippedCompanies.map((name) => (
-                          <li key={name} className="text-[11px] text-slate-500 dark:text-slate-400 truncate">- {name}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {stagedCards.length > 0 && (
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            <strong className="text-slate-700 dark:text-slate-200">{stagedCards.length}</strong> of 3 file{stagedCards.length === 1 ? '' : 's'} staged for this batch -{' '}
-            {stagedCards.map(({ title }) => title).join(', ')}
-          </p>
-          <button
-            type="button"
-            onClick={handleImportAll}
-            disabled={anyImporting}
-            className="self-end sm:self-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#0063a9] hover:bg-[#00528c] disabled:opacity-60 disabled:cursor-wait px-5 py-2.5 text-xs font-bold text-white shadow-md transition cursor-pointer"
-          >
-            {anyImporting ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
-            {anyImporting ? 'Importing…' : stagedCards.length > 1 ? `Import (${stagedCards.length})` : 'Import'}
-          </button>
+            );
+          })}
         </div>
-      )}
+
+        {workbookReady && !summaries && (
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <CalendarDays size={16} className="text-[#0063a9]" />
+              <span>All three evaluation categories are ready to import together.</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={isImporting}
+              className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-lg bg-[#0063a9] px-5 py-2.5 text-xs font-bold text-white shadow-md transition hover:bg-[#00528c] disabled:cursor-wait disabled:opacity-60 sm:self-auto"
+            >
+              {isImporting ? <Loader2 size={15} className="animate-spin" /> : <UploadCloud size={15} />}
+              {isImporting ? 'Importing all evaluations…' : 'Import all evaluations'}
+            </button>
+          </div>
+        )}
+
+        {summaries && <p role="status" className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300">The original workbook was archived once. Re-uploads update matching responses using each worksheet row's source ID.</p>}
+        <p className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2.5 text-[11px] text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300">
+          Company names are matched against the full Partner Registry, including companies with another classification or an archived status. Each response ID comes from its own worksheet's source ID.
+        </p>
+      </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-labelledby="evaluation-import-archive-title">
         <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-          <div className="flex items-center gap-2">
-            <LockKeyhole size={16} className="text-[#0063a9] dark:text-blue-400" aria-hidden="true" />
-            <h3 id="evaluation-import-archive-title" className="text-sm font-bold text-slate-800 dark:text-slate-100">Stored Source Files</h3>
-          </div>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Original Microsoft Forms exports are kept in private Supabase Storage. Only Admins can view or download them.</p>
+          <div className="flex items-center gap-2"><LockKeyhole size={16} className="text-[#0063a9] dark:text-blue-400" aria-hidden="true" /><h3 id="evaluation-import-archive-title" className="text-sm font-bold text-slate-800 dark:text-slate-100">Stored Source Files</h3></div>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Original evaluation workbooks are stored in private Supabase Storage. Only Admins can view or download them.</p>
         </div>
-
         {archiveLoadError && <p role="alert" className="px-5 py-3 text-xs text-rose-600 dark:text-rose-400">{archiveLoadError}</p>}
         {archiveActionError && <p role="alert" className="px-5 py-3 text-xs text-rose-600 dark:text-rose-400">{archiveActionError}</p>}
         {isLoadingArchives ? (
-          <div className="flex items-center gap-2 px-5 py-5 text-xs text-slate-500" role="status">
-            <Loader2 size={14} className="animate-spin" aria-hidden="true" /> Loading stored files...
-          </div>
+          <div className="flex items-center gap-2 px-5 py-5 text-xs text-slate-500" role="status"><Loader2 size={14} className="animate-spin" aria-hidden="true" />Loading stored files…</div>
         ) : archives.length === 0 ? (
           <p className="px-5 py-5 text-xs text-slate-500 dark:text-slate-400">No source files have been archived yet.</p>
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {archives.slice(0, 20).map((archive) => (
               <li key={archive.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-start gap-3">
-                  <FileSpreadsheet size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={archive.sourceFileName}>{archive.sourceFileName}</p>
-                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                      {archive.surveyType} · {formatFileSize(archive.fileSize)} · {new Date(archive.uploadedAt).toLocaleString()} · {archive.uploadedBy}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleDownloadArchive(archive)}
-                  disabled={downloadingArchiveId !== null}
-                  className="secondary-button min-h-9 shrink-0 gap-1.5 px-3 text-xs disabled:opacity-60"
-                >
-                  {downloadingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
-                  Download
+                <div className="flex min-w-0 items-start gap-3"><FileSpreadsheet size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={archive.sourceFileName}>{archive.sourceFileName}</p><p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{archive.surveyType === 'Combined' ? 'All evaluation categories' : archive.surveyType} · {formatFileSize(archive.fileSize)} · {new Date(archive.uploadedAt).toLocaleString()} · {archive.uploadedBy}</p></div></div>
+                <button type="button" onClick={() => void handleDownloadArchive(archive)} disabled={downloadingArchiveId !== null} className="secondary-button min-h-9 shrink-0 gap-1.5 px-3 text-xs disabled:opacity-60">
+                  {downloadingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}Download workbook
                 </button>
               </li>
             ))}
@@ -522,112 +339,29 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommit }:
         )}
       </section>
 
-      {modalSurveyType && modalCard?.pendingPreview && (
+      {isReviewingCompanies && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-transparent dark:bg-slate-950 relative animate-in fade-in zoom-in-95 duration-150 max-h-[85vh] flex flex-col">
-            <button
-              onClick={() => patchCard(modalSurveyType, { pendingPreview: null })}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 cursor-pointer"
-              title="Cancel import"
-              type="button"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="flex items-center gap-3 text-amber-600 shrink-0">
-              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 p-2">
-                <AlertTriangle size={20} />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Companies not found</h3>
-                <p className="text-xs text-slate-500">
-                  {modalUnmatched.length} name{modalUnmatched.length === 1 ? '' : 's'} in this file don't match anyone in the Partner Registry
-                </p>
-              </div>
+          <div role="dialog" aria-modal="true" aria-labelledby="company-match-review-title" className="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+            <button type="button" onClick={() => setIsReviewingCompanies(false)} className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-white" title="Close review"><X size={18} /></button>
+            <div className="flex items-center gap-3 text-amber-600"><span className="rounded-lg bg-amber-50 p-2 dark:bg-amber-950/30"><AlertTriangle size={20} /></span><div><h3 id="company-match-review-title" className="text-lg font-bold text-slate-900 dark:text-white">Review unmatched companies</h3><p className="text-xs text-slate-500">These names appear in the workbook but were not found in the Partner Registry.</p></div></div>
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <button type="button" onClick={() => setDecisions((current) => ({ ...current, ...Object.fromEntries(SURVEY_TYPES.map((surveyType) => [surveyType, Object.fromEntries(Object.keys(current[surveyType]).map((name) => [name, 'add-as-partner' as CompanyDecision]))])) }))} className="text-[11px] font-bold text-[#0063a9] hover:underline dark:text-blue-400">Add all as partners</button>
+              <button type="button" onClick={() => setDecisions((current) => ({ ...current, ...Object.fromEntries(SURVEY_TYPES.map((surveyType) => [surveyType, Object.fromEntries(Object.keys(current[surveyType]).map((name) => [name, 'skip' as CompanyDecision]))])) }))} className="text-[11px] font-bold text-slate-500 hover:underline">Skip all</button>
             </div>
-
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-4 shrink-0">
-              Skip a company to leave its evaluation rows out of this import, or add it as a new partner (with just a
-              name - you'll fill in the rest later) so its responses still count toward analytics.
-            </p>
-
-            <div className="flex items-center gap-2 mt-3 shrink-0">
-              <button
-                type="button"
-                onClick={() => setAllDecisions(modalSurveyType, 'add-as-partner')}
-                className="text-[11px] font-bold text-[#0063a9] dark:text-blue-400 hover:underline cursor-pointer"
-              >
-                Add all as partners
-              </button>
-              <span className="text-slate-300 dark:text-slate-700">|</span>
-              <button
-                type="button"
-                onClick={() => setAllDecisions(modalSurveyType, 'skip')}
-                className="text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:underline cursor-pointer"
-              >
-                Skip all
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-2 overflow-y-auto pr-1 flex-1">
-              {modalUnmatched.map((m) => {
-                const decision = modalCard.decisions[m.normalizedName] ?? 'add-as-partner';
-                return (
-                  <div
-                    key={m.normalizedName}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 dark:border-slate-800 px-3 py-2.5"
-                  >
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{m.rawName}</span>
-                    <div className="flex rounded-lg border border-slate-200 dark:border-slate-800 p-0.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setDecision(modalSurveyType, m.normalizedName, 'add-as-partner')}
-                        className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition cursor-pointer ${
-                          decision === 'add-as-partner'
-                            ? 'bg-[#0063a9] text-white'
-                            : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900'
-                        }`}
-                      >
-                        <UserPlus size={11} />
-                        Add
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDecision(modalSurveyType, m.normalizedName, 'skip')}
-                        className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition cursor-pointer ${
-                          decision === 'skip'
-                            ? 'bg-slate-600 text-white dark:bg-slate-700'
-                            : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900'
-                        }`}
-                      >
-                        <SkipForward size={11} />
-                        Skip
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-end gap-3 mt-5 border-t border-slate-100 dark:border-slate-800 pt-4 shrink-0">
-              <button
-                onClick={() => patchCard(modalSurveyType, { pendingPreview: null, pendingFile: null })}
-                className="secondary-button py-2 px-4 text-xs"
-                type="button"
-              >
-                Cancel Import
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (modalCard.pendingFile) {
-                    void runCommit(modalSurveyType, modalCard.pendingPreview!, modalCard.decisions, modalCard.pendingFile);
-                  }
-                }}
-                className="bg-[#0063a9] hover:bg-[#00528c] text-white flex items-center justify-center gap-1.5 py-2.5 px-5 text-xs font-bold rounded-lg transition cursor-pointer"
-              >
-                <CheckCircle2 size={14} />
-                Continue Import
+            <ul className="mt-3 flex-1 space-y-2 overflow-y-auto pr-1">
+              {unmatchedCompanies.map(({ surveyType, match }) => (
+                <li key={`${surveyType}-${match.normalizedName}`} className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100">{match.rawName}</p><p className="text-[10px] text-slate-500">{surveyType} worksheet</p></div>
+                  <select aria-label={`How to handle ${match.rawName}`} value={decisions[surveyType][match.normalizedName] ?? 'add-as-partner'} onChange={(event) => patchDecision(surveyType, match.normalizedName, event.target.value as CompanyDecision)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <option value="add-as-partner">Add as a new partner</option><option value="skip">Skip this company's responses</option>
+                  </select>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+              <button type="button" onClick={() => setIsReviewingCompanies(false)} className="secondary-button min-h-10 px-4 text-xs">Cancel</button>
+              <button type="button" onClick={() => void runBatchImport()} disabled={isImporting} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#0063a9] px-4 text-xs font-bold text-white hover:bg-[#00528c] disabled:opacity-60">
+                {isImporting && <Loader2 size={14} className="animate-spin" />}Confirm and import all
               </button>
             </div>
           </div>

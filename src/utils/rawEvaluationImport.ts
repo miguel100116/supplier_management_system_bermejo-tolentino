@@ -331,6 +331,7 @@ interface ParsedRow {
 
 export interface RawEvalPreview {
   surveyType: SurveyType;
+  sheetName: string;
   fileName: string;
   importBatchId: string;
   totalRows: number;
@@ -376,20 +377,38 @@ export async function previewRawEvaluationImport(
   const buffer = await file.arrayBuffer();
   const fileHash = await sourceFileHash(buffer, file.name);
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) throw new Error('The uploaded file has no sheets.');
+  if (workbook.SheetNames.length === 0) throw new Error('The uploaded file has no sheets.');
 
-  const rawRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  if (rawRows.length === 0) throw new Error('The uploaded file has no rows.');
+  const headerSearchRows = 25;
+  const matchingSheets: Array<{ sheetName: string; rows: unknown[][]; headerRowIndex: number }> = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    const candidateRows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const candidateHeaderIndex = candidateRows
+      .slice(0, headerSearchRows)
+      .findIndex((row) => {
+        const anchorText = textCell(row[spec.headerAnchor.col]).replace(/\s+/g, ' ');
+        return anchorText.toLowerCase().includes(spec.headerAnchor.text.toLowerCase());
+      });
+    if (candidateHeaderIndex >= 0) matchingSheets.push({ sheetName, rows: candidateRows, headerRowIndex: candidateHeaderIndex });
+  }
 
-  const header = rawRows[0];
-  const anchorText = textCell(header[spec.headerAnchor.col]).replace(/\s+/g, ' ');
-  if (!anchorText.toLowerCase().includes(spec.headerAnchor.text.toLowerCase())) {
+  if (matchingSheets.length === 0) {
     const colLetter = XLSX.utils.encode_col(spec.headerAnchor.col);
     throw new Error(
-      `This doesn't look like the ${surveyType} Evaluation Form export - expected column ${colLetter} to contain "${spec.headerAnchor.text}".`
+      `This doesn't look like the ${surveyType} Evaluation Form export - expected column ${colLetter} to contain "${spec.headerAnchor.text}" in a header row within the first ${headerSearchRows} rows of a worksheet.`
     );
   }
+
+  if (matchingSheets.length > 1) {
+    throw new Error(`The workbook has more than one worksheet that looks like a ${surveyType} evaluation. Keep only one ${surveyType} evaluation worksheet.`);
+  }
+
+  const [{ sheetName, rows: rawRows, headerRowIndex }] = matchingSheets;
+
+  const header = rawRows[headerRowIndex];
+  if (!header) throw new Error('The uploaded file has no header row.');
 
   const emailProfile = new Map(accounts.map((a) => [a.email.trim().toLowerCase(), a]));
   const matchByNormalized = new Map<string, CompanyMatchInfo>();
@@ -400,15 +419,18 @@ export async function previewRawEvaluationImport(
   let earliest: string | undefined;
   let latest: string | undefined;
 
-  rawRows.slice(1).forEach((cells, i) => {
-    const sourceRow = i + 2;
+  rawRows.slice(headerRowIndex + 1).forEach((cells, i) => {
+    const sourceRow = headerRowIndex + i + 2;
     const rawCompany = textCell(cells[spec.nameCol]);
     if (!rawCompany) {
       skippedBlank += 1;
       return;
     }
 
-    const excelId = textCell(cells[spec.idCol]) || String(sourceRow);
+    const excelId = textCell(cells[spec.idCol]);
+    if (!excelId) {
+      throw new Error(`${surveyType} worksheet "${sheetName}" has a response without an ID in column A (row ${sourceRow}). Each response needs its source ID for safe re-imports.`);
+    }
     const responseId = `IMPORT-${surveyType.toUpperCase()}-${excelId}`;
 
     const startTime = toIso(cells[spec.startTimeCol]) ?? undefined;
@@ -461,9 +483,10 @@ export async function previewRawEvaluationImport(
 
   return {
     surveyType,
+    sheetName,
     fileName: file.name,
     importBatchId: `client-csv:${surveyType.toLowerCase()}:${fileHash}`,
-    totalRows: rawRows.length - 1,
+    totalRows: rawRows.length - headerRowIndex - 1,
     skippedBlank,
     missingRespondentInfo,
     dateRange: earliest && latest ? { earliest, latest } : undefined,

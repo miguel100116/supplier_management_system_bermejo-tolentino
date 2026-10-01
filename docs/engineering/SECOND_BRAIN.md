@@ -397,6 +397,16 @@ Consequences: The import is stopped if the original file cannot be archived, pre
 
 Evidence: `src/features/evaluation-imports/`, `src/pages/ImportEvaluationsPage.tsx`, `src/services/applicationRepository.ts`, `src/services/applicationRecordSchemas.ts`, `supabase/migrations/202609300001_evaluation_import_archives.sql`.
 
+### 2026-10-01 - Import all evaluation categories from one workbook
+
+Status: implemented locally; production behavior has not been verified
+
+Decision: The Admin import page accepts one `.xlsx` or `.xls` workbook and detects exactly one worksheet for each Supplier, Subcontractor, and Courier form by its official company-name header. It previews all categories together, reviews unmatched company decisions in one dialog, archives the workbook once as a Combined source file, and upserts all categorized response rows together. Each row must have its source `ID`; that ID plus survey type forms the stable response key. Company resolution continues to check the full Partner Registry, including archived and differently classified entries.
+
+Consequences: Combined source archive metadata uses `surveyType: Combined` under the existing record type and private bucket; no database migration is required because the archive type is validated in the application payload. A failed/partial multi-request Supabase write is not a database transaction and can still require refresh/retry. CSV remains unsupported for combined workbooks.
+
+Evidence: `src/pages/ImportEvaluationsPage.tsx`, `src/utils/rawEvaluationImport.ts`, `src/hooks/useSurveyData.ts`, `src/features/evaluation-imports/domain/importArchive.ts`.
+
 ### 2026-09-30 - Lazy-load authenticated application pages
 
 Status: accepted and locally verified; production web-vitals measurement remains pending
@@ -418,6 +428,18 @@ Decision: After authorization, wait for partner companies, surveys, and evaluati
 Consequences: Supporting settings and notification hydration no longer extend the dashboard's initial loading screen. The documented 6,355-row response dataset fits in one parallel follow-up batch after the first page and uses six page requests instead of twelve at the configured limit. A lower hosted API limit causes contiguous follow-up reads rather than silently omitting rows. The RLS optimization must be applied to the intended Supabase environment before it affects hosted queries; it has not been applied remotely. Core records still come from Supabase, and real staging/production latency remains unmeasured.
 
 Evidence: `src/hooks/useSurveyData.ts`, `src/services/applicationRepository.ts`, `src/services/applicationRepository.test.ts`, `src/services/sharedPersistenceMigration.test.ts`, `supabase/migrations/202609300002_cache_startup_rls_helpers.sql`; 115 tests, TypeScript checks, and production build passed locally on 2026-09-30. Hosted query latency is not yet measured.
+
+### 2026-10-01 - Avoid exact-count scans during employee response loading
+
+Status: implemented locally; hosted query behavior has not been verified
+
+Context: An Employee session reported `canceling statement due to statement timeout` while loading `survey_response` records. The initial repository request asked Postgres for an exact count under response RLS before returning its first page.
+
+Decision: Load the first page without requesting an exact count, then continue from the number of rows actually received. This leaves the RLS policy unchanged and avoids requiring a full visible-row count just to begin hydration.
+
+Consequences: Follow-up pages are requested sequentially when the server does not return an exact count. The existing startup-RLS helper migration `202609300002_cache_startup_rls_helpers.sql` is still needed in the target Supabase environment for its planned per-statement authorization-helper optimization; this workspace could not verify remote migration state or hosted latency.
+
+Evidence: `src/services/applicationRepository.ts`, `supabase/migrations/202609300002_cache_startup_rls_helpers.sql`.
 
 ### 2026-09-25 - Non-blocking authenticated startup hydration
 
