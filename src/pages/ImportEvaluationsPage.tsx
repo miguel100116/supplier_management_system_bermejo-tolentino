@@ -19,6 +19,7 @@ import { SurveyType } from '../types/survey';
 import { RawEvalImportSummary, RawEvalPreview, CompanyDecision } from '../utils/rawEvaluationImport';
 import { useEvaluationImportArchives } from '../features/evaluation-imports/hooks/useEvaluationImportArchives';
 import { EvaluationImportArchive, MAX_EVALUATION_IMPORT_FILE_BYTES } from '../features/evaluation-imports/domain/importArchive';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
 
@@ -201,6 +202,9 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommit }:
 
   const modalSurveyType = FORM_CARDS.find(({ surveyType }) => state[surveyType].pendingPreview)?.surveyType ?? null;
   const modalCard = modalSurveyType ? state[modalSurveyType] : null;
+  useModalEscape(Boolean(modalSurveyType), () => {
+    if (modalSurveyType) patchCard(modalSurveyType, { pendingPreview: null });
+  });
   const modalUnmatched = modalCard?.pendingPreview?.companyMatches.filter((m) => m.status === 'unmatched') ?? [];
 
   const setDecision = (surveyType: SurveyType, key: string, decision: CompanyDecision) => {

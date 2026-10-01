@@ -4,6 +4,7 @@ import { Clock, CheckCircle2, RotateCcw, Send, AlertTriangle, FileText, Search, 
 import { ReturnReasonModal } from './ReturnReasonModal';
 import { TableFilterBar } from '../TableFilterBar';
 import { compareDate, compareText, isWithinDateRange } from '../../utils/tableFilters';
+import { useModalEscape } from '../../hooks/useModalEscape';
 
 interface SentReportsTabProps {
   sentReports: QueuedReportEmail[];
@@ -52,6 +53,10 @@ export function SentReportsTab({
 
   // Settings Modal State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  useModalEscape(Boolean(reportToReturn), () => setReportToReturn(null), 15);
+  useModalEscape(Boolean(reportToPreview), () => setReportToPreview(null), 10);
+  useModalEscape(Boolean(historyReport), () => setHistoryReport(null), 10);
+  useModalEscape(showSettingsModal, () => setShowSettingsModal(false));
 
   // Filtered list
   const filteredReports = useMemo(() => sentReports.filter((r) => {

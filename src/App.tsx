@@ -32,6 +32,7 @@ import { FilterState, SurveyType, CustomForm, SurveyResponse } from './types/sur
 import { PageModuleKey, getDefaultPermissions, getEffectiveSurveyTypes, hasPageAccess, getDepartmentDefaultPermissions } from './utils/rbac';
 import { clearSessionActivity, recordSessionActivity, useIdleSessionTimeout } from './hooks/useIdleSessionTimeout';
 import { formatSessionTimeRemaining } from './utils/sessionTimeout';
+import { useModalEscape } from './hooks/useModalEscape';
 
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(({ AnalyticsPage }) => ({ default: AnalyticsPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(({ DashboardPage }) => ({ default: DashboardPage })));
@@ -403,23 +404,17 @@ export default function App() {
   const [isSupabaseHydrating, setIsSupabaseHydrating] = useState(isSupabaseConfigured);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  useModalEscape(isNotificationModalOpen, () => setIsNotificationModalOpen(false), 9999);
+  useModalEscape(isSettingsModalOpen, () => setIsSettingsModalOpen(false), 200);
+  useModalEscape(isSessionWarningVisible, staySignedIn, 300);
 
   useEffect(() => {
     if (!isNotificationModalOpen && !isSettingsModalOpen) return;
 
     const previousOverflow = document.body.style.overflow;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsNotificationModalOpen(false);
-        setIsSettingsModalOpen(false);
-      }
-    };
-
     document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', handleEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', handleEscape);
     };
   }, [isNotificationModalOpen, isSettingsModalOpen]);
 

@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useModalEscape } from '../hooks/useModalEscape';
 import {
   Plus,
   Trash,
@@ -252,6 +253,14 @@ export function PartnerCompaniesPage({
   // until they click "Apply Update" on the review modal below.
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState('');
+  useModalEscape(Boolean(flagConfirmTarget), () => setFlagConfirmTarget(null), 60);
+  useModalEscape(Boolean(renewalTarget && selectedCompany), () => setRenewalTarget(null), 60);
+  useModalEscape(Boolean(companyToDelete), () => setCompanyToDelete(null), 60);
+  useModalEscape(Boolean(companyToArchive), () => setCompanyToArchive(null), 60);
+  useModalEscape(Boolean(importPreview), () => setImportPreview(null), 50);
+  useModalEscape(Boolean(importResult), () => setImportResult(null), 50);
+  useModalEscape(isRegisterOpen, () => setIsRegisterOpen(false), 50);
+  useModalEscape(Boolean(selectedCompany), () => setSelectedCompany(null), 50);
 
   type SortKey = 'name' | 'type' | 'registeredAt' | 'docStatus';
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>(null);

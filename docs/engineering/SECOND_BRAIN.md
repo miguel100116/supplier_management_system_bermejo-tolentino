@@ -329,6 +329,12 @@ Decision: Treat department permissions as the maximum module set for Employee ac
 
 Evidence: `src/pages/AccountManagementPage.tsx`, `src/layouts/Shell.tsx`, `src/App.tsx`, and `src/utils/rbac.ts`.
 
+### 2026-10-01 - Escape closes the topmost open modal
+
+Decision: Modal dialogs register a shared Escape action; Escape closes only the topmost open dialog so nested confirmations do not close their parent at the same time. The active-company dialog uses the same stack as page and shell dialogs.
+
+Evidence: `src/hooks/useModalEscape.ts` and modal callers across `src/`.
+
 ### 2026-09-24 - Runtime record validation and rejected-write recovery
 
 Status: accepted and locally verified in the working tree

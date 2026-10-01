@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, RotateCcw, AlertTriangle } from 'lucide-react';
+import { useModalEscape } from '../../hooks/useModalEscape';
 
 interface ReturnReasonModalProps {
   reportTitle: string;
@@ -16,6 +17,7 @@ export function ReturnReasonModal({
   onConfirmReturn,
   onClose,
 }: ReturnReasonModalProps) {
+  useModalEscape(true, onClose);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
 

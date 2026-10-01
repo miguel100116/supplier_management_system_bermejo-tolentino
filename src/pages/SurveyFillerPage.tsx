@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useModalEscape } from '../hooks/useModalEscape';
 import { CheckCircle, Info, Shield, ArrowRight, ClipboardCopy, Send, UserCheck, ArrowLeft } from 'lucide-react';
 import { CustomForm, Rating, PartnerCompany } from '../types/survey';
 import { isValidDDMMYYYY } from '../utils/time';
@@ -356,6 +357,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     pendingExitRef.current = null;
     setShowDraftModal(false);
   };
+  useModalEscape(showDraftModal, handleCancelDraftModal);
 
   const handleRatingChange = (qId: string, value: any) => {
     setRatings((prev) => ({ ...prev, [qId]: value }));

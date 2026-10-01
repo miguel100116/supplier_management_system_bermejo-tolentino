@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useModalEscape } from '../../../hooks/useModalEscape';
 import { Loader2, X } from 'lucide-react';
 import type { SurveyType } from '../../../types/survey';
 import {
@@ -54,6 +55,7 @@ function formatSnapshotDate(value: string): string {
 }
 
 export function ActiveCompaniesModal({ isOpen, onClose }: ActiveCompaniesModalProps) {
+  useModalEscape(isOpen, onClose, 220);
   const [snapshots, setSnapshots] = useState<ActiveCompanySnapshot[]>([]);
   const [selectedIds, setSelectedIds] = useState<Partial<Record<SurveyType, string>>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -101,15 +103,6 @@ export function ActiveCompaniesModal({ isOpen, onClose }: ActiveCompaniesModalPr
       window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, handleRecordChange);
     };
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 

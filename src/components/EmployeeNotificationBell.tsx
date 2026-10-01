@@ -9,6 +9,7 @@ import {
   subscribeNotificationState,
 } from '../utils/employeeNotificationState';
 import { getReminderFrequency } from '../utils/reminderSettings';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface EmployeeNotificationBellProps {
   userEmail: string;
@@ -33,6 +34,8 @@ export function EmployeeNotificationBell({
 }: EmployeeNotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<EmployeeNotification | null>(null);
+  useModalEscape(Boolean(selectedNotification), () => setSelectedNotification(null), 10);
+  useModalEscape(isOpen, () => setIsOpen(false));
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [, forceTick] = useState(0);
 

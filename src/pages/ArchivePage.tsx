@@ -17,6 +17,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { seriesTrend, companySeriesTrend } from '../utils/analytics';
 import { TableFilterBar } from '../components/TableFilterBar';
 import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface ArchivePageProps {
   surveys: CustomForm[];
@@ -254,6 +255,10 @@ export function ArchivePage({
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<ArchiveImportResult | null>(null);
   const [importError, setImportError] = useState('');
+  useModalEscape(confirmDeleteState.isOpen, () => setConfirmDeleteState({ isOpen: false }), 52);
+  useModalEscape(Boolean(confirmResponseGroup), () => setConfirmResponseGroup(null), 51);
+  useModalEscape(Boolean(confirmSurvey), () => setConfirmSurvey(null), 50);
+  useModalEscape(Boolean(importResult), () => setImportResult(null), 50);
 
   const handleExportSelected = () => {
     const rows = groupedArchivedResponses

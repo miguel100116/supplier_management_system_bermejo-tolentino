@@ -4,6 +4,7 @@ import { CustomForm, PartnerCompany, SurveyResponse } from '../../types/survey';
 import { submissionScores } from '../../utils/analytics';
 import { formatCompositeScore } from '../../data/questionWeights';
 import { getSurveyCompletionSummary } from '../../utils/surveyCompletion';
+import { useModalEscape } from '../../hooks/useModalEscape';
 import { SurveyAccount } from '../../hooks/useSurveyData';
 
 interface SurveyProgressModalProps {
@@ -25,6 +26,7 @@ export function SurveyProgressModal({
   onMarkComplete,
   isAdmin,
 }: SurveyProgressModalProps) {
+  useModalEscape(true, onClose);
   // Filter responses belonging to this survey
   const surveyResponses = responses.filter(
     (r) => r.surveyType === survey.surveyType && (!r.archived)

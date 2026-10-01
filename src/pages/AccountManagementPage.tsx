@@ -5,6 +5,7 @@ import { PageModuleKey, getDefaultPermissions, getDepartmentDefaultPermissions }
 import { SurveyType } from '../types/survey';
 import { TableFilterBar } from '../components/TableFilterBar';
 import { compareText } from '../utils/tableFilters';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface AccountManagementPageProps {
   accounts: AccountProfile[];
@@ -81,6 +82,9 @@ export function AccountManagementPage({
   const [selectedDept, setSelectedDept] = useState<AccountProfile['department']>(DEPARTMENT_OPTIONS[0]);
   const [deptPages, setDeptPages] = useState<PageModuleKey[]>([]);
   const [deptSurveyTypes, setDeptSurveyTypes] = useState<SurveyType[]>([]);
+  useModalEscape(Boolean(pendingEditAccount), () => setPendingEditAccount(null), 60);
+  useModalEscape(isDeptOpen, () => setIsDeptOpen(false), 50);
+  useModalEscape(isAddOpen, () => setIsAddOpen(false), 50);
 
   // Load selected department permissions into modal state
   useEffect(() => {

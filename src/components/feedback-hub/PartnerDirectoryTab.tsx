@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PartnerContact } from '../../types/feedbackHub';
 import { SurveyType } from '../../types/survey';
 import { Users, Plus, Mail, Building, Trash, Edit3, Search, Check, X, Sparkles } from 'lucide-react';
+import { useModalEscape } from '../../hooks/useModalEscape';
 
 interface PartnerDirectoryTabProps {
   contacts: PartnerContact[];
@@ -23,6 +24,7 @@ export function PartnerDirectoryTab({
 
   // Contact Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  useModalEscape(isModalOpen, () => setIsModalOpen(false));
   const [editingContact, setEditingContact] = useState<PartnerContact | null>(null);
 
   // Form State

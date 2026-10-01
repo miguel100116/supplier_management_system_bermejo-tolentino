@@ -4,6 +4,7 @@ import { CustomForm, PartnerCompany, SurveyResponse } from '../../types/survey';
 import { exportTablesAsPDF, ExportTable } from '../../utils/exporters';
 import { submissionScores } from '../../utils/analytics';
 import { getQuestionMaxPoints, formatCompositeScore } from '../../data/questionWeights';
+import { useModalEscape } from '../../hooks/useModalEscape';
 
 interface SurveyDetailModalProps {
   survey: CustomForm;
@@ -21,6 +22,7 @@ export function SurveyDetailModal({
   onSendToPartner,
   reportSentStatus,
 }: SurveyDetailModalProps) {
+  useModalEscape(true, onClose);
   // Filter survey responses
   const surveyResponses = responses.filter(
     (r) => r.surveyType === survey.surveyType && !r.archived

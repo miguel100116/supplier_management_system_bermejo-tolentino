@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Eye, X } from 'lucide-react';
 import { CustomForm, PartnerCompany } from '../types/survey';
 import { getQuestionMaxPoints } from '../data/questionWeights';
 import { getSurveyEvaluationCompanies } from '../utils/analytics';
+import { useModalEscape } from '../hooks/useModalEscape';
 
 interface SurveyPreviewModalProps {
   survey: CustomForm;
@@ -28,6 +29,7 @@ const RESPONDENT_TYPES = ['Rank & File', 'Supervisory', 'Managerial', 'Director'
 // a "preview mode" flag to it, so the real submission flow (validation, drafts,
 // keyboard shortcuts) can't be accidentally affected by preview-only changes.
 export function SurveyPreviewModal({ survey, partnerCompanies = [], onClose }: SurveyPreviewModalProps) {
+  useModalEscape(true, onClose);
   const availableDepartments = survey.accessDepartments?.length ? survey.accessDepartments : DEPARTMENTS;
   const availableRespondentTypes = survey.accessRoles?.length ? survey.accessRoles : RESPONDENT_TYPES;
   const sampleCompanies = useMemo(() => getSurveyEvaluationCompanies(survey, partnerCompanies), [survey, partnerCompanies]);

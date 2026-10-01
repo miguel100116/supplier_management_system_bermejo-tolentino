@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useModalEscape } from '../hooks/useModalEscape';
 import {
   ArrowLeft,
   BarChart3,
@@ -69,6 +70,7 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
   const [selectedComments, setSelectedComments] = useState<Record<string, boolean>>({});
   const [isCommentsModalOpen, setIsCommentsModalOpen] = useState(false);
   const [tempSelectedComments, setTempSelectedComments] = useState<Record<string, boolean>>({});
+  useModalEscape(isCommentsModalOpen, () => setIsCommentsModalOpen(false));
 
   const overallFeedbackQuestionId = useMemo(() => {
     return category === 'Courier' ? 'Q-CON-OVERALL-FEEDBACK' :
