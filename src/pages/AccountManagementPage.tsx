@@ -57,6 +57,7 @@ export function AccountManagementPage({
   const [tableSort, setTableSort] = useState<'email-asc' | 'email-desc' | 'department-asc' | 'designation-asc'>('email-asc');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
+  const [pendingEditAccount, setPendingEditAccount] = useState<AccountProfile | null>(null);
 
   // Form State
   const [email, setEmail] = useState('');
@@ -67,6 +68,13 @@ export function AccountManagementPage({
   // Custom permissions overrides state in the form
   const [selectedPages, setSelectedPages] = useState<PageModuleKey[]>([]);
   const [selectedSurveyTypes, setSelectedSurveyTypes] = useState<SurveyType[]>([]);
+
+  const departmentPageCeiling = useMemo(
+    () => role === 'Admin'
+      ? PAGE_MODULES.map(module => module.key)
+      : departmentPermissions[department]?.pages ?? getDepartmentDefaultPermissions(department).pages,
+    [department, departmentPermissions, role],
+  );
 
   // Department Access Modal State
   const [isDeptOpen, setIsDeptOpen] = useState(false);
@@ -187,15 +195,19 @@ export function AccountManagementPage({
     setIsAddOpen(true);
   };
 
-  const handleOpenEdit = (acc: AccountProfile) => {
+  const openAccountEditor = (acc: AccountProfile) => {
     setEmail(acc.email);
     setRole(acc.role);
     setDesignation(acc.designation);
     setDepartment(acc.department);
     setEditingEmail(acc.email);
     
-    // Load existing permissions if overridden, otherwise load defaults
-    if (acc.permissions) {
+    // Admins are always unrestricted. Employee accounts may use an override
+    // or fall back to their designation defaults within the department limit.
+    if (acc.role === 'Admin') {
+      setSelectedPages(PAGE_MODULES.map(module => module.key));
+      setSelectedSurveyTypes(SURVEY_TYPES.map(type => type.key));
+    } else if (acc.permissions) {
       setSelectedPages(acc.permissions.pages as PageModuleKey[]);
       setSelectedSurveyTypes(acc.permissions.surveyTypes as SurveyType[]);
     } else {
@@ -205,6 +217,11 @@ export function AccountManagementPage({
     }
     
     setIsAddOpen(true);
+  };
+
+  const handleOpenEdit = (acc: AccountProfile) => {
+    if (acc.role === 'Employee') setPendingEditAccount(acc);
+    else openAccountEditor(acc);
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -223,8 +240,8 @@ export function AccountManagementPage({
       !selectedPages.every(p => defaults.pages.includes(p)) ||
       !selectedSurveyTypes.every(t => defaults.surveyTypes.includes(t));
 
-    const permissions = isCustomized ? {
-      pages: selectedPages,
+    const permissions = role !== 'Admin' && isCustomized ? {
+      pages: selectedPages.filter(page => departmentPageCeiling.includes(page)),
       surveyTypes: selectedSurveyTypes
     } : undefined;
 
@@ -470,6 +487,54 @@ export function AccountManagementPage({
         </div>
       </div>
 
+      {/* Confirm before opening an employee's access settings */}
+      {pendingEditAccount && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" role="presentation">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-account-edit-title"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+          >
+            <div className="flex items-start gap-3">
+              <span className="rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+                <AlertCircle size={20} aria-hidden="true" />
+              </span>
+              <div>
+                <h3 id="confirm-account-edit-title" className="text-base font-bold text-slate-900 dark:text-white">
+                  Confirm account access changes
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  Are you sure you want to modify <span className="font-semibold">{pendingEditAccount.email}</span>’s account and access permissions?
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                  You can review their role, department, and permitted modules before saving any changes.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingEditAccount(null)}
+                className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  openAccountEditor(pendingEditAccount);
+                  setPendingEditAccount(null);
+                }}
+                className="rounded-xl bg-[#0063a9] px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#00528c]"
+              >
+                Continue to permissions
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* Add / Edit Modal */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
@@ -519,7 +584,15 @@ export function AccountManagementPage({
                     <select
                       value={role}
                       onChange={e => {
-                        if (isOption(ROLE_OPTIONS, e.target.value)) setRole(e.target.value);
+                        if (!isOption(ROLE_OPTIONS, e.target.value)) return;
+                        const nextRole = e.target.value;
+                        setRole(nextRole);
+                        if (nextRole === 'Admin') {
+                          setSelectedPages(PAGE_MODULES.map(module => module.key));
+                          setSelectedSurveyTypes(SURVEY_TYPES.map(type => type.key));
+                        } else {
+                          applyDefaultPermissionsToForm(designation, department);
+                        }
                       }}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-blue-500 transition-colors text-sm"
                     >
@@ -623,16 +696,21 @@ export function AccountManagementPage({
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {PAGE_MODULES.map(module => {
-                      const isChecked = selectedPages.includes(module.key);
+                      const isDepartmentAllowed = departmentPageCeiling.includes(module.key);
+                      const isChecked = isDepartmentAllowed && selectedPages.includes(module.key);
                       return (
                         <button
                           key={module.key}
                           type="button"
                           onClick={() => togglePageSelection(module.key)}
+                          disabled={!isDepartmentAllowed}
+                          title={!isDepartmentAllowed ? `Blocked by department access control for ${department}` : undefined}
                           className={`flex items-start gap-3 p-2.5 rounded-xl border text-left transition-all ${
-                            isChecked 
-                              ? 'border-blue-500 bg-blue-50/20 dark:bg-blue-950/20' 
-                              : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                            !isDepartmentAllowed
+                              ? 'cursor-not-allowed border-slate-200 bg-slate-100 opacity-50 dark:border-slate-800 dark:bg-slate-950'
+                              : isChecked
+                                ? 'border-blue-500 bg-blue-50/20 dark:bg-blue-950/20'
+                                : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40'
                           }`}
                         >
                           <div className="pt-0.5">
@@ -646,7 +724,7 @@ export function AccountManagementPage({
                           </div>
                           <div>
                             <div className="text-xs font-bold text-slate-800 dark:text-slate-200">{module.label}</div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400">{module.description}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400">{isDepartmentAllowed ? module.description : 'Blocked by department access control'}</div>
                           </div>
                         </button>
                       );

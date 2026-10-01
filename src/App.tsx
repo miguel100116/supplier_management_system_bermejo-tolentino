@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { BarChart3, FileText, LayoutDashboard, Moon, Sun, FilePlus, ClipboardCheck, ArrowLeft, Clock3, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
 import { AccountMenu } from './components/AccountMenu';
 import { NotificationBell } from './components/NotificationBell';
@@ -319,8 +320,9 @@ export default function App() {
   const userPermissions = useMemo(() => {
     if (!profile) return { pages: [] as PageModuleKey[], surveyTypes: [] as SurveyType[] };
     
-    // System Administrator gets full unrestricted access unless custom overridden
-    if (profile.role === 'Admin' && !profile.permissions) {
+    // The persisted Admin role always has full access. Ignore stale account
+    // overrides so they cannot narrow an administrator's modules or data.
+    if (profile.role === 'Admin') {
       return {
         pages: [
           'dashboard', 'survey-forms', 'explorer', 'analytics', 'reports', 'present',
@@ -618,7 +620,21 @@ export default function App() {
     []
   );
 
-  const visiblePages = isAdmin ? adminNavItems : employeeNavItems;
+  const visiblePages = useMemo<NavItem<PageKey>[]>(() => {
+    const items = isAdmin ? adminNavItems : employeeNavItems;
+    return items.map((item) => item.type === 'group'
+      ? {
+          ...item,
+          children: item.children.map((child) => ({
+            ...child,
+            disabled: !hasPageAccess(userPermissions.pages, child.key, isAdmin),
+          })),
+        }
+      : {
+          ...item,
+          disabled: !hasPageAccess(userPermissions.pages, item.key, isAdmin),
+        });
+  }, [isAdmin, employeeNavItems, userPermissions.pages]);
 
   // Flattened lookup (groups expanded) used for the title/heading and the
   // route-guard fallback below, regardless of whether the current role's
@@ -666,7 +682,7 @@ export default function App() {
     if (!account) return;
     const currentIsAllowed = hasPageAccess(userPermissions.pages, activePage, isAdmin);
     if (!currentIsAllowed) {
-      const fallback = flatNavLeaves[0]?.key || 'dashboard';
+      const fallback = flatNavLeaves.find(page => hasPageAccess(userPermissions.pages, page.key, isAdmin))?.key || 'dashboard';
       resetNavigationTo(fallback as PageKey);
     }
   }, [activePage, userPermissions.pages, flatNavLeaves, account, isAdmin]);
@@ -1320,9 +1336,10 @@ export default function App() {
         </div>
       </Shell>
 
-      {isNotificationModalOpen && (
+      {isNotificationModalOpen && createPortal((
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-3 backdrop-blur-sm sm:p-6"
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(2, 6, 23, 0.68)' }}
           role="dialog"
           aria-modal="true"
           aria-labelledby="notification-center-title"
@@ -1330,7 +1347,7 @@ export default function App() {
             if (event.target === event.currentTarget) setIsNotificationModalOpen(false);
           }}
         >
-          <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-2xl dark:border-slate-800 dark:bg-slate-950" style={{ width: '100%', maxWidth: '80rem', maxHeight: '92vh', backgroundColor: darkMode ? '#020617' : '#f8fafc' }}>
             <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
               <div>
                 <h2 id="notification-center-title" className="text-lg font-bold text-slate-900 dark:text-white">
@@ -1351,35 +1368,46 @@ export default function App() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-              {isAdmin ? (
-                <NotificationLogsPage
-                  notifications={notifications}
-                  unreadCount={unreadCount}
-                  unreadNotificationIds={unreadNotificationIds}
-                  onMarkRead={markNotificationRead}
-                  onMarkUnread={markNotificationUnread}
-                  onMarkAllRead={markNotificationsRead}
-                />
-              ) : (
-                profile && (
-                  <EmployeeNotificationLogsPage
-                    userEmail={account || ''}
-                    profile={profile}
-                    surveys={surveys}
-                    partnerCompanies={partnerCompanies}
-                    responses={responses}
-                    onFillForm={(id) => {
-                      setIsNotificationModalOpen(false);
-                      setSelectedSurveyId(id);
-                      navigateTo('fill-form');
-                    }}
+              <Suspense
+                fallback={(
+                  <div className="flex min-h-64 items-center justify-center" role="status" aria-live="polite">
+                    <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
+                      <div className="h-7 w-7 animate-spin rounded-full border-4 border-slate-300 border-t-[#0063a9] dark:border-slate-700 dark:border-t-blue-500" />
+                      <p className="text-sm font-medium">Loading notifications...</p>
+                    </div>
+                  </div>
+                )}
+              >
+                {isAdmin ? (
+                  <NotificationLogsPage
+                    notifications={notifications}
+                    unreadCount={unreadCount}
+                    unreadNotificationIds={unreadNotificationIds}
+                    onMarkRead={markNotificationRead}
+                    onMarkUnread={markNotificationUnread}
+                    onMarkAllRead={markNotificationsRead}
                   />
-                )
-              )}
+                ) : (
+                  profile && (
+                    <EmployeeNotificationLogsPage
+                      userEmail={account || ''}
+                      profile={profile}
+                      surveys={surveys}
+                      partnerCompanies={partnerCompanies}
+                      responses={responses}
+                      onFillForm={(id) => {
+                        setIsNotificationModalOpen(false);
+                        setSelectedSurveyId(id);
+                        navigateTo('fill-form');
+                      }}
+                    />
+                  )
+                )}
+              </Suspense>
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {isSessionWarningVisible && account && (
         <div

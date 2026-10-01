@@ -323,6 +323,12 @@ Consequences: `202609240001_delegated_document_renewal.sql` requires separate st
 
 Evidence: `src/utils/rbac.ts`, `src/hooks/useSurveyData.ts`, `supabase/migrations/202609240001_delegated_document_renewal.sql`, and its focused tests.
 
+### 2026-10-01 - Restricted modules are disabled and route-guarded
+
+Decision: Treat department permissions as the maximum module set for Employee accounts in the account editor, sidebar, and route guard. Admin accounts retain full module access regardless of designation or department settings.
+
+Evidence: `src/pages/AccountManagementPage.tsx`, `src/layouts/Shell.tsx`, `src/App.tsx`, and `src/utils/rbac.ts`.
+
 ### 2026-09-24 - Runtime record validation and rejected-write recovery
 
 Status: accepted and locally verified in the working tree
