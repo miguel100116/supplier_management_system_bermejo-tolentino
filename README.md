@@ -59,7 +59,7 @@ It is a role-aware platform: what each employee sees — which modules, which da
 | **Presentation mode** | Build a staggered slide deck from the current analytics for leadership presentations (exportable to PDF/PPTX). |
 | **Archiving** | Archive completed survey periods into named series so multi-year trends accumulate without cluttering the active view. |
 | **Account & access management** | Admins manage employee accounts, per-department access ceilings, and per-account permission overrides. |
-| **Bulk imports** | Import a partner-company master list, or bulk-import external evaluation responses, from Excel/CSV. |
+| **Bulk imports** | Import a partner-company master list, or import Supplier, Subcontractor, and Courier evaluation worksheets together from one Excel workbook. |
 
 ---
 
@@ -146,7 +146,7 @@ A **Data Scope** toggle (shared across Dashboard and Analytics) further switches
 | **Account Management** | Configure roles, ranks, departments, and per-user/per-department permissions. |
 | **Notifications** | Audit trail of incoming survey responses and document-expiry alerts, opened as a modal from the header bell rather than a separate sidebar destination. |
 | **Archive Center** | Browse and restore archived feedback submissions and series. |
-| **Import Evaluation Responses** | Bulk-import external evaluation data (Excel/CSV) into the system. Original source files are stored in a private Supabase Storage archive, with Admin-only download access. |
+| **Import Evaluation Responses** | Admins upload one Excel workbook containing Supplier, Subcontractor, and Courier evaluation worksheets. The system detects each form, matches companies against the full Partner Registry, and imports the categories together. The original workbook is stored once in a private Supabase Storage archive with Admin-only download access. |
 | **Categories Manager** | Rename the display labels of scoring categories per survey type. |
 | **Settings / Profile** | A large modal opened from the account-session dropdown. Employees retain their full profile, impact, recent-submission, preference, and session view; Admins retain the complete Settings view with activity, import, and cache-management tools. |
 

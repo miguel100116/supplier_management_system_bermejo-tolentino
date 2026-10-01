@@ -2106,6 +2106,57 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     return finalSummary;
   };
 
+  const commitRawEvaluationsBatch = async (
+    entries: Array<{ preview: RawEvalPreview; decisions: Record<string, CompanyDecision> }>,
+  ): Promise<RawEvalImportSummary[]> => {
+    const committed = entries.map(({ preview, decisions }) => ({
+      preview,
+      ...commitRawEvaluationImportRows(preview, decisions),
+    }));
+    const allRows = committed.flatMap((entry) => entry.responses);
+    const newIds = new Set(allRows.map((response) => response.responseId));
+    const replacedIds = new Set(responses.filter((response) => newIds.has(response.responseId)).map((response) => response.responseId));
+    const addedCompaniesById = new Map<string, PartnerCompany>();
+    committed.forEach((entry) => entry.newPartnerCompanies.forEach((company) => addedCompaniesById.set(company.id, company)));
+    const newCompanies = [...addedCompaniesById.values()].map(normalizePartnerCompany);
+
+    // Persist this workbook's partner additions and response rows as shared
+    // Supabase records before reporting success. All three categories are
+    // sent through one response upsert operation (chunked by the repository
+    // only when the workbook exceeds its request-size limit).
+    if (newCompanies.length) {
+      await persistRemoteAsync(upsertApplicationRecords('partner_company', newCompanies, (company) => company.id));
+    }
+    await persistRemoteAsync(upsertApplicationRecords('survey_response', allRows, surveyResponseRecordId));
+
+    setResponses((current) => {
+      const updatedResponses = [...current.filter((response) => !newIds.has(response.responseId)), ...allRows];
+      safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
+      return updatedResponses;
+    });
+
+    if (newCompanies.length) {
+      setPartnerCompanies((current) => {
+        const existingIds = new Set(current.map((company) => company.id));
+        const updated = [...current, ...newCompanies.filter((company) => !existingIds.has(company.id))];
+        safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+    }
+
+    const summaries = committed.map((entry) => ({
+      ...entry.summary,
+      replaced: new Set(entry.responses.map((response) => response.responseId)
+        .filter((responseId) => replacedIds.has(responseId))).size,
+    }));
+    const totalSubmissions = summaries.reduce((total, summary) => total + summary.imported, 0);
+    logAdminActivity(
+      'Imported combined evaluation workbook',
+      `${totalSubmissions} submissions across ${summaries.map((summary) => summary.surveyType).join(', ')}`,
+    );
+    return summaries;
+  };
+
   // Derive unique active survey types (Courier, Supplier, Subcontractor)
   const surveyTypes = useMemo<SurveyType[]>(() => {
     return ['Courier', 'Supplier', 'Subcontractor'];
@@ -2281,6 +2332,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     importArchivedResponses,
     previewRawEvaluations,
     commitRawEvaluations,
+    commitRawEvaluationsBatch,
     surveys,
     surveyTypes,
     questions,

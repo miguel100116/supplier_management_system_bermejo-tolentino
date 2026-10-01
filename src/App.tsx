@@ -365,7 +365,7 @@ export default function App() {
     restoreArchivedResponseGroups,
     importArchivedResponses,
     previewRawEvaluations,
-    commitRawEvaluations,
+    commitRawEvaluationsBatch,
     surveys,
     questions,
     companies,
@@ -1163,10 +1163,12 @@ export default function App() {
     archive: (
       <ArchivePage
         surveys={userAccessibleSurveys}
+        partnerCompanies={partnerCompanies}
         archivedResponses={archivedResponses}
         archiveSeries={archiveSeries}
         onRenameArchiveSeries={renameArchiveSeries}
         onUpdateSurvey={updateSurvey}
+        onUpdatePartnerCompany={updatePartnerCompany}
         onRestoreResponseGroup={restoreResponseGroup}
         onRestoreResponsesForSurvey={restoreResponsesForSurvey}
         onDeleteArchivedResponseGroups={deleteArchivedResponseGroups}
@@ -1179,7 +1181,7 @@ export default function App() {
       <ImportEvaluationsPage
         currentUserEmail={account || ''}
         onPreview={previewRawEvaluations}
-        onCommit={commitRawEvaluations}
+        onCommitBatch={commitRawEvaluationsBatch}
       />
     ),
     'categories-manager': (

@@ -257,7 +257,10 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
 
   const firstPage = await supabase
     .from('application_records')
-    .select('record_id,payload,created_at', { count: 'exact' })
+    // Avoid an exact count here: under response RLS it makes Postgres scan
+    // every visible response before returning the first page, which can time
+    // out for employee sessions even when the requested page is small.
+    .select('record_id,payload,created_at')
     .eq('record_type', recordType)
     .order('record_id')
     .range(0, READ_PAGE_SIZE - 1);

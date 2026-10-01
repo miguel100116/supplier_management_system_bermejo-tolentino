@@ -8,6 +8,7 @@ import { QuestionReportBuilderPage } from './QuestionReportBuilderPage';
 import { SummaryReportBuilderPage } from './SummaryReportBuilderPage';
 import { ExecutiveSummaryReportBuilderPage } from './ExecutiveSummaryReportBuilderPage';
 import { RawDataExportPage } from './RawDataExportPage';
+import { PageDescription } from '../components/PageDescription';
 
 interface ReportsPageProps {
   responses: SurveyResponse[];
@@ -150,6 +151,7 @@ export function ReportsPage({ responses, partnerCompanies = [], canExport = fals
 
   return (
     <div className="space-y-5">
+      <PageDescription>Create evaluation and partner reports and export them in your preferred format.</PageDescription>
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <ReportCard
           title="Summary Report"

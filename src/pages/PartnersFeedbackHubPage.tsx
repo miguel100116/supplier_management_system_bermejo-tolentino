@@ -15,6 +15,7 @@ import {
 } from '../utils/feedbackHubStore';
 
 import { CurrentFormsTab } from '../components/feedback-hub/CurrentFormsTab';
+import { PageDescription } from '../components/PageDescription';
 import { PastResultsTab } from '../components/feedback-hub/PastResultsTab';
 import { SentReportsTab } from '../components/feedback-hub/SentReportsTab';
 import { SendToPartnerWizard } from '../components/feedback-hub/SendToPartnerWizard';
@@ -402,6 +403,7 @@ export function PartnersFeedbackHubPage({
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
+      <PageDescription>Review feedback collected from partners and employees in one place.</PageDescription>
       {/* Tabs Navigation & Bulk Sending Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1 sm:pb-0 gap-4">
         <nav className="-mb-px flex space-x-8 overflow-x-auto">

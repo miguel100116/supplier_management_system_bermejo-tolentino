@@ -30,7 +30,7 @@ export async function loadEvaluationImportArchives(): Promise<EvaluationImportAr
 
 export async function saveEvaluationImportArchive(
   file: File,
-  surveyType: SurveyType,
+  surveyType: SurveyType | 'Combined',
   uploadedBy: string,
   importBatchId: string,
 ): Promise<EvaluationImportArchive> {

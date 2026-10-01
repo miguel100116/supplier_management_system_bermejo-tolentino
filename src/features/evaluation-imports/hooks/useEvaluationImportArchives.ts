@@ -35,7 +35,7 @@ export function useEvaluationImportArchives(uploadedBy: string) {
     return () => { isCurrent = false; };
   }, [uploadedBy]);
 
-  const archiveSourceFile = useCallback(async (file: File, surveyType: SurveyType, importBatchId: string) => {
+  const archiveSourceFile = useCallback(async (file: File, surveyType: SurveyType | 'Combined', importBatchId: string) => {
     const archive = await saveEvaluationImportArchive(file, surveyType, uploadedBy, importBatchId);
     setArchives((current) => [archive, ...current.filter((item) => item.id !== archive.id)]
       .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt)));
