@@ -1,3 +1,4 @@
+import { acquireModalScrollLock } from './useModalScrollLock';
 import { useEffect, useRef } from 'react';
 
 interface ActiveEscapeHandler {
@@ -24,7 +25,8 @@ function handleModalEscape(event: KeyboardEvent) {
   topmost.callback();
 }
 
-function registerHandler(handler: ActiveEscapeHandler) {
+function registerHandler(handler: ActiveEscapeHandler, lockScroll: boolean) {
+  const releaseScroll = lockScroll ? acquireModalScrollLock() : undefined;
   activeHandlers.set(handler.id, handler);
   if (!listenerAttached) {
     window.addEventListener('keydown', handleModalEscape, true);
@@ -33,6 +35,7 @@ function registerHandler(handler: ActiveEscapeHandler) {
 
   return () => {
     activeHandlers.delete(handler.id);
+    releaseScroll?.();
     if (activeHandlers.size === 0 && listenerAttached) {
       window.removeEventListener('keydown', handleModalEscape, true);
       listenerAttached = false;
@@ -40,11 +43,12 @@ function registerHandler(handler: ActiveEscapeHandler) {
   };
 }
 
-/** Register an open modal's Escape action. Higher layers win, then the latest mount. */
+/** Register an open modal's Escape action and scroll lock. Pass false as the fourth argument for a popover. */
 export function useModalEscape(
   isOpen: boolean,
   onEscape: () => void,
   priority = 0,
+  lockScroll = true,
 ) {
   const id = useRef(Symbol('modal-escape-handler'));
   const callback = useRef(onEscape);
@@ -58,6 +62,6 @@ export function useModalEscape(
       callback: () => callback.current(),
       order: ++nextOrder,
       priority,
-    });
-  }, [isOpen, priority]);
+    }, lockScroll);
+  }, [isOpen, priority, lockScroll]);
 }

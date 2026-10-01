@@ -35,7 +35,7 @@ export function EmployeeNotificationBell({
   const [isOpen, setIsOpen] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<EmployeeNotification | null>(null);
   useModalEscape(Boolean(selectedNotification), () => setSelectedNotification(null), 10);
-  useModalEscape(isOpen, () => setIsOpen(false));
+  useModalEscape(isOpen, () => setIsOpen(false), 0, false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [, forceTick] = useState(0);
 

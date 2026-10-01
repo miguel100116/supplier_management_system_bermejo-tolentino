@@ -407,16 +407,6 @@ export default function App() {
   useModalEscape(isSettingsModalOpen, () => setIsSettingsModalOpen(false), 200);
   useModalEscape(isSessionWarningVisible, staySignedIn, 300);
 
-  useEffect(() => {
-    if (!isNotificationModalOpen && !isSettingsModalOpen) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isNotificationModalOpen, isSettingsModalOpen]);
-
   const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(null);
   const surveyFillerRef = useRef<SurveyFillerHandle>(null);
 
@@ -1014,7 +1004,7 @@ export default function App() {
       />
     ),
     present: <PresentPage responses={scopedAccessibleResponses} partnerCompanies={userAccessiblePartnerCompanies} />,
-    explorer: <SurveyExplorerPage responses={filteredResponses} surveys={userAccessibleSurveys} />,
+    explorer: <SurveyExplorerPage responses={userAccessibleResponses} surveys={userAccessibleSurveys} />,
     reports: (
       <ReportsPage
         responses={filteredResponses}
@@ -1369,7 +1359,7 @@ export default function App() {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
               <Suspense
                 fallback={(
                   <div className="flex min-h-64 items-center justify-center" role="status" aria-live="polite">
@@ -1501,7 +1491,7 @@ export default function App() {
                 </div>
               )}
             >
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
                 {isAdmin ? (
                   <SettingsPage
                     email={account || ''}

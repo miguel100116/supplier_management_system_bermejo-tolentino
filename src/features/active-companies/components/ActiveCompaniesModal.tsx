@@ -131,7 +131,7 @@ export function ActiveCompaniesModal({ isOpen, onClose }: ActiveCompaniesModalPr
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
           {isLoading ? (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
               <Loader2 size={18} className="animate-spin" /> Loading active companies...

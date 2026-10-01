@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Info, SlidersHorizontal, Trophy, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CompanyAnalysisPanel } from '../components/CompanyAnalysisPanel';
+import { PageDescription } from '../components/PageDescription';
 import { StateMessage } from '../components/StateMessage';
 import { formatCompositeScore, getBand } from '../data/questionWeights';
 import { ArchiveSeries, FilterState, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
@@ -257,7 +258,12 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
 function AnalyticsHeader({ dataScope, onChangeDataScope, rankingMode, onChangeRankingMode }: { dataScope: 'current' | 'all-time' | 'custom'; onChangeDataScope?: (scope: 'current' | 'all-time' | 'custom') => void; rankingMode: RankingMode; onChangeRankingMode: (mode: RankingMode) => void }) {
   return (
     <header className="space-y-3">
-      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><p className="text-sm text-slate-500 dark:text-slate-400">Review evaluation results, identify performance gaps, and compare partner companies.</p><div className="flex flex-wrap gap-2"><PlaceholderButton title="Choose a custom date range"><CalendarDays size={14} /> Date range <ChevronDown size={13} /></PlaceholderButton><PlaceholderButton title="Open advanced filters"><SlidersHorizontal size={14} /> Filters</PlaceholderButton></div></div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <PageDescription>Review evaluation results, identify performance gaps, and compare partner companies.</PageDescription>
+        </div>
+        <div className="flex flex-wrap gap-2"><PlaceholderButton title="Choose a custom date range"><CalendarDays size={14} /> Date range <ChevronDown size={13} /></PlaceholderButton><PlaceholderButton title="Open advanced filters"><SlidersHorizontal size={14} /> Filters</PlaceholderButton></div>
+      </div>
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"><div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">{(['current', 'all-time', 'custom'] as const).map((scope) => (<button key={scope} type="button" onClick={() => onChangeDataScope?.(scope)} className={`rounded-md px-4 py-1.5 text-xs font-semibold ${dataScope === scope ? 'bg-[#0078a8] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'}`}>{scope === 'current' ? 'Current' : scope === 'all-time' ? 'All time' : 'Custom'}</button>))}</div><label className="flex items-center gap-2 text-xs font-semibold text-slate-500">Company ranking<select value={rankingMode} onChange={(event) => onChangeRankingMode(event.target.value as RankingMode)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><option value="weighted">Volume-weighted</option><option value="pure">Pure average</option></select></label></div>
     </header>
   );

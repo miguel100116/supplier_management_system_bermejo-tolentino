@@ -2,7 +2,7 @@ import React, { ReactNode } from 'react';
 
 export const EVALUATION_WORKSPACE_TABS = [
   { key: 'survey-forms', label: 'Forms', description: 'Create and manage evaluation forms, assigned companies, deadlines, and access.' },
-  { key: 'explorer', label: 'Responses', description: 'Select a form and respondent to inspect submitted evaluation answers.' },
+  { key: 'explorer', label: 'Responses', description: 'Select a form to review or export its submissions.' },
   { key: 'pending-review', label: 'Coverage', description: 'See which assigned companies have evaluations in the current response records.' },
 ] as const;
 
