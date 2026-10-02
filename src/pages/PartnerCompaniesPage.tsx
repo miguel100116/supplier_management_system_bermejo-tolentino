@@ -188,6 +188,11 @@ export function PartnerCompaniesPage({
   // Local/Foreign sub-filter, only meaningful while activeTab === 'Supplier'
   const [originFilter, setOriginFilter] = useState<'All' | 'Local' | 'Foreign'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
   const [registeredFrom, setRegisteredFrom] = useState('');
   const [registeredTo, setRegisteredTo] = useState('');
   const [documentFilter, setDocumentFilter] = useState<'all' | 'current' | 'expiring' | 'expired' | 'missing'>('all');
@@ -580,8 +585,8 @@ export function PartnerCompaniesPage({
       baseList = baseList.filter((c) => (c.supplierOrigin ?? 'Local') === originFilter);
     }
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
+    if (debouncedSearchQuery.trim()) {
+      const q = debouncedSearchQuery.trim().toLowerCase();
       baseList = baseList.filter((c) =>
         c.name.toLowerCase().includes(q) ||
         (c.branches ?? []).some((b) => b.bpCode?.toLowerCase().includes(q))
@@ -630,16 +635,16 @@ export function PartnerCompaniesPage({
       });
     }
     return baseList;
-  }, [classifiedCompanies, incompleteCompanies, statusTab, activeTab, originFilter, searchQuery, sortConfig, effectiveNow, registeredFrom, registeredTo, documentFilter]);
+  }, [classifiedCompanies, incompleteCompanies, statusTab, activeTab, originFilter, debouncedSearchQuery, sortConfig, effectiveNow, registeredFrom, registeredTo, documentFilter]);
 
   // Jump back to page 1 whenever a filter/search/sort narrows or reshuffles
   // the result set - otherwise the user can land on a now-empty page.
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusTab, activeTab, originFilter, searchQuery, sortConfig, registeredFrom, registeredTo, documentFilter]);
+  }, [statusTab, activeTab, originFilter, debouncedSearchQuery, sortConfig, registeredFrom, registeredTo, documentFilter]);
 
   const advancedFilterCount = [
-    sortConfig && (sortConfig.key !== 'name' || sortConfig.direction !== 'asc'),
+    sortConfig !== null,
     registeredFrom,
     registeredTo,
     documentFilter !== 'all',
@@ -878,11 +883,12 @@ export function PartnerCompaniesPage({
         statusLabels={STATUS_TAB_LABELS}
         onStatusChange={setStatusTab}
         categoryTab={activeTab}
-        onCategoryChange={setActiveTab}
+        onCategoryChange={(value) => { setActiveTab(value); if (value !== 'Supplier') setOriginFilter('All'); }}
         originFilter={originFilter}
         onOriginChange={setOriginFilter}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        onSearchClear={() => { setSearchQuery(''); setDebouncedSearchQuery(''); }}
         isAdmin={isAdmin}
         importFileInputRef={importFileInputRef}
         onImportFileSelected={handleImportFileSelected}
@@ -896,14 +902,22 @@ export function PartnerCompaniesPage({
         onToggleAdvancedFilters={() => setIsAdvancedFiltersOpen((open) => !open)}
         advancedFilterCount={advancedFilterCount}
         sortOptions={[
+          { value: 'default', label: 'Default order' },
           { value: 'name-asc', label: 'Company: A–Z' },
           { value: 'name-desc', label: 'Company: Z–A' },
+          { value: 'type-asc', label: 'Category: A-Z' },
+          { value: 'type-desc', label: 'Category: Z-A' },
           { value: 'registeredAt-desc', label: 'Registered: newest first' },
           { value: 'registeredAt-asc', label: 'Registered: oldest first' },
           { value: 'docStatus-desc', label: 'Documents: most urgent first' },
+          { value: 'docStatus-asc', label: 'Documents: least urgent first' },
         ]}
-        sortValue={sortConfig ? `${sortConfig.key}-${sortConfig.direction}` : 'name-asc'}
+        sortValue={sortConfig ? `${sortConfig.key}-${sortConfig.direction}` : 'default'}
         onSortChange={(value) => {
+          if (value === 'default') {
+            setSortConfig(null);
+            return;
+          }
           const separator = value.lastIndexOf('-');
           setSortConfig({
             key: value.slice(0, separator) as SortKey,
@@ -916,10 +930,10 @@ export function PartnerCompaniesPage({
         onRegisteredToChange={setRegisteredTo}
         documentFilter={documentFilter}
         onDocumentFilterChange={setDocumentFilter}
-        resultCount={filteredCompanies.length}
         onReset={() => {
           setStatusTab('Active');
           setSearchQuery('');
+          setDebouncedSearchQuery('');
           setActiveTab('All');
           setOriginFilter('All');
           setRegisteredFrom('');
@@ -936,11 +950,11 @@ export function PartnerCompaniesPage({
         </div>
       )}
 
-      {/* Registry description stays immediately above the table. */}
-      <div className="panel px-5 py-4">
-        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-          {STATUS_TAB_LABELS[statusTab]} Registry List ({filteredCompanies.length}) &bull; Click row to edit/renew
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-slate-500 dark:text-slate-400">
+        <span className="font-semibold">
+          {filteredCompanies.length.toLocaleString()} {statusTab === 'Incomplete' ? 'incomplete profiles' : statusTab.toLowerCase() + ' partners'}
         </span>
+        <span>Click row to edit or renew</span>
       </div>
 
       {/*

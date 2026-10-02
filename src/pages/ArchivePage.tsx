@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Archive, ClipboardList, FileText, RefreshCw, Calendar, Building2, UserCheck, Trash2, ArrowLeft, Search, Download, Upload, Loader2, X, Sparkles, TrendingUp, Pencil, Check } from 'lucide-react';
+import { Archive, ClipboardList, FileText, RefreshCw, Calendar, Building2, UserCheck, Trash2, ArrowLeft, Search, Download, Upload, Loader2, SlidersHorizontal, X, Sparkles, TrendingUp, Pencil, Check } from 'lucide-react';
 import {
   CartesianGrid,
   Line,
@@ -16,7 +16,6 @@ import { ChartCard } from '../components/ChartCard';
 import { PageDescription } from '../components/PageDescription';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { seriesTrend, companySeriesTrend } from '../utils/analytics';
-import { TableFilterBar } from '../components/TableFilterBar';
 import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 import { useModalEscape } from '../hooks/useModalEscape';
 
@@ -34,6 +33,16 @@ interface ArchivePageProps {
   onRestoreArchivedResponseGroups?: (groupIds: { archivedAt: string; surveyId: string }[]) => Promise<void>;
   onImportArchivedResponses?: (file: File) => Promise<ArchiveImportResult>;
   isAdmin: boolean;
+}
+
+export function countActiveArchiveFilters(
+  sort: 'name-asc' | 'name-desc' | 'date-desc' | 'date-asc',
+  from: string,
+  to: string,
+  companyType: 'All' | PartnerCompanyType,
+  tab: 'surveys' | 'responses' | 'companies'
+): number {
+  return Number(sort !== 'date-desc') + Number(Boolean(from || to)) + Number(tab === 'companies' && companyType !== 'All');
 }
 
 export function ArchivePage({
@@ -390,6 +399,14 @@ export function ArchivePage({
     setTimeout(() => setSuccessMessage(null), 4000);
   };
 
+  const filteredResultCount = activeTab === 'surveys'
+    ? filteredArchivedSurveys.length
+    : activeTab === 'companies'
+      ? filteredArchivedCompanies.length
+      : filteredGroupedResponses.length;
+  const activeFilterCount = countActiveArchiveFilters(tableSort, dateFrom, dateTo, companyTypeFilter, activeTab);
+  const archiveItemLabel = activeTab === 'companies' ? 'company' : activeTab === 'surveys' ? 'survey' : 'response';
+
   if (!isAdmin) {
     return (
       <div className="panel mx-auto mt-10 max-w-md p-5 text-center text-slate-500 sm:p-8">
@@ -508,19 +525,21 @@ export function ArchivePage({
 
       {/* List Container with Search */}
       <div className="panel p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-            {activeTab === 'surveys'
-              ? 'Archived Surveys Directory'
-              : activeTab === 'companies'
-                ? 'Archived Companies Directory'
-                : 'Archived Responses Logs'}
-          </h2>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            {activeTab === 'responses' && (
-              <div className="flex items-center gap-2">
-                <input
+        <div role="toolbar" aria-label="Archive filters" className="flex flex-wrap items-center gap-2">
+          <label className="relative min-w-0 flex-1 basis-24 sm:min-w-[160px]">
+            <span className="sr-only">Search archived {activeTab}</span>
+            <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              placeholder={'Search archived ' + activeTab + '...'}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#0063a9] focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-blue-950"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+          </label>
+          {activeTab === 'responses' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
                   ref={importFileInputRef}
                   type="file"
                   accept=".xlsx,.xls,.csv"
@@ -531,7 +550,7 @@ export function ArchivePage({
                   type="button"
                   onClick={() => importFileInputRef.current?.click()}
                   disabled={isImporting}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition disabled:opacity-60 disabled:cursor-wait cursor-pointer"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition disabled:opacity-60 disabled:cursor-wait cursor-pointer"
                   title="Re-import a previously exported archived-responses file"
                 >
                   {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -541,69 +560,85 @@ export function ArchivePage({
                   type="button"
                   onClick={handleExportAll}
                   disabled={archivedResponses.length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition disabled:opacity-60 cursor-pointer"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition disabled:opacity-60 cursor-pointer"
                   title="Export every archived response to Excel"
                 >
                   <Download size={14} />
                   <span>Export All Archived</span>
                 </button>
-              </div>
-            )}
-
-            {activeTab === 'companies' && (
-              <select
-                value={companyTypeFilter}
-                onChange={(event) => setCompanyTypeFilter(event.target.value as 'All' | PartnerCompanyType)}
-                className="field !mt-0 w-full py-2 text-xs sm:w-48"
-                aria-label="Filter archived companies by type"
-              >
-                <option value="All">All company types</option>
-                {(['Courier', 'Supplier', 'Subcontractor', 'Uncategorized'] as PartnerCompanyType[]).map((type) => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            )}
-
-            <div className="relative w-full sm:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
-              <input
-                type="text"
-                placeholder={`Search archived ${activeTab === 'surveys' ? 'surveys' : activeTab === 'companies' ? 'companies' : 'responses'}...`}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-9 py-2 text-xs text-slate-700 dark:text-slate-300 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0063a9]"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
             </div>
-          </div>
-        </div>
+          )}
 
-        <TableFilterBar
-          sortOptions={[
-            { value: 'date-desc', label: 'Date: newest first' },
-            { value: 'date-asc', label: 'Date: oldest first' },
-            { value: 'name-asc', label: 'Name: A–Z' },
-            { value: 'name-desc', label: 'Name: Z–A' },
-          ]}
-          sortValue={tableSort}
-          onSortChange={setTableSort}
-          resultCount={activeTab === 'surveys'
-            ? filteredArchivedSurveys.length
-            : activeTab === 'companies'
-              ? filteredArchivedCompanies.length
-              : filteredGroupedResponses.length}
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFromChange={setDateFrom}
-          onDateToChange={setDateTo}
-          dateLabel="Archived date"
-          onReset={() => {
-            setSearchQuery('');
-            setTableSort('date-desc');
-            setDateFrom('');
-            setDateTo('');
-            setCompanyTypeFilter('All');
-          }}
-        />
+          <details className="relative shrink-0">
+            <summary className="flex h-10 cursor-pointer list-none items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:gap-1.5 sm:px-3 sm:text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 [&::-webkit-details-marker]:hidden">
+              <SlidersHorizontal size={15} aria-hidden="true" className="hidden sm:block" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="rounded-full bg-[#0063a9] px-1.5 py-0.5 text-[10px] leading-none text-white" aria-label={activeFilterCount + ' active filters'}>
+                  {activeFilterCount}
+                </span>
+              )}
+            </summary>
+            <div className="absolute right-0 top-full z-20 mt-2 w-72 max-w-[calc(100vw-3rem)] space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+              <label className="block">
+                <span className="sr-only">Sort archived items</span>
+                <select
+                  value={tableSort}
+                  onChange={(event) => setTableSort(event.target.value as typeof tableSort)}
+                  className="field !mt-0 w-full py-2 text-sm"
+                  aria-label="Sort archived items"
+                >
+                  <option value="date-desc">Date: newest first</option>
+                  <option value="date-asc">Date: oldest first</option>
+                  <option value="name-asc">Name: A-Z</option>
+                  <option value="name-desc">Name: Z-A</option>
+                </select>
+              </label>
+              <fieldset className="grid grid-cols-2 gap-2">
+                <legend className="sr-only">Archived date range</legend>
+                <label className="min-w-0 text-xs text-slate-500 dark:text-slate-400">
+                  From
+                  <input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} aria-label="Archived date from" className="field !mt-1 w-full py-2 text-xs" />
+                </label>
+                <label className="min-w-0 text-xs text-slate-500 dark:text-slate-400">
+                  To
+                  <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} aria-label="Archived date to" className="field !mt-1 w-full py-2 text-xs" />
+                </label>
+              </fieldset>
+              {activeTab === 'companies' && (
+                <label className="block">
+                  <span className="sr-only">Filter archived companies by type</span>
+                  <select
+                    value={companyTypeFilter}
+                    onChange={(event) => setCompanyTypeFilter(event.target.value as 'All' | PartnerCompanyType)}
+                    className="field !mt-0 w-full py-2 text-sm"
+                    aria-label="Filter archived companies by type"
+                  >
+                    <option value="All">All company types</option>
+                    {(['Courier', 'Supplier', 'Subcontractor', 'Uncategorized'] as PartnerCompanyType[]).map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setTableSort('date-desc');
+                  setDateFrom('');
+                  setDateTo('');
+                  setCompanyTypeFilter('All');
+                }}
+                className="text-xs font-semibold text-[#0063a9] hover:underline dark:text-blue-400"
+              >
+                Reset filters
+              </button>
+            </div>
+          </details>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
+          {filteredResultCount} archived {archiveItemLabel}{filteredResultCount === 1 ? '' : 's'}
+        </p>
 
         {importError && (
           <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 text-xs font-semibold flex items-center gap-2 dark:bg-rose-950/20 dark:border-rose-900">

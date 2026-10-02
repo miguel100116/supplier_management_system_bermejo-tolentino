@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { BarChart3, FileText, LayoutDashboard, Moon, Sun, FilePlus, ClipboardCheck, ArrowLeft, Clock3, LogOut, ShieldAlert, Users, UserCog, ClipboardList, X } from 'lucide-react';
+import { EvaluationWorkspace, isEvaluationWorkspacePage } from './features/evaluations/components/EvaluationWorkspace';
 import { AccountMenu } from './components/AccountMenu';
 import { NotificationBell } from './components/NotificationBell';
 import { EmployeeNotificationBell } from './components/EmployeeNotificationBell';
@@ -143,12 +144,10 @@ const adminNavItems: NavItem<PageKey>[] = [
     label: 'Evaluations',
     icon: ClipboardCheck,
     children: [
-      { key: 'survey-forms', label: 'All Submissions' },
-      { key: 'pending-review', label: 'Outstanding Evaluations' },
-      { key: 'explorer', label: 'Raw Data Explorer' },
+      { key: 'survey-forms', label: 'Evaluation Workspace' },
       { key: 'archive', label: 'Archive Center' },
       { key: 'import-evaluations', label: 'Import Evaluation Responses' },
-      { key: 'categories-manager', label: 'Categories Manager' },
+      { key: 'categories-manager', label: 'Evaluation Settings' },
     ],
   },
   // Single page already covers trends + company comparisons together, so
@@ -408,16 +407,6 @@ export default function App() {
   useModalEscape(isSettingsModalOpen, () => setIsSettingsModalOpen(false), 200);
   useModalEscape(isSessionWarningVisible, staySignedIn, 300);
 
-  useEffect(() => {
-    if (!isNotificationModalOpen && !isSettingsModalOpen) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isNotificationModalOpen, isSettingsModalOpen]);
-
   const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(null);
   const surveyFillerRef = useRef<SurveyFillerHandle>(null);
 
@@ -642,7 +631,10 @@ export default function App() {
     [visiblePages]
   );
 
+  const isAdminEvaluationWorkspace = isAdmin && isEvaluationWorkspacePage(activePage);
+
   const activeTitle = useMemo(() => {
+    if (isAdmin && isEvaluationWorkspacePage(activePage)) return 'Evaluation Workspace';
     if (activePage === 'dashboard') {
       return 'Dashboard';
     }
@@ -657,7 +649,7 @@ export default function App() {
     if (activePage === 'fill-form') return 'Fill Out Stakeholder Survey';
     if (activePage === 'import-evaluations') return 'Import Evaluation Responses';
     return flatNavLeaves.find((page) => page.key === activePage)?.label ?? 'Dashboard';
-  }, [activePage, selectedSurveyId, surveys, editingSurveyId, profile, flatNavLeaves]);
+  }, [activePage, selectedSurveyId, surveys, editingSurveyId, profile, isAdmin, flatNavLeaves]);
 
   const pageHeading = useMemo(() => {
     if (activePage === 'dashboard') {
@@ -990,7 +982,6 @@ export default function App() {
           navigateTo('view-form');
         }}
         onNavigateToCreate={() => navigateTo('create-form')}
-        onNavigateToArchive={() => navigateTo('archive')}
         onFillForm={(id) => {
           setSelectedSurveyId(id);
           navigateTo('fill-form');
@@ -1013,7 +1004,7 @@ export default function App() {
       />
     ),
     present: <PresentPage responses={scopedAccessibleResponses} partnerCompanies={userAccessiblePartnerCompanies} />,
-    explorer: <SurveyExplorerPage responses={filteredResponses} surveys={userAccessibleSurveys} />,
+    explorer: <SurveyExplorerPage responses={userAccessibleResponses} surveys={userAccessibleSurveys} />,
     reports: (
       <ReportsPage
         responses={filteredResponses}
@@ -1211,7 +1202,7 @@ export default function App() {
     <div className={darkMode ? 'dark' : ''}>
       <Shell
         pages={visiblePages}
-        activePage={activePage as any}
+        activePage={isAdminEvaluationWorkspace ? 'survey-forms' : activePage}
         onPageChange={(page) => {
           const targetPage = page as PageKey;
           navigateTo(targetPage);
@@ -1219,7 +1210,7 @@ export default function App() {
         }}
         title={activeTitle}
         pageHeading={pageHeading}
-        hideModuleContext={activePage === 'dashboard' || activePage === 'account-management'}
+        hideModuleContext={activePage === 'dashboard' || activePage === 'account-management' || activePage === 'partner-companies'}
         compactPageHeader={activePage === 'analytics'}
         action={
           <div className="flex min-w-0 items-center divide-x divide-blue-400/25">
@@ -1312,7 +1303,11 @@ export default function App() {
                       </div>
                     )}
                   >
-                    {pageContent}
+                    {isAdmin && isEvaluationWorkspacePage(activePage) ? (
+                      <EvaluationWorkspace activePage={activePage} onNavigate={navigateTo}>
+                        {pageContent}
+                      </EvaluationWorkspace>
+                    ) : pageContent}
                   </Suspense>
                   {isSupabaseConfigured && isRefreshing && (
                     <div
@@ -1364,7 +1359,7 @@ export default function App() {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
               <Suspense
                 fallback={(
                   <div className="flex min-h-64 items-center justify-center" role="status" aria-live="polite">
@@ -1496,7 +1491,7 @@ export default function App() {
                 </div>
               )}
             >
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
                 {isAdmin ? (
                   <SettingsPage
                     email={account || ''}

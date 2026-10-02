@@ -3,7 +3,6 @@ import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import { getSurveyEvaluationCompanies } from '../utils/analytics';
 import { StateMessage } from '../components/StateMessage';
-import { PageDescription } from '../components/PageDescription';
 
 interface OutstandingEvaluationsPageProps {
   surveys: CustomForm[];
@@ -44,7 +43,6 @@ export function OutstandingEvaluationsPage({ surveys, partnerCompanies, response
 
   return (
     <div className="space-y-5">
-      <PageDescription>See which partner companies have not received an evaluation for this period.</PageDescription>
       <section className="grid gap-4 sm:grid-cols-3">
         {groups.map((group) => (
           <article key={group.type} className="panel">
@@ -76,13 +74,15 @@ export function OutstandingEvaluationsPage({ surveys, partnerCompanies, response
         (group) =>
           group.hasAssignedForm && (
             <section key={group.type} className="panel">
-              <div className="flex items-center gap-2 mb-1">
+              <div className={"flex items-center gap-2 " + (group.outstanding.length === 0 ? "mb-1" : "mb-4")}>
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: typeColors[group.type] }} />
                 <h3 className="text-base font-semibold">{group.type} — Still Awaiting Evaluation</h3>
               </div>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                Companies no one has submitted a {group.type.toLowerCase()} evaluation for this period.
-              </p>
+              {group.outstanding.length === 0 && (
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                  Companies no one has submitted a {group.type.toLowerCase()} evaluation for this period.
+                </p>
+              )}
 
               {group.outstanding.length === 0 ? (
                 <StateMessage compact title="Fully covered" message={`Every ${group.type.toLowerCase()} partner has at least one evaluation this period.`} />

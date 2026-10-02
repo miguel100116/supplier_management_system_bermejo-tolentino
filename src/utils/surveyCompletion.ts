@@ -2,6 +2,7 @@ import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
 import { SurveyAccount } from '../hooks/useSurveyData';
 import { getSurveyEvaluationCompanies } from './analytics';
 import { parseDDMMYYYY } from './time';
+import { getSurveyStatus } from './surveyStatus';
 
 export interface EmployeeSurveyProgress {
   email: string;
@@ -101,7 +102,7 @@ export function getSurveyCompletionSummary(
     eligibleEmployees.length > 0 &&
     eligibleEmployees.every((e) => e.completed >= e.total);
 
-  const manuallyCompleted = survey.status === 'Completed';
+  const manuallyCompleted = survey.status === 'Completed' && getSurveyStatus(survey) === 'Completed';
 
   let completionReason: SurveyCompletionReason = null;
   if (manuallyCompleted) completionReason = 'manual';
