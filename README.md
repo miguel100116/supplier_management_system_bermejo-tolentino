@@ -134,7 +134,7 @@ A **Data Scope** toggle further switches between *Current* (active period), *All
 |---|---|
 | **Dashboard** | Personalized performance indicators and KPIs. |
 | **Survey Forms** | View, fill, and publish feedback forms. Legacy forms named with a leading Test/Tests label are hidden from employee evaluation choices and remain available to Admins. Respondent Info starts directly with the progress steps and has only “Proceed to Form Questions” in its footer; sidebar navigation and the later Questions Form Return actions remain available. Date-range questions support calendar pickers with month/year selection or typed `dd/mm/yyyy` dates; both dates are required and the end must be on or after the start. |
-| **Survey Explorer** | Analyze complete raw survey response records. |
+| **Survey Explorer** | Review each survey submission, filter by respondent email, inspect answers, and export all or filtered responses to Excel. |
 | **Analytics** | Company statistical charts, trends, rankings, and company comparisons over the response data authorized for the current session. |
 | **Reports** | Summary / Company / Question / Executive-Summary builders + raw exports (PDF, Excel, CSV). |
 | **Present** | Staggered slide-deck presentation builder (PDF/PPTX export). |
@@ -363,3 +363,7 @@ This system is **pre-production**. The most important open items (verified again
 ---
 
 *For a detailed, verified handoff of the system's exact current state — access administration, workflows, known issues, and release notes — see [`SYSTEM_TURNOVER.md`](SYSTEM_TURNOVER.md).*
+
+### Admin evaluation navigation
+
+Admins open Evaluations > Evaluation Workspace and switch between Forms (form management), Responses (submission list, answer inspection, and Excel export), and Coverage (company evaluation coverage). Archive Center and Import Evaluation Responses remain separate destinations. Evaluation Settings contains Category Labels. Existing route permissions and persistence contracts are unchanged.

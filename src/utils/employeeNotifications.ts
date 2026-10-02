@@ -1,5 +1,6 @@
 import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import { getSurveyEvaluationCompanies } from './analytics';
+import { getSurveyStatus } from './surveyStatus';
 
 export interface EmployeeNotification {
   id: string;
@@ -26,7 +27,7 @@ export function getEmployeePendingSurveys(
 
   // Filter for active (running or un-set status) surveys
   const activeSurveys = surveys.filter(
-    (s) => s.status !== 'Archived' && s.status !== 'Paused' && s.status !== 'Completed'
+    (s) => getSurveyStatus(s) === 'Running'
   );
 
   const pendingReminders: EmployeeNotification[] = [];

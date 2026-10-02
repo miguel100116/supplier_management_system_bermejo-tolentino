@@ -519,3 +519,28 @@ Decisions made:
 Known risks or blockers:
 Exact next step:
 ```
+
+### 2026-10-01 - Admin evaluation workspace navigation
+
+Decision: Group existing `survey-forms`, `explorer`, and `pending-review` routes under one Admin sidebar destination with Forms, Responses, and Coverage view buttons. Retain the existing route keys and authorization checks. Evaluation Settings reuses `categories-manager` with a Category Labels section; archive/import remain separate. This is a navigation change, with existing response matching and coverage rules retained.
+
+Evidence: `src/App.tsx`, `src/features/evaluations/components/EvaluationWorkspace.tsx`, `src/pages/CategoriesManagerPage.tsx`.
+
+### 2026-10-02 - Survey deadline status
+
+Decision: For a survey with a valid deadline, status remains Running or Paused through the deadline day and becomes Completed afterward; Archived always stays Archived. A future deadline supersedes a stale Completed value. Surveys without a valid deadline retain their saved manual status. The Forms page refreshes at the deadline boundary, and changing a deadline through Modify Settings reconciles the saved status.
+
+Evidence: src/utils/surveyStatus.ts, src/pages/SurveyFormsPage.tsx, src/utils/surveyCompletion.ts, src/utils/employeeNotifications.ts, src/utils/surveyStatus.test.ts.
+
+
+### 2026-10-02 - Survey response review and export
+
+Decision: The Evaluation Workspace Responses tab lists current, access-scoped submissions for a selected survey without dashboard filters. Explicit survey IDs take precedence; legacy rows without IDs match only when their question IDs uniquely identify a survey of that type. Email search filters the list, while Excel export offers all or filtered submissions. Workbook creation runs in a browser worker. Archived responses remain in Archive Center.
+
+Evidence: src/App.tsx, src/pages/SurveyExplorerPage.tsx, src/features/evaluations/domain/surveyResponses.ts, src/features/evaluations/workers/surveyResponsesExport.worker.ts.
+
+### 2026-10-02 - Shared modal scroll behavior
+
+Decision: Open dialogs registered through useModalEscape share a reference-counted document scroll lock. The lock fixes the body at its current scroll position, compensates for scrollbar width, and restores the original inline styles and position when the last dialog closes. Popovers can opt out; the employee notification dropdown does so. Modal content remains independently scrollable with overscroll containment in the Active Companies, Settings, and Modify Settings views.
+
+Evidence: src/hooks/useModalScrollLock.ts, src/hooks/useModalEscape.ts, src/components/EmployeeNotificationBell.tsx, src/features/active-companies/components/ActiveCompaniesModal.tsx, src/App.tsx, src/pages/SurveyFormsPage.tsx, src/hooks/useModalScrollLock.test.ts.
