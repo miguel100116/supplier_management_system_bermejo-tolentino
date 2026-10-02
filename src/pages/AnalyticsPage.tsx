@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Info, SlidersHorizontal, Trophy, X } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Info, Trophy, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CompanyAnalysisPanel } from '../components/CompanyAnalysisPanel';
 import { StateMessage } from '../components/StateMessage';
@@ -9,6 +9,8 @@ import { formatNumber, monthlyTrend, questionPerformance, responseVolume, series
 import { computeCompanyComposite, RankingMode } from '../utils/scoring';
 import { paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from '../features/analytics/domain/rankings';
 import { QuestionPerformanceRow } from '../features/analytics/components/QuestionPerformanceRow';
+import { AnalyticsDateRangeControls } from '../features/analytics/components/AnalyticsDateRangeControls';
+import type { AnalyticsDateRange } from '../features/analytics/domain/dateRange';
 import { useModalEscape } from '../hooks/useModalEscape';
 
 interface AnalyticsPageProps {
@@ -21,6 +23,8 @@ interface AnalyticsPageProps {
   archiveSeries?: ArchiveSeries[];
   selectedSeriesIds?: string[];
   onChangeSelectedSeriesIds?: (ids: string[]) => void;
+  dateRange?: AnalyticsDateRange;
+  onChangeDateRange?: (range: AnalyticsDateRange) => void;
   partnerCompanies?: PartnerCompany[];
 }
 
@@ -58,7 +62,7 @@ function AnalyticsTooltip({ text }: { text: string }) {
   );
 }
 
-export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilters, dataScope = 'current', onChangeDataScope, archiveSeries = [], selectedSeriesIds = [], onChangeSelectedSeriesIds, partnerCompanies = [] }: AnalyticsPageProps) {
+export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilters, dataScope = 'current', onChangeDataScope, archiveSeries = [], selectedSeriesIds = [], onChangeSelectedSeriesIds, dateRange = { from: '', to: '' }, onChangeDateRange, partnerCompanies = [] }: AnalyticsPageProps) {
   const [rankingMode, setRankingMode] = useState<RankingMode>('weighted');
   const [selectedCompany, setSelectedCompany] = useState<CompanySummary | null>(null);
   const [trendGranularity, setTrendGranularity] = useState<'monthly' | 'yearly' | 'series'>('monthly');
@@ -118,27 +122,41 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
   };
   const toggleSeries = (id: string) => onChangeSelectedSeriesIds?.(selectedSeriesIds.includes(id) ? selectedSeriesIds.filter((seriesId) => seriesId !== id) : [...selectedSeriesIds, id]);
 
+  const analyticsHeader = (
+    <>
+      <AnalyticsHeader dataScope={dataScope} onChangeDataScope={onChangeDataScope} rankingMode={rankingMode} onChangeRankingMode={setRankingMode} />
+      {dataScope === 'custom' && (
+        <AnalyticsDateRangeControls value={dateRange} onChange={(range) => {
+          setLeaderboardPage(0);
+          setQuestionPerformancePage(0);
+          setSelectedCompany(null);
+          onChangeDateRange?.(range);
+        }} />
+      )}
+      {dataScope === 'custom' && archiveSeries.length > 0 && (
+        <div className={`${panelClass} flex flex-wrap items-center gap-2 p-3`}>
+          <span className="mr-1 text-xs font-semibold text-slate-500">Archived periods (optional)</span>
+          <button type="button" onClick={() => onChangeSelectedSeriesIds?.([])} aria-pressed={!selectedSeriesIds.length} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${!selectedSeriesIds.length ? 'border-[#0078a8] bg-[#0078a8] text-white' : 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>All periods</button>
+          {archiveSeries.map((series) => (
+            <button type="button" key={series.id} onClick={() => toggleSeries(series.id)} aria-pressed={selectedSeriesIds.includes(series.id)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${selectedSeriesIds.includes(series.id) ? 'border-[#0078a8] bg-[#0078a8] text-white' : 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>{series.label}</button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
   if (!responses.length) {
     return (
       <div className="space-y-5">
-        <AnalyticsHeader dataScope={dataScope} onChangeDataScope={onChangeDataScope} rankingMode={rankingMode} onChangeRankingMode={setRankingMode} />
-        <StateMessage title="No analytics available" message={dataScope === 'custom' ? 'Select at least one archived period to view its analytics.' : 'No official evaluation responses match the current scope.'} />
+        {analyticsHeader}
+        <StateMessage title="No analytics available" message={dataScope === 'custom' ? 'No official evaluation responses match the selected dates and periods.' : 'No official evaluation responses match the current scope.'} />
       </div>
     );
   }
 
   return (
     <div className="min-w-0 space-y-6 pb-10">
-      <AnalyticsHeader dataScope={dataScope} onChangeDataScope={onChangeDataScope} rankingMode={rankingMode} onChangeRankingMode={setRankingMode} />
-
-      {dataScope === 'custom' && (
-        <div className={`${panelClass} flex flex-wrap items-center gap-2 p-3`}>
-          <span className="mr-1 text-xs font-semibold text-slate-500">Periods included</span>
-          {archiveSeries.length ? archiveSeries.map((series) => (
-            <button type="button" key={series.id} onClick={() => toggleSeries(series.id)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${selectedSeriesIds.includes(series.id) ? 'border-[#0078a8] bg-[#0078a8] text-white' : 'border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>{series.label}</button>
-          )) : <span className="text-xs text-slate-400">No named archive periods are available.</span>}
-        </div>
-      )}
+      {analyticsHeader}
 
       <section aria-label="Analytics summary" className="grid gap-4 md:grid-cols-3">
         <KpiCard label="Overall average score" value={`${formatNumber(averageScore, 0)}/100`} detail={`${scoredSubmissions.length} scored submissions in this view`} tooltip="The simple average of normalized submission scores in the selected reporting scope." />
@@ -257,7 +275,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
 function AnalyticsHeader({ dataScope, onChangeDataScope, rankingMode, onChangeRankingMode }: { dataScope: 'current' | 'all-time' | 'custom'; onChangeDataScope?: (scope: 'current' | 'all-time' | 'custom') => void; rankingMode: RankingMode; onChangeRankingMode: (mode: RankingMode) => void }) {
   return (
     <header className="space-y-3">
-      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><p className="text-sm text-slate-500 dark:text-slate-400">Review evaluation results, identify performance gaps, and compare partner companies.</p><div className="flex flex-wrap gap-2"><PlaceholderButton title="Choose a custom date range"><CalendarDays size={14} /> Date range <ChevronDown size={13} /></PlaceholderButton><PlaceholderButton title="Open advanced filters"><SlidersHorizontal size={14} /> Filters</PlaceholderButton></div></div>
+      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><p className="text-sm text-slate-500 dark:text-slate-400">Review evaluation results, identify performance gaps, and compare partner companies.</p></div>
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"><div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">{(['current', 'all-time', 'custom'] as const).map((scope) => (<button key={scope} type="button" onClick={() => onChangeDataScope?.(scope)} className={`rounded-md px-4 py-1.5 text-xs font-semibold ${dataScope === scope ? 'bg-[#0078a8] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'}`}>{scope === 'current' ? 'Current' : scope === 'all-time' ? 'All time' : 'Custom'}</button>))}</div><label className="flex items-center gap-2 text-xs font-semibold text-slate-500">Company ranking<select value={rankingMode} onChange={(event) => onChangeRankingMode(event.target.value as RankingMode)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><option value="weighted">Volume-weighted</option><option value="pure">Pure average</option></select></label></div>
     </header>
   );

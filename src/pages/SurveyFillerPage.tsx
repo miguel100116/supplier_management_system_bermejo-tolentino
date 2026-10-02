@@ -2,7 +2,9 @@ import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle }
 import { useModalEscape } from '../hooks/useModalEscape';
 import { CheckCircle, Info, Shield, ArrowRight, ClipboardCopy, Send, UserCheck, ArrowLeft } from 'lucide-react';
 import { CustomForm, Rating, PartnerCompany } from '../types/survey';
-import { isValidDDMMYYYY } from '../utils/time';
+import { formatSurveyDateRange, validateSurveyDateRange } from '../features/evaluations/domain/surveyDates';
+import { SurveyDateRangeQuestion } from '../features/evaluations/components/SurveyDateRangeQuestion';
+import { resolveSelectableSurveyId } from '../features/evaluations/domain/surveySelection';
 import { getQuestionMaxPoints } from '../data/questionWeights';
 import { getSurveyEvaluationCompanies } from '../utils/analytics';
 
@@ -63,7 +65,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   { surveys, partnerCompanies = [], initialSurveyId, userEmail, defaultDepartment, defaultRespondentType, responses, onSubmitted, onCancel },
   ref
 ) {
-  const [selectedSurveyId, setSelectedSurveyId] = useState<string>(initialSurveyId || (surveys[0]?.id ?? ''));
+  const [selectedSurveyId, setSelectedSurveyId] = useState<string>(() => resolveSelectableSurveyId(surveys, initialSurveyId));
   const [step, setStep] = useState<1 | 2 | 3>(1); // 1: Info, 2: Questions, 3: Success
   const [showDraftModal, setShowDraftModal] = useState(false);
   // True once the respondent has entered the Questions Form at least once for
@@ -103,6 +105,20 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   const availableRespondentTypes = useMemo(() => {
     return activeSurvey?.accessRoles?.length ? activeSurvey.accessRoles : RESPONDENT_TYPES;
   }, [activeSurvey]);
+
+  useEffect(() => {
+    const nextId = resolveSelectableSurveyId(surveys, selectedSurveyId);
+    if (nextId === selectedSurveyId) return;
+    setSelectedSurveyId(nextId);
+    setStep(1);
+    setCompany('');
+    setRatings({});
+    setComments({});
+    setValidationErrors({});
+    setError('');
+    setHasStartedForm(false);
+    startTimeRef.current = null;
+  }, [surveys, selectedSurveyId]);
 
   useEffect(() => {
     const preferredDepartment = defaultDepartment && availableDepartments.includes(defaultDepartment)
@@ -227,7 +243,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
       return;
     }
 
-    if (!selectedSurveyId) {
+    if (!activeSurvey) {
       setError('Please select a survey form to respond to.');
       return;
     }
@@ -387,29 +403,14 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
       [qId]: { ...prev[qId], [field]: value }
     }));
 
-    // Live strict validation: dd/mm/yyyy only, and must be a real calendar date.
-    // This catches spammed/random input (letters, malformed digits, impossible dates) immediately.
-    if (!value.trim()) {
-      setValidationErrors((prev) => {
-        const copy = { ...prev };
-        delete copy[qId];
-        return copy;
-      });
-      return;
-    }
-
-    if (!isValidDDMMYYYY(value)) {
-      setValidationErrors((prev) => ({
-        ...prev,
-        [qId]: 'Enter valid dates in dd/mm/yyyy format (e.g. 05/03/2026).'
-      }));
-    } else {
-      setValidationErrors((prev) => {
-        const copy = { ...prev };
-        delete copy[qId];
-        return copy;
-      });
-    }
+    const range = { from: ratings[qId]?.from || '', to: ratings[qId]?.to || '', [field]: value };
+    const message = Object.values(validateSurveyDateRange(range)).join(' ');
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      if (message) next[qId] = message;
+      else delete next[qId];
+      return next;
+    });
   };
 
   const handleCommentChange = (qId: string, value: string) => {
@@ -511,11 +512,8 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
           errors[q.questionId] = 'This field is required. Please select at least one option.';
         }
       } else if (q.inputType === 'date-range') {
-        if (!val || !val.from || !val.to) {
-          errors[q.questionId] = 'This field is required. Please specify both dates.';
-        } else if (!isValidDDMMYYYY(val.from) || !isValidDDMMYYYY(val.to)) {
-          errors[q.questionId] = 'Enter valid dates in dd/mm/yyyy format (e.g. 05/03/2026).';
-        }
+        const message = Object.values(validateSurveyDateRange({ from: val?.from || '', to: val?.to || '' })).join(' ');
+        if (message) errors[q.questionId] = message;
       } else if (q.inputType === 'matrix') {
         q.subQuestions?.forEach(sub => {
            const subVal = val?.[sub.id];
@@ -612,9 +610,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
         finalComment = joined + (finalComment ? ` | Comment detail: ${finalComment}` : '');
       } else if (q.inputType === 'date-range') {
         ratingVal = 'N/A';
-        const fromStr = val?.from || '';
-        const toStr = val?.to || '';
-        const drStr = `From: ${fromStr} To: ${toStr}`;
+        const drStr = formatSurveyDateRange({ from: val?.from || '', to: val?.to || '' });
         finalComment = drStr + (finalComment ? ` | Comment detail: ${finalComment}` : '');
       } else {
         ratingVal = typeof ratings[q.questionId] === 'number' ? ratings[q.questionId] : qMax;
@@ -668,27 +664,15 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
       <div className="panel mx-auto max-w-2xl p-6 text-center sm:p-12" id="survey-filler-empty">
         <Info size={40} className="mx-auto text-amber-500 mb-4" />
         <h3 className="text-xl font-bold">No Surveys Available</h3>
-        <p className="text-slate-500 dark:text-slate-400 mt-2">There are currently no published survey forms inside the system.</p>
+        <p className="text-slate-500 dark:text-slate-400 mt-2">No survey forms are available for your account right now.</p>
       </div>
     );
   }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6" id="survey-filler-container">
-      {/* Top Navigation Header */}
-      <div className="flex items-center justify-between pb-2">
-        {step === 1 ? (
-          onCancel && (
-            <button
-              onClick={onCancel}
-              className="secondary-button flex items-center gap-2 text-xs py-1.5 px-3"
-              type="button"
-            >
-              <ArrowLeft size={14} />
-              <span>Back to Form Management</span>
-            </button>
-          )
-        ) : step === 2 ? (
+      {step === 2 && (
+        <div className="flex items-center justify-between pb-2">
           <button
             onClick={() => setStep(1)}
             className="secondary-button flex items-center gap-2 text-xs py-1.5 px-3"
@@ -697,10 +681,8 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
             <ArrowLeft size={14} />
             <span>Return</span>
           </button>
-        ) : (
-          <div />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Step Progress bar */}
       <div className="flex items-center justify-between gap-2 px-1 sm:px-2">
@@ -901,18 +883,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
               </div>
             )}
 
-            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 dark:border-slate-800 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
-              {onCancel ? (
-                <button
-                  type="button"
-                  onClick={onCancel}
-                  className="secondary-button w-full min-[420px]:w-auto"
-                >
-                  Back to Form Management
-                </button>
-              ) : (
-                <div />
-              )}
+            <div className="flex justify-end border-t border-slate-100 pt-5 dark:border-slate-800">
               {!hasEvaluatedAll && (
                 <button
                   type="submit"
@@ -1075,40 +1046,12 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                           </div>
                         </div>
                       ) : q.inputType === 'date-range' ? (
-                        <div>
-                           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-2">Duration (From - To):</span>
-                           <div className="flex items-center gap-4">
-                             <input
-                               type="text"
-                               inputMode="numeric"
-                               placeholder="dd/mm/yyyy"
-                               maxLength={10}
-                               className={`field w-40 ${validationErrors[q.questionId] ? 'border-rose-400 focus:ring-rose-200' : ''}`}
-                               value={ratings[q.questionId]?.from || ''}
-                               onChange={(e) => {
-                                 handleDateRangeChange(q.questionId, 'from', e.target.value);
-                               }}
-                             />
-                             <span className="text-slate-400 font-bold">to</span>
-                             <input
-                               type="text"
-                               inputMode="numeric"
-                               placeholder="dd/mm/yyyy"
-                               maxLength={10}
-                               className={`field w-40 ${validationErrors[q.questionId] ? 'border-rose-400 focus:ring-rose-200' : ''}`}
-                               value={ratings[q.questionId]?.to || ''}
-                               onChange={(e) => {
-                                 handleDateRangeChange(q.questionId, 'to', e.target.value);
-                               }}
-                             />
-                           </div>
-                           {validationErrors[q.questionId] && (
-                             <p className="text-xs text-rose-500 font-semibold mt-1.5 flex items-center gap-1">
-                               <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                               {validationErrors[q.questionId]}
-                             </p>
-                           )}
-                        </div>
+                        <SurveyDateRangeQuestion
+                          id={`survey-date-${q.questionId}`}
+                          value={{ from: ratings[q.questionId]?.from || '', to: ratings[q.questionId]?.to || '' }}
+                          showErrors={Boolean(validationErrors[q.questionId])}
+                          onChange={(field, date) => handleDateRangeChange(q.questionId, field, date)}
+                        />
                       ) : q.inputType === 'matrix' && q.subQuestions ? (
                         <div className="overflow-x-auto w-full">
                           <table className="w-full text-sm text-left border-collapse min-w-[600px]">

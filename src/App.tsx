@@ -24,6 +24,8 @@ import {
 } from './services/applicationRepository';
 import { hydrateChangedSharedStore, hydrateSharedClientStores } from './services/sharedStoreHydration';
 import { isOfficialAnalyticsResponse } from './features/analytics/domain/responseProvenance';
+import { filterCustomAnalyticsResponses, type AnalyticsDateRange } from './features/analytics/domain/dateRange';
+import { getVisibleSurveyForms } from './features/evaluations/domain/surveySelection';
 import type { SurveyFillerHandle } from './pages/SurveyFillerPage';
 import { logAdminActivity } from './utils/adminActivityLog';
 import { useSurveyData } from './hooks/useSurveyData';
@@ -205,12 +207,13 @@ export default function App() {
   // 'current' = active period only (today's default, unchanged behavior).
   // 'all-time' = active + every archived period combined, so multi-year
   // company trends accumulate across resets instead of blanking out each time
-  // a survey period is archived. 'custom' = only the archived series picked
-  // in selectedSeriesIds. Shared across Dashboard/Analytics so switching in
-  // one keeps the other consistent (Dashboard doesn't offer 'custom' itself
+  // a survey period is archived. 'custom' = a submission date range across
+  // history, optionally narrowed to selected archived series. The scope is
+  // shared across Dashboard/Analytics (Dashboard doesn't offer 'custom' itself
   // and falls back to 'current' if it's ever selected elsewhere).
   const [dataScope, setDataScope] = useState<'current' | 'all-time' | 'custom'>('current');
   const [selectedSeriesIds, setSelectedSeriesIds] = useState<string[]>([]);
+  const [analyticsDateRange, setAnalyticsDateRange] = useState<AnalyticsDateRange>({ from: '', to: '' });
 
   // Accounts Management State
   const [accounts, setAccounts] = useState<AccountProfile[]>(() => {
@@ -521,12 +524,11 @@ export default function App() {
     () => applyAccessFilter(historyResponsesRaw, profile, effectiveSurveyTypes, activePage),
     [historyResponsesRaw, profile, effectiveSurveyTypes, activePage]
   );
-  // Archived responses belonging to the series picked in the Analytics
-  // "Custom" scope. Series only exist on archived rows (stamped at archive
-  // time), so this never includes anything from the current/active period.
+  // Custom includes active and archived history within the local calendar
+  // dates; selecting named series optionally narrows it to those periods.
   const customScopedResponsesRaw = useMemo(
-    () => (selectedSeriesIds.length ? historyResponsesRaw.filter((r) => r.seriesId && selectedSeriesIds.includes(r.seriesId)) : []),
-    [historyResponsesRaw, selectedSeriesIds]
+    () => filterCustomAnalyticsResponses(historyResponsesRaw, analyticsDateRange, selectedSeriesIds),
+    [historyResponsesRaw, analyticsDateRange, selectedSeriesIds]
   );
   const userAccessibleCustomResponses = useMemo(
     () => applyAccessFilter(customScopedResponsesRaw, profile, effectiveSurveyTypes, activePage),
@@ -567,7 +569,7 @@ export default function App() {
   }, [responses, profile, effectiveSurveyTypes, activePage]);
 
   const userAccessibleSurveys = useMemo(() => {
-    return surveys.filter((survey) => {
+    return getVisibleSurveyForms(surveys, profile?.role === 'Admin').filter((survey) => {
       if (!profile || profile.role === 'Admin') return true;
       if (!effectiveSurveyTypes.includes(survey.surveyType)) return false;
 
@@ -1009,6 +1011,8 @@ export default function App() {
         archiveSeries={archiveSeries}
         selectedSeriesIds={selectedSeriesIds}
         onChangeSelectedSeriesIds={setSelectedSeriesIds}
+        dateRange={analyticsDateRange}
+        onChangeDateRange={setAnalyticsDateRange}
         partnerCompanies={userAccessiblePartnerCompanies}
       />
     ),
@@ -1117,7 +1121,7 @@ export default function App() {
       />
     ),
     'view-form': (() => {
-      const targetSurvey = surveys.find((s) => s.id === selectedSurveyId);
+      const targetSurvey = userAccessibleSurveys.find((s) => s.id === selectedSurveyId);
       if (!targetSurvey) {
         return (
           <div className="panel p-8 text-center text-slate-500">

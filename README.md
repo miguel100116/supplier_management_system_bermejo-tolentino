@@ -124,7 +124,7 @@ Beyond *which modules* a user sees, the system controls *which response data* th
 | Rank & File | Only their own submissions |
 | **Analytics (everyone)** | **Always company-wide and aggregate-only**, regardless of rank |
 
-A **Data Scope** toggle (shared across Dashboard and Analytics) further switches between *Current* (active period), *All-Time* (active + all archived periods), and *Custom* (specific archived series).
+A **Data Scope** toggle further switches between *Current* (active period), *All-Time* (active + all archived periods), and *Custom* (Analytics submission-date calendars across active and archived history, optionally narrowed to selected archived series). Custom ranges include both selected dates in the user's local time zone; either boundary can be left blank. The calendar controls remain available when no responses match.
 
 ---
 
@@ -133,7 +133,7 @@ A **Data Scope** toggle (shared across Dashboard and Analytics) further switches
 | Module | What it does |
 |---|---|
 | **Dashboard** | Personalized performance indicators and KPIs. |
-| **Survey Forms** | View, fill, and publish feedback forms. |
+| **Survey Forms** | View, fill, and publish feedback forms. Legacy forms named with a leading Test/Tests label are hidden from employee evaluation choices and remain available to Admins. Respondent Info starts directly with the progress steps and has only “Proceed to Form Questions” in its footer; sidebar navigation and the later Questions Form Return actions remain available. Date-range questions support calendar pickers with month/year selection or typed `dd/mm/yyyy` dates; both dates are required and the end must be on or after the start. |
 | **Survey Explorer** | Analyze complete raw survey response records. |
 | **Analytics** | Company statistical charts, trends, rankings, and company comparisons over the response data authorized for the current session. |
 | **Reports** | Summary / Company / Question / Executive-Summary builders + raw exports (PDF, Excel, CSV). |
