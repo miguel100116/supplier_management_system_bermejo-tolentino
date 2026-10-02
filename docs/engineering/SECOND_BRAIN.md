@@ -482,6 +482,30 @@ Evidence: `src/services/applicationRepository.ts`, `src/services/applicationRepo
 - Backend source-of-truth migration: complete for shared state in staging; production migration/deployment still requires explicit authorization and environment-specific verification.
 - Repository artifact cleanup: tracked `.vite` cache and obsolete root extraction/patch outputs removed; `.vite/` is ignored.
 
+### 2026-10-02 — Analytics Custom date range
+
+Status: implemented locally; deployment not verified.
+
+Custom Analytics uses submission-date calendars across active and archived records, with inclusive local calendar boundaries and optional archived-series narrowing. Empty matches retain all controls; invalid or reversed ranges show validation and produce no results. Access filtering and official-response provenance still apply before rendering. Current and All-Time scope semantics are unchanged.
+
+Evidence: `src/features/analytics/domain/dateRange.ts`, `src/features/analytics/components/AnalyticsDateRangeControls.tsx`, `src/App.tsx`, `src/pages/AnalyticsPage.tsx`, and focused date-range/presentation tests.
+
+### 2026-10-02 — SMS-74 survey date pickers
+
+Status: implemented locally; deployment not verified.
+
+All survey `date-range` questions use the same typed `dd/mm/yyyy` picker with month/year calendar navigation. Both dates are required; To cannot precede From. Calendar selection and typed values share validation and preserve the existing `From: dd/mm/yyyy To: dd/mm/yyyy` answer-comment format consumed by persistence and exports. No database migration is required.
+
+Evidence: SMS-74 in the Notion ticket database, `src/features/evaluations/components/SurveyDatePicker.tsx`, `src/features/evaluations/domain/surveyDates.ts`, and `src/pages/SurveyFillerPage.tsx`.
+
+### 2026-10-02 — SMS-75 employee test-form visibility
+
+Status: implemented locally; deployment not verified.
+
+Employee survey availability excludes legacy titles beginning with a standalone Test/Tests label, including numbered and separated variants. Admins retain those forms. Existing department, designation, and survey-type rules still apply. New Evaluation resolves hidden/stale form IDs to an available form, and survey details use the same accessible list. This is UI availability filtering; stored forms and evaluations are retained and no database migration is required.
+
+Evidence: SMS-75 in Notion, `src/features/evaluations/domain/surveySelection.ts`, focused selection/presentation tests, `src/App.tsx`, and `src/pages/SurveyFillerPage.tsx`.
+
 ## Handoff template
 
 Add a temporary handoff only for substantial unfinished work, then remove it when resolved:

@@ -4,6 +4,8 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QuestionPerformanceRow } from './QuestionPerformanceRow';
+import { AnalyticsDateRangeControls } from './AnalyticsDateRangeControls';
+import { AnalyticsPage } from '../../../pages/AnalyticsPage';
 
 const COMPANY_ANALYSIS_SOURCE = readFileSync(
   new URL('../../../components/CompanyAnalysisPanel.tsx', import.meta.url),
@@ -29,4 +31,36 @@ test('question performance row wraps text and keeps its score bar in separate fl
   assert.match(markup, /role="progressbar"/);
   assert.match(markup, /aria-valuenow="84\.5"/);
   assert.match(markup, new RegExp(question));
+});
+
+test('date calendars display selected values, boundary constraints, and reversed-range validation', () => {
+  const markup = renderToStaticMarkup(<AnalyticsDateRangeControls value={{ from: '2026-09-10', to: '2026-09-12' }} />);
+  assert.match(markup, /type="date"/);
+  assert.match(markup, /value="2026-09-10"/);
+  assert.match(markup, /value="2026-09-12"/);
+  assert.match(markup, /max="2026-09-12"/);
+  assert.match(markup, /min="2026-09-10"/);
+  const invalid = renderToStaticMarkup(<AnalyticsDateRangeControls value={{ from: '2026-09-12', to: '2026-09-10' }} />);
+  assert.match(invalid, /role="alert"/);
+  assert.match(invalid, /From date must be on or before To date/);
+});
+
+test('custom calendars and period selection remain available when no analytics match', () => {
+  // Legacy page JSX uses the classic transform in this Node test runner.
+  const globals = globalThis as typeof globalThis & { React?: typeof React };
+  const previous = globals.React;
+  globals.React = React;
+  try {
+    const props = { responses: [], activeSurveyTypes: [], filters: { surveyType: [], questionId: '', rating: 'All' as const, company: '', search: '' }, setFilters: () => undefined };
+    const custom = renderToStaticMarkup(<AnalyticsPage {...props} dataScope="custom" archiveSeries={[{ id: 'period-1', label: 'Example period', createdAt: '2026-09-01' }]} />);
+    assert.match(custom, /id="analytics-date-from"/);
+    assert.match(custom, /id="analytics-date-to"/);
+    assert.match(custom, /Example period/);
+    assert.match(custom, /No analytics available/);
+    const current = renderToStaticMarkup(<AnalyticsPage {...props} dataScope="current" />);
+    assert.doesNotMatch(current, /id="analytics-date-from"/);
+  } finally {
+    if (previous === undefined) delete globals.React;
+    else globals.React = previous;
+  }
 });
