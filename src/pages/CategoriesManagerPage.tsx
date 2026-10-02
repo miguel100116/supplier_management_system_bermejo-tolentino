@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useModalEscape } from '../hooks/useModalEscape';
+import { PageDescription } from '../components/PageDescription';
 import { AlertTriangle, Ban, ChevronRight, Layers, PackageSearch, RotateCcw, Save, Truck, X } from 'lucide-react';
 import { SurveyType } from '../types/survey';
 import { DEFAULT_CATEGORIES } from '../data/questionCategories';
@@ -88,13 +89,11 @@ export function CategoriesManagerPage({ categoryLabels, onRenameCategory, onRest
 
   return (
     <div className="space-y-5">
-      <div className="panel px-5 py-4">
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Each partner type is evaluated across 5 categories. Renaming a category here updates it everywhere it's
-          used - survey question categories, the radar chart, bar charts, reports, and the survey editor's category
-          dropdown.
-        </p>
-      </div>
+      <PageDescription>
+        Each partner type is evaluated across 5 categories. Renaming a category here updates it everywhere it's
+        used - survey question categories, the radar chart, bar charts, reports, and the survey editor's category
+        dropdown.
+      </PageDescription>
 
       <div className="grid gap-4 sm:grid-cols-3">
         {(['Courier', 'Supplier', 'Subcontractor'] as const).map((type) => {
@@ -136,7 +135,7 @@ export function CategoriesManagerPage({ categoryLabels, onRenameCategory, onRest
           <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 flex flex-col max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-5 py-4 shrink-0">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Categories Manager</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category Labels</p>
                 <h3 className="text-base font-bold text-slate-800 dark:text-white">{openType} Categories</h3>
               </div>
               <button type="button" onClick={closeEditor} className="icon-button" title="Close">

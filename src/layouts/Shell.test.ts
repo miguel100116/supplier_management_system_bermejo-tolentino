@@ -38,3 +38,12 @@ test('realtime refreshes load only the application record type that changed', ()
   assert.match(SURVEY_DATA_SOURCE, /case 'survey':[\s\S]*?loadApplicationRecords<CustomForm>\('survey'\)/);
   assert.doesNotMatch(SURVEY_DATA_SOURCE, /refreshChangedRecord[\s\S]*?setTimeout\(\(\) => runHydration\(true\),/);
 });
+
+
+test('Admin evaluation navigation groups the existing routes into one workspace', () => {
+  const group = APP_SOURCE.slice(APP_SOURCE.indexOf("id: 'group-evaluations'"), APP_SOURCE.indexOf('// Single page already covers'));
+  assert.match(group, /key: 'survey-forms', label: 'Evaluation Workspace'/);
+  assert.match(group, /key: 'categories-manager', label: 'Evaluation Settings'/);
+  assert.doesNotMatch(group, /key: 'explorer'|key: 'pending-review'/);
+  assert.match(APP_SOURCE, /activePage=\{isAdminEvaluationWorkspace \? 'survey-forms' : activePage\}/);
+});

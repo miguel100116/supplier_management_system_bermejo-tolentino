@@ -20,6 +20,7 @@ import { useEvaluationImportArchives } from '../features/evaluation-imports/hook
 import { MAX_EVALUATION_IMPORT_FILE_BYTES } from '../features/evaluation-imports/domain/importArchive';
 import type { EvaluationImportArchive } from '../features/evaluation-imports/domain/importArchive';
 import { useModalEscape } from '../hooks/useModalEscape';
+import { PageDescription } from '../components/PageDescription';
 
 const SURVEY_TYPES: SurveyType[] = ['Supplier', 'Subcontractor', 'Courier'];
 const FORM_CARDS: Array<{ surveyType: SurveyType; title: string; formLabel: string; icon: typeof Package }> = [
@@ -173,17 +174,9 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center gap-2.5">
-          <span className="rounded-lg bg-blue-50 p-1.5 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-            <FileSpreadsheet size={20} />
-          </span>
-          <h2 className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">Import Evaluation Responses</h2>
-        </div>
-        <p className="mt-1 max-w-3xl text-xs text-slate-500 dark:text-slate-400">
-          Upload one Excel workbook containing the Supplier, Subcontractor, and Courier evaluation worksheets. The system detects each form and imports all three categories together.
-        </p>
-      </div>
+      <PageDescription>
+        Upload one Excel workbook containing the Supplier, Subcontractor, and Courier evaluation worksheets. The system detects each form and imports all three categories together.
+      </PageDescription>
 
       <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-label="Combined evaluation workbook upload">
         <input

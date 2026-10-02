@@ -134,7 +134,7 @@ A **Data Scope** toggle (shared across Dashboard and Analytics) further switches
 |---|---|
 | **Dashboard** | Personalized performance indicators and KPIs. |
 | **Survey Forms** | View, fill, and publish feedback forms. |
-| **Survey Explorer** | Analyze complete raw survey response records. |
+| **Survey Explorer** | Review each survey submission, filter by respondent email, inspect answers, and export all or filtered responses to Excel. |
 | **Analytics** | Company statistical charts, trends, rankings, and company comparisons over the response data authorized for the current session. |
 | **Reports** | Summary / Company / Question / Executive-Summary builders + raw exports (PDF, Excel, CSV). |
 | **Present** | Staggered slide-deck presentation builder (PDF/PPTX export). |
@@ -363,3 +363,7 @@ This system is **pre-production**. The most important open items (verified again
 ---
 
 *For a detailed, verified handoff of the system's exact current state — access administration, workflows, known issues, and release notes — see [`SYSTEM_TURNOVER.md`](SYSTEM_TURNOVER.md).*
+
+### Admin evaluation navigation
+
+Admins open Evaluations > Evaluation Workspace and switch between Forms (form management), Responses (submission list, answer inspection, and Excel export), and Coverage (company evaluation coverage). Archive Center and Import Evaluation Responses remain separate destinations. Evaluation Settings contains Category Labels. Existing route permissions and persistence contracts are unchanged.

@@ -19,8 +19,7 @@ import {
   BarChart3,
   ListCollapse,
   Layers,
-  ChevronDown,
-  LayoutGrid
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
@@ -193,11 +192,6 @@ export function DashboardPage({
   const saveLayout = (newWidgets: DashboardWidget[]) => {
     setWidgets(newWidgets);
     localStorage.setItem('survey_dashboard_widgets_v1', JSON.stringify(newWidgets));
-  };
-
-  const startCustomize = () => {
-    setDraftWidgets([...widgets]);
-    setIsCustomizing(true);
   };
 
   const saveCustomize = () => {
@@ -516,16 +510,7 @@ export function DashboardPage({
                 Save Changes
               </button>
             </>
-          ) : (
-            <button
-              onClick={startCustomize}
-              className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-[#0063a9] hover:bg-[#00528c] px-6 py-2 text-xs font-semibold text-white shadow-md transition-all duration-200 hover:scale-[1.02]"
-              type="button"
-            >
-              <LayoutGrid size={15} />
-              Customize Layout
-            </button>
-          )}
+          ) : null}
         </div>,
         headerPortalTarget
       )}
