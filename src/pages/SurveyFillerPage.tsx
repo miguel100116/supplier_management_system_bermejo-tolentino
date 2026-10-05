@@ -44,23 +44,6 @@ interface SurveyFillerPageProps {
   onCancel?: () => void;
 }
 
-const DEPARTMENTS = [
-  'Accounts Payable - Trade',
-  'Business Solutions Manager',
-  'Executive Office',
-  'Logistics',
-  'Procurement Group',
-  'TASS'
-];
-
-const RESPONDENT_TYPES = [
-  'Rank & File',
-  'Supervisory',
-  'Managerial',
-  'Director',
-  'Executive'
-];
-
 export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageProps>(function SurveyFillerPage(
   { surveys, partnerCompanies = [], initialSurveyId, userEmail, defaultDepartment, defaultRespondentType, responses, onSubmitted, onCancel },
   ref
@@ -86,8 +69,9 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
 
   // Respondent metadata
   const [company, setCompany] = useState('');
-  const [department, setDepartment] = useState(defaultDepartment || DEPARTMENTS[0]);
-  const [respondentType, setRespondentType] = useState(defaultRespondentType || RESPONDENT_TYPES[0]);
+  const department = defaultDepartment ?? '';
+  const respondentType = defaultRespondentType ?? '';
+  const hasOrganizationalProfile = Boolean(department && respondentType);
   const [address, setAddress] = useState('');
   const [periodCovered, setPeriodCovered] = useState('1st Half');
 
@@ -99,13 +83,6 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   const [copyPreviousAnswers, setCopyPreviousAnswers] = useState(true);
 
   const activeSurvey = surveys.find((s) => s.id === selectedSurveyId);
-  const availableDepartments = useMemo(() => {
-    return activeSurvey?.accessDepartments?.length ? activeSurvey.accessDepartments : DEPARTMENTS;
-  }, [activeSurvey]);
-  const availableRespondentTypes = useMemo(() => {
-    return activeSurvey?.accessRoles?.length ? activeSurvey.accessRoles : RESPONDENT_TYPES;
-  }, [activeSurvey]);
-
   useEffect(() => {
     const nextId = resolveSelectableSurveyId(surveys, selectedSurveyId);
     if (nextId === selectedSurveyId) return;
@@ -119,24 +96,6 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     setHasStartedForm(false);
     startTimeRef.current = null;
   }, [surveys, selectedSurveyId]);
-
-  useEffect(() => {
-    const preferredDepartment = defaultDepartment && availableDepartments.includes(defaultDepartment)
-      ? defaultDepartment
-      : availableDepartments[0];
-    if (preferredDepartment && !availableDepartments.includes(department)) {
-      setDepartment(preferredDepartment);
-    }
-  }, [availableDepartments, defaultDepartment, department]);
-
-  useEffect(() => {
-    const preferredType = defaultRespondentType && availableRespondentTypes.includes(defaultRespondentType as any)
-      ? defaultRespondentType
-      : availableRespondentTypes[0];
-    if (preferredType && !availableRespondentTypes.includes(respondentType as any)) {
-      setRespondentType(preferredType);
-    }
-  }, [availableRespondentTypes, defaultRespondentType, respondentType]);
 
   // Filter registered partner companies that match the selected survey type
   // and exclude those already evaluated by this specific user
@@ -237,6 +196,11 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   const handleStartForm = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!hasOrganizationalProfile) {
+      setError('Your Department and Designation are not assigned. Please contact an administrator before submitting an evaluation.');
+      return;
+    }
 
     if (!company.trim() && !hasEvaluatedAll) {
       setError('Please provide your organization or company name.');
@@ -496,6 +460,10 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeSurvey) return;
+    if (!hasOrganizationalProfile) {
+      setError('Your Department and Designation are not assigned. Please contact an administrator before submitting an evaluation.');
+      return;
+    }
 
     // Validate form inputs
     const errors: Record<string, string> = {};
@@ -646,8 +614,6 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
 
   const handleReset = () => {
     setCompany('');
-    setDepartment(DEPARTMENTS[0]);
-    setRespondentType(RESPONDENT_TYPES[0]);
     setAddress('');
     setPeriodCovered('1st Half');
     setRatings({});
@@ -763,36 +729,34 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                 <div className="grid gap-4 sm:grid-cols-2 mb-5">
                   <div>
                     <label htmlFor="filler-dept" className="field-label">Associated Department</label>
-                    <select
+                    <input
                       id="filler-dept"
-                      className="field"
-                      value={department}
-                      onChange={(e) => setDepartment(e.target.value)}
-                    >
-                      {availableDepartments.map((dept) => (
-                        <option key={dept} value={dept}>
-                          {dept}
-                        </option>
-                      ))}
-                    </select>
+                      type="text"
+                      className="field bg-slate-50 dark:bg-slate-900/40"
+                      value={department || 'Not assigned'}
+                      readOnly
+                      aria-readonly="true"
+                    />
                   </div>
 
                   <div>
                     <label htmlFor="filler-role" className="field-label">Designation</label>
-                    <select
+                    <input
                       id="filler-role"
-                      className="field"
-                      value={respondentType}
-                      onChange={(e) => setRespondentType(e.target.value)}
-                    >
-                      {availableRespondentTypes.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
+                      type="text"
+                      className="field bg-slate-50 dark:bg-slate-900/40"
+                      value={respondentType || 'Not assigned'}
+                      readOnly
+                      aria-readonly="true"
+                    />
                   </div>
                 </div>
+
+                {!hasOrganizationalProfile && (
+                  <p className="mb-5 text-sm text-amber-700 dark:text-amber-400" role="status">
+                    Your Department and Designation are not assigned. Please contact an administrator before submitting an evaluation.
+                  </p>
+                )}
 
                 <div>
                   <label htmlFor="filler-company" className="field-label">Select Partner Company to Evaluate *</label>
@@ -889,6 +853,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
                   type="submit"
                   className="primary-button w-full bg-[#0063a9] hover:bg-[#00528c] min-[420px]:w-auto"
                   id="btn-filler-next"
+                  disabled={!hasOrganizationalProfile}
                 >
                   <span>Proceed to Form Questions</span>
                   <ArrowRight size={16} />
