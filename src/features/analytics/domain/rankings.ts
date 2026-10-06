@@ -1,7 +1,7 @@
 import { formatCompositeScore } from '../../../data/questionWeights';
 import { SurveyResponse, SurveyType } from '../../../types/survey';
 import { computeRankScore } from '../../../utils/analytics';
-import { computeCompanyComposite, RankingMode } from '../../../utils/scoring';
+import { computeCompanyComposite, getLeaderboard, getPureAverageLeaderboard, RankingMode } from '../../../utils/scoring';
 
 export interface CompanyRankingCandidate {
   name: string;
@@ -11,6 +11,50 @@ export interface CompanyRankingCandidate {
 }
 
 export type RankedCompany<T extends CompanyRankingCandidate> = T & { rankScore: number };
+
+export interface AnalyticsCompanySummary extends CompanyRankingCandidate {
+  average: number;
+  rankScore: number;
+}
+
+/**
+ * Uses the canonical company aggregation and ranking rules for Analytics.
+ * Each partner type gets its own peer group for volume weighting; displayed
+ * ranks are then combined on the shared normalized score scale.
+ */
+export function getAnalyticsCompanyRankings(
+  responses: SurveyResponse[],
+  surveyTypes: SurveyType[],
+  rankingMode: RankingMode,
+): AnalyticsCompanySummary[] {
+  const summaries = surveyTypes.flatMap((type) => {
+    const companies = rankingMode === 'weighted'
+      ? getLeaderboard(responses, type)
+      : getPureAverageLeaderboard(responses, type);
+
+    return companies
+      .filter((company) => company.hasScore)
+      .map((company) => ({
+        name: company.company,
+        type: company.surveyType,
+        average: company.compositeScore,
+        scorePercentage: company.compositeScore,
+        count: company.evaluationCount,
+        rankScore: rankingMode === 'weighted' ? company.rankScore : company.compositeScore,
+      }));
+  });
+
+  return summaries.sort((left, right) => {
+    const leftDisplay = formatCompositeScore(left.type, left.rankScore);
+    const rightDisplay = formatCompositeScore(right.type, right.rankScore);
+    const leftNormalized = leftDisplay.value / leftDisplay.max;
+    const rightNormalized = rightDisplay.value / rightDisplay.max;
+    if (rightNormalized !== leftNormalized) return rightNormalized - leftNormalized;
+    if (right.count !== left.count) return right.count - left.count;
+    if (right.rankScore !== left.rankScore) return right.rankScore - left.rankScore;
+    return left.type.localeCompare(right.type) || left.name.localeCompare(right.name);
+  });
+}
 
 export const ANALYTICS_PAGE_SIZE = 20;
 
