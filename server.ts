@@ -1,10 +1,19 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import { accountProvisioningClient, accountRequestErrorHandler, createAccountHandler } from './server/createAccount';
+import { loadServerEnvironment, publicRuntimeConfig } from './server/environment';
 
 async function startServer() {
+  const isProduction =
+    process.env.NODE_ENV === 'production' || path.basename(process.argv[1] || '') === 'server.cjs';
+  const env = loadServerEnvironment(isProduction ? 'production' : 'development');
   const app = express();
-  const PORT = Number(process.env.PORT || 3000);
+  const PORT = Number(env.PORT || 3000);
+
+  app.post('/api/admin/accounts', express.json({ limit: '8kb' }),
+    createAccountHandler(accountProvisioningClient(env)));
+  app.use('/api/admin/accounts', accountRequestErrorHandler);
 
   // Simple API route example / health-check
   app.get('/api/health', (req, res) => {
@@ -18,19 +27,8 @@ async function startServer() {
   // them at runtime lets deployments inject env values without rebuilding the
   // static frontend bundle.
   app.get('/api/config', (req, res) => {
-    res.json({
-      supabaseUrl: process.env.VITE_SUPABASE_URL || '',
-      supabasePublishableKey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
-      azureClientId: process.env.VITE_AZURE_CLIENT_ID || '',
-      azureTenantId: process.env.VITE_AZURE_TENANT_ID || '',
-      azureRedirectUri: process.env.VITE_AZURE_REDIRECT_URI || '',
-      deploymentEnvironment: process.env.VITE_DEPLOYMENT_ENV || '',
-    });
+    res.json(publicRuntimeConfig(env));
   });
-
-  // Check if we are running in production
-  const isProduction =
-    process.env.NODE_ENV === 'production' || path.basename(process.argv[1] || '') === 'server.cjs';
 
   if (isProduction) {
     // Serve static assets from dist

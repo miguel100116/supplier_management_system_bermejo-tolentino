@@ -83,7 +83,7 @@ One built-in Admin identity, `admin@mgenesis.com`, ships as the seed account for
 |---|---|---|---|
 | admin@mgenesis.com | Admin | Executive | Business Solutions Manager |
 
-An Admin account has no separate password to hand over: access is authenticated the same way as every other account, through the employee's own mgenesis.com Microsoft 365 / Entra ID sign-in (Section 1.4). Being an Admin is an authorization record in Account Management, not a separate credential.
+Staging Admins authenticate with their own Supabase email/password login. Admin rights come from the matching access profile. Microsoft sign-in remains optional and unavailable without Azure configuration.
 
 ### 1.3 Procedure for Requesting New User Access
 
@@ -93,10 +93,10 @@ New access should be requested and granted end-to-end as follows:
 |---|---|---|
 | 1 | Requester (manager/supervisor) | Submits a request for the new employee's system access to the System Administrator, stating the employee's name, department, and designation/rank. |
 | 2 | mgenesis IT (Entra ID) | Confirms the employee has an active @mgenesis.com Microsoft 365 / Entra ID account (provisions one first if this is a new hire). |
-| 3 | System Administrator | Opens Account Management → Add Account, and enters the employee's @mgenesis.com email, System Role, Designation, and Department. |
+| 3 | System Administrator | Opens Account Management → Add Account, enters the employee's verified @mgenesis.com email and access details, and copies the generated 20-character initial password or enters a custom password of at least 16 characters. |
 | 4 | System | Automatically computes the employee's default module and survey-data access from their Designation and Department. |
-| 5 | System Administrator | Optionally customizes individual module access ("Custom Overrides") if the employee needs something outside their role default, then saves. |
-| 6 | Employee | Signs in at the system's login page with "Sign in with Microsoft," using their existing mgenesis.com credentials — no separate password is created. |
+| 5 | System Administrator | Optionally customizes module access, then saves. The configured Express server creates the Supabase login and profile and confirms the login after the profile is saved. Share the copied password privately. |
+| 6 | Employee | Signs in with the company email and initial password. Microsoft sign-in is available only when configured. |
 
 Once an account exists in Account Management, an Admin can further customize its individual module or survey-type access ("Custom Overrides"), or reset it back to role/department defaults at any time. A department's overall access ceiling can also be set in bulk via "Department Access," which then applies to every member of that department.
 
@@ -104,12 +104,9 @@ Built-in safeguards: an Admin cannot delete their own account, or delete another
 
 ### 1.4 Password Reset Process
 
-Every mgenesis.com user — including Admins — signs in with "Sign in with Microsoft," authenticating against the organization's own Microsoft Entra ID (Microsoft 365) directory. Because of this, password reset and account recovery is handled entirely by Entra ID, exactly as it is for the employee's email or any other Microsoft 365 app — not by this system.
+Staging uses Supabase password authentication. Use **Forgot password** on the application login page to request a recovery email. The deployed recovery URL must be allowlisted in Supabase; after updating a password, sign in again. Account Management edits access permissions and does not reset existing passwords. Microsoft-provider recovery remains the organization's responsibility when that provider is enabled.
 
-- **To reset a forgotten password**: the employee uses mgenesis' standard Microsoft 365 self-service password reset (SSPR), or contacts the mgenesis IT helpdesk, the same as for any other Microsoft 365 sign-in issue.
-- **No action is required in this system**: resetting a Microsoft 365 password automatically restores the employee's system access, since the system holds no separate password of its own.
-
-> **Implementation note:** this requires the Azure AD app registration for this system to be completed so "Sign in with Microsoft" is the active, sole login path — see [Known Issues #1, #2, and #9](#24-known-issues--workarounds) for the current gap and its risks.
+See [authentication and account operations](docs/engineering/AUTH_OPERATIONS.md) for server configuration, provisioning recovery, and hosted checks. Admin account creation requires the Express host and a server-only Supabase secret; live provisioning has not been verified.
 
 ---
 
@@ -166,7 +163,7 @@ Open the Document Tracker for the full list, or check the Notification Bell / No
 Follow the procedure in [Section 1.3](#13-procedure-for-requesting-new-user-access) of this document — it starts with your mgenesis IT/Entra ID request, then an Admin adds the account in Account Management.
 
 **How do I reset my password?**
-Password reset is handled by mgenesis' Microsoft Entra ID / Microsoft 365, the same as for email — see [Section 1.4](#14-password-reset-process). This system does not manage passwords itself.
+Use **Forgot password** on the application's login page for Supabase recovery — see [Section 1.4](#14-password-reset-process).
 
 **How do I give someone extra access beyond their role's default?**
 In Account Management, edit their account and toggle the specific modules or survey types they need; saving marks their account "Custom Overrides." Use "Reset Access" to remove the override and return to role defaults.
@@ -208,7 +205,7 @@ A condensed cheat-sheet of who gets what, by default:
 |---|---|---|
 | 1 | User | Opens the login page and either enters an @mgenesis.com email + password, or clicks "Sign in with Microsoft" (if configured). |
 | 2 | System | Rejects any email that does not end in @mgenesis.com. |
-| 3 | System | Checks the entered password against the local fallback values, or — for Microsoft sign-in — authenticates the identity with Microsoft Entra ID. |
+| 3 | System | Verifies the password with Supabase Auth. Microsoft sign-in, when configured, must also establish a Supabase session. |
 | 4 | System | Looks up the signed-in email in the Accounts list to resolve Role, Designation, and Department. |
 | 5 | System | Computes the account's permitted pages and survey types (role/designation/department defaults, or a saved per-account override). |
 | 6 | User | Lands on the Dashboard with only the permitted modules visible in the navigation. |

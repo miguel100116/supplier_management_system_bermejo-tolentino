@@ -13,6 +13,7 @@ import {
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { computeCompanyDocumentSummary, computeDocumentStatus, EXPIRING_SOON_DAYS } from '../utils/compliance';
 import { parseDeploymentEnvironment, submissionSourceForEnvironment } from '../features/analytics/domain/responseProvenance';
+import { reconcileEvaluationBatchPartners } from '../features/evaluation-imports/domain/evaluationBatch';
 import { getRequiredDocumentKeys } from '../utils/documentRequirements';
 import { getNotificationSettings, NOTIFICATION_SETTINGS_CHANGED_EVENT } from '../utils/documentNotificationSettings';
 import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from '../services/normalizedPartnerCompanies';
@@ -2060,7 +2061,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   // via commitRawEvaluations.
   const previewRawEvaluations = async (file: File, surveyType: SurveyType): Promise<RawEvalPreview> => {
     const accountProfiles = accounts.map((a) => ({ email: a.email, designation: a.designation, department: a.department }));
-    return previewRawEvaluationImportFile(file, surveyType, partnerCompanies, accountProfiles);
+    return previewRawEvaluationImportFile(file, surveyType, partnerCompanies.filter((company) => !company.testImportBatchId), accountProfiles);
   };
 
   // Commits a previously-parsed import. Re-uploading the same file is safe:
@@ -2109,21 +2110,23 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   const commitRawEvaluationsBatch = async (
     entries: Array<{ preview: RawEvalPreview; decisions: Record<string, CompanyDecision> }>,
   ): Promise<RawEvalImportSummary[]> => {
-    const committed = entries.map(({ preview, decisions }) => ({
+    const committed = reconcileEvaluationBatchPartners(entries.map(({ preview, decisions }) => ({
       preview,
       ...commitRawEvaluationImportRows(preview, decisions),
-    }));
+    })));
     const allRows = committed.flatMap((entry) => entry.responses);
+    const recordIds = allRows.map(surveyResponseRecordId);
+    if (new Set(recordIds).size !== recordIds.length) {
+      throw new Error('This batch contains duplicate response IDs. No responses were imported.');
+    }
     const newIds = new Set(allRows.map((response) => response.responseId));
     const replacedIds = new Set(responses.filter((response) => newIds.has(response.responseId)).map((response) => response.responseId));
     const addedCompaniesById = new Map<string, PartnerCompany>();
     committed.forEach((entry) => entry.newPartnerCompanies.forEach((company) => addedCompaniesById.set(company.id, company)));
     const newCompanies = [...addedCompaniesById.values()].map(normalizePartnerCompany);
 
-    // Persist this workbook's partner additions and response rows as shared
-    // Supabase records before reporting success. All three categories are
-    // sent through one response upsert operation (chunked by the repository
-    // only when the workbook exceeds its request-size limit).
+    // Persist the selected files' partner additions and response rows as shared
+    // Supabase records before reporting success. The repository chunks large writes.
     if (newCompanies.length) {
       await persistRemoteAsync(upsertApplicationRecords('partner_company', newCompanies, (company) => company.id));
     }
@@ -2151,7 +2154,9 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     }));
     const totalSubmissions = summaries.reduce((total, summary) => total + summary.imported, 0);
     logAdminActivity(
-      'Imported combined evaluation workbook',
+      entries.length === 3 && new Set(entries.map((entry) => entry.preview.fileName)).size === 1
+        ? 'Imported combined evaluation workbook'
+        : 'Imported evaluation response files',
       `${totalSubmissions} submissions across ${summaries.map((summary) => summary.surveyType).join(', ')}`,
     );
     return summaries;

@@ -1,4 +1,11 @@
-import { loadApplicationRecords, upsertApplicationRecords } from '../../../services/applicationRepository';
+import {
+  APPLICATION_RECORD_CHANGED_EVENT,
+  deleteApplicationRecords,
+  deleteImportedSurveyResponses,
+  loadApplicationRecords,
+  surveyResponseRecordId,
+  upsertApplicationRecords,
+} from '../../../services/applicationRepository';
 import { isSupabaseConfigured, supabase } from '../../../services/supabaseClient';
 import {
   EVALUATION_IMPORT_ARCHIVE_BUCKET,
@@ -9,6 +16,9 @@ import {
   parseEvaluationImportArchive,
 } from '../domain/importArchive';
 import type { SurveyType } from '../../../types/survey';
+import type { PartnerCompany, SurveyResponse } from '../../../types/survey';
+import { isTestImportArchive, selectTestImportCleanup } from '../domain/testImport';
+import { selectOrdinaryImportResponses } from '../domain/importCleanup';
 
 function archiveSetupError(error: unknown): Error {
   const message = error instanceof Error ? error.message : 'Unknown Supabase error.';
@@ -85,4 +95,78 @@ export async function downloadEvaluationImportArchive(archive: EvaluationImportA
     .download(archive.storagePath);
   if (error) throw new Error(`Unable to download the archived source file: ${error.message}`);
   return data;
+}
+
+export async function discardPendingEvaluationImportArchive(archive: EvaluationImportArchive): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+  const stored = (await loadEvaluationImportArchives()).find((item) => item.id === archive.id);
+  if (!stored || stored.importBatchId !== archive.importBatchId || stored.storagePath !== archive.storagePath) {
+    throw new Error('The staged source file changed before it could be removed.');
+  }
+  const { error } = await supabase.storage.from(EVALUATION_IMPORT_ARCHIVE_BUCKET).remove([stored.storagePath]);
+  if (error) throw new Error(`Unable to remove staged source file: ${error.message}`);
+  await deleteApplicationRecords('evaluation_import_archive', [stored.id]);
+}
+
+export async function removeOrdinaryEvaluationImport(archive: EvaluationImportArchive): Promise<{ responsesRemoved: number }> {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+  const storedArchive = (await loadEvaluationImportArchives()).find((item) => item.id === archive.id);
+  if (!storedArchive || storedArchive.importBatchId !== archive.importBatchId || storedArchive.storagePath !== archive.storagePath) {
+    throw new Error('This source file archive has changed. Refresh the page before removing it.');
+  }
+  const responses = await loadApplicationRecords<SurveyResponse>('survey_response');
+  const selected = selectOrdinaryImportResponses(storedArchive, responses);
+  let deletedIds: string[] = [];
+  try {
+    deletedIds = await deleteImportedSurveyResponses(supabase, selected.map(surveyResponseRecordId), storedArchive.importBatchId);
+    const remaining = await loadApplicationRecords<SurveyResponse>('survey_response');
+    if (remaining.some((response) => response.importBatchId === storedArchive.importBatchId)) {
+      throw new Error('Some imported responses could not be removed. The stored source file was kept.');
+    }
+    const { error } = await supabase.storage.from(EVALUATION_IMPORT_ARCHIVE_BUCKET).remove([storedArchive.storagePath]);
+    if (error) throw new Error(`The imported responses were removed, but the source file could not be deleted: ${error.message}`);
+    await deleteApplicationRecords('evaluation_import_archive', [storedArchive.id]);
+  } finally {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(APPLICATION_RECORD_CHANGED_EVENT, { detail: { recordType: 'survey_response' } }));
+    }
+  }
+  const deletedRecordIds = new Set(deletedIds);
+  return { responsesRemoved: new Set(selected
+    .filter((response) => deletedRecordIds.has(surveyResponseRecordId(response)))
+    .map((response) => response.responseId)).size };
+}
+
+export async function removeTestEvaluationImport(archive: EvaluationImportArchive): Promise<{ responsesRemoved: number; companiesRemoved: number }> {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured.');
+  if (!isTestImportArchive(archive)) throw new Error('Only isolated test imports can be removed.');
+
+  const storedArchive = (await loadEvaluationImportArchives()).find((item) => item.id === archive.id);
+  if (!storedArchive || storedArchive.importBatchId !== archive.importBatchId || storedArchive.storagePath !== archive.storagePath) {
+    throw new Error('This test import archive has changed. Refresh the page before removing it.');
+  }
+
+  const [responses, companies] = await Promise.all([
+    loadApplicationRecords<SurveyResponse>('survey_response'),
+    loadApplicationRecords<PartnerCompany>('partner_company'),
+  ]);
+  const selected = selectTestImportCleanup(storedArchive, responses, companies);
+
+  try {
+    await deleteApplicationRecords('survey_response', selected.responses.map(surveyResponseRecordId));
+    await deleteApplicationRecords('partner_company', selected.companies.map((company) => company.id));
+    const { error: storageError } = await supabase.storage
+      .from(EVALUATION_IMPORT_ARCHIVE_BUCKET)
+      .remove([storedArchive.storagePath]);
+    if (storageError) throw new Error(`The test responses were removed, but the source file could not be deleted: ${storageError.message}`);
+    await deleteApplicationRecords('evaluation_import_archive', [storedArchive.id]);
+  } finally {
+    if (typeof window !== 'undefined') {
+      for (const recordType of ['survey_response', 'partner_company'] as const) {
+        window.dispatchEvent(new CustomEvent(APPLICATION_RECORD_CHANGED_EVENT, { detail: { recordType } }));
+      }
+    }
+  }
+
+  return { responsesRemoved: new Set(selected.responses.map((response) => response.responseId)).size, companiesRemoved: selected.companies.length };
 }

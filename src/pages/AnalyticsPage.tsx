@@ -109,7 +109,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
     () => paginateAnalyticsItems(questionData, questionPerformancePage),
     [questionData, questionPerformancePage],
   );
-  const trendData = useMemo(() => {
+  const trendData = useMemo<Array<{ key: string; average: number; responses: number }>>(() => {
     if (trendGranularity === 'yearly') return yearlyTrend(responses).map((item) => ({ key: item.year, ...item }));
     if (trendGranularity === 'series') return seriesTrend(responses, archiveSeries).map((item) => ({ key: item.label, ...item }));
     return monthlyTrend(responses).map((item) => ({ key: item.month, ...item }));

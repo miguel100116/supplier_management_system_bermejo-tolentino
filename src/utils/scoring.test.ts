@@ -95,7 +95,7 @@ test('an unambiguous legacy name without an ID joins the matching company group'
 });
 
 test('CSV import responses retain the company ID resolved from the partner registry', () => {
-  const cells = Array.from({ length: 26 }, () => '');
+  const cells: Array<string | number> = Array.from({ length: 26 }, () => '');
   cells[9] = 15;
   const preview = {
     surveyType: 'Courier',

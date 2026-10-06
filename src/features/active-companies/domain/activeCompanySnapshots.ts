@@ -129,7 +129,7 @@ export function createActiveCompanySnapshot(
   companies: string[],
   uploadedBy: string,
   uploadedAt = new Date().toISOString(),
-  randomId = crypto.randomUUID(),
+  randomId: string = crypto.randomUUID(),
 ): ActiveCompanySnapshot {
   return {
     id: `${surveyType.toLocaleLowerCase()}-${uploadedAt}-${randomId}`,

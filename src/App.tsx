@@ -12,6 +12,7 @@ import { restoreMicrosoftAccount, logoutMicrosoft, isMsalConfigured } from './se
 import { signIntoSupabaseWithMicrosoft, signOutSupabase } from './services/authBridge';
 import { isSupabaseConfigured, supabase } from './services/supabaseClient';
 import { getSupabaseSessionEmail } from './services/supabasePasswordAuth';
+import { createAccount } from './features/account-management/services/createAccount';
 import {
   APPLICATION_PROFILES_CHANGED_EVENT,
   APPLICATION_RECORD_CHANGED_EVENT,
@@ -295,7 +296,7 @@ export default function App() {
     logAdminActivity('Updated department permissions');
   };
 
-  const getUserProfile = (email: string | null) => {
+  const getUserProfile = (email: string | null): AccountProfile | null => {
     if (!email) return null;
     const normalized = email.trim().toLowerCase();
     const matched = accounts.find((acc) => acc.email.trim().toLowerCase() === normalized);
@@ -964,6 +965,11 @@ export default function App() {
       <AccountManagementPage 
         accounts={accounts}
         onUpdateAccounts={saveAccounts}
+        onCreateAccount={async (newProfile, password) => {
+          const created = await createAccount(newProfile, password);
+          setAccounts((current) => [...current.filter((item) => item.email !== created.email), created]);
+          logAdminActivity('Created employee account', 'Created a login and access profile');
+        }}
         isAdmin={isAdmin}
         currentUserEmail={account || ''}
         departmentPermissions={departmentPermissions}
