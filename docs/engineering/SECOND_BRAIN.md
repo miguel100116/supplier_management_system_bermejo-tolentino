@@ -53,7 +53,7 @@ Verified on 2026-09-21:
 
 - Verification correction (2026-10-06): root `tsc --noEmit` does not traverse frontend project references. `npm run lint` now explicitly checks the frontend, Vite configuration, scripts, and Express server projects. The 13 frontend type errors were corrected without changing the UI or the ES2020 target. ESLint is not configured.
 - `npm test` covers focused domain, persistence-contract, import, mapping, and authorization helpers; broader component, integration, and end-to-end coverage is not yet established. Use the current command output as the source for the exact test count.
-- No repository CI workflow is present.
+- CI correction (2026-10-06): `.github/workflows/verify.yml` runs on pushes and pull requests with Node 22, `npm ci`, explicit TypeScript checks, tests, a production build, dependency auditing, a separate secret scan, and build-artifact upload.
 - The TypeScript source under `src/` is roughly 65,000 lines across about 100 files.
 - Major concentration points include `src/hooks/useSurveyData.ts`, `src/App.tsx`, several page components above 1,000 lines, and a very large generated/static partner seed file.
 - `.vite/` cache files are tracked despite being generated artifacts.
@@ -537,6 +537,16 @@ Requires the Express host and server-only `SUPABASE_SECRET_KEY` (or the import C
 Ordinary import removal now requires the record ID, import batch, and `client_csv` provenance to match in the database DELETE. A response overwritten by a newer batch between selection and deletion is preserved. Counts come from returned deleted IDs; the source file is retained if responses still belong to its batch after deletion. No schema or RLS change is required. The workflow still uses separate database and Storage requests and reports partial failures. Evidence: `deleteImportedSurveyResponses` in `src/services/applicationRepository.ts`, `src/features/evaluation-imports/services/evaluationImportArchiveService.ts`, and `src/services/importResponseDeletion.test.ts` (actual Supabase SDK with a simulated provider, including concurrent replacement and chunk failures).
 
 Local verification on 2026-10-06: all 194 tests, the explicit four-project TypeScript check, the production build, and `git diff --check` passed. Live account creation/sign-in remains unverified; these checks do not establish production readiness.
+
+### 2026-10-06 - Dependency audit failure and Tailwind compatibility
+
+The push and pull-request checks for `a2a72a8` passed TypeScript checks, tests, build, and secret scanning but failed dependency auditing with nine findings. Patched transitive `proxy-addr` to 2.0.8 and `source-map-js` to 1.2.2. Tailwind 3 depended on vulnerable, unpatched `braces`; upgrading Tailwind and its PostCSS integration to 4.3.3 removes that dependency chain rather than suppressing the audit gate.
+
+The original v3 palette and effect scales remain explicit in `tailwind.config.js`. `src/styles.css` retains the original cascade and preflight defaults, while `scripts/tailwindCompatibility.mjs` restores sibling spacing/dividers and accessible outline behavior. The actual stylesheet pipeline regression test covers colors, effects, responsive/dark selectors, spacing, dividers, and outlines. Four synthetic shared-control screenshots (desktop/mobile, light/dark) matched the baseline byte for byte; this is representative visual evidence, not an exhaustive application journey check. Tailwind 4 requires Safari 16.4+, Chrome 111+, or Firefox 128+; see the [official requirements](https://tailwindcss.com/docs/upgrade-guide#browser-requirements).
+
+Local verification on 2026-10-06: 195 tests, all four TypeScript projects, and the production build passed; an online `npm audit --audit-level=high` reported zero vulnerabilities. The existing bundle-size warning remains. Hosted verification must be checked for the pushed commit.
+
+Evidence: `package-lock.json`, `postcss.config.js`, `tailwind.config.js`, `src/styles.css`, `scripts/tailwindCompatibility.test.mjs`, and the [failed push run](https://github.com/miguel100116/supplier_management_system_bermejo-tolentino/actions/runs/37426378828). Rollback is a commit revert, which also restores the vulnerable dependency chain; no database changes are involved.
 
 ## Handoff template
 

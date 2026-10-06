@@ -164,7 +164,7 @@ The application is a **single-page React app** with a thin Express server used o
 |---|---|
 | **UI framework** | React 18 + TypeScript |
 | **Build tool** | Vite 6 |
-| **Styling** | Tailwind CSS 3 |
+| **Styling** | Tailwind CSS 4 with the PostCSS integration |
 | **Charts** | Recharts |
 | **Icons / animation** | lucide-react, motion |
 | **Server** | Express (dev middleware via Vite; static host in production) |
@@ -172,6 +172,8 @@ The application is a **single-page React app** with a thin Express server used o
 | **Backend** | Supabase normalized import/audit tables plus an RLS-protected editable application store in staging |
 | **Email** | Microsoft Graph (`Mail.Send`, delegated) |
 | **Exports** | jsPDF + jspdf-autotable (PDF), xlsx (Excel), papaparse (CSV), pptxgenjs (PPTX), docx |
+
+The Tailwind 4 security upgrade retains the existing color/effect scales in `tailwind.config.js` and sibling spacing, divider, and outline behavior through `scripts/tailwindCompatibility.mjs`. Its stylesheet regression test runs with `npm test`. Supported browsers are Safari 16.4+, Chrome 111+, and Firefox 128+; see the [official browser requirements](https://tailwindcss.com/docs/upgrade-guide#browser-requirements).
 
 **Key design decision — the data source seam:** Authenticated staging sessions load shared business records, configuration, operational history, and per-user state through the Supabase application repository. The normalized CSV tables remain the immutable import/audit layer, while `application_records` is the editable UI-facing store. Realtime table changes trigger an RLS-protected refetch. Local storage is limited to authenticated startup caching and device-specific state; the frontend no longer generates or bundles mock business records.
 
@@ -282,8 +284,12 @@ Full step-by-step Azure app-registration instructions are documented inline in [
 | `npm run start` | Run the built production server (`node dist/server.cjs`). |
 | `npm run preview` | Preview the built client with Vite. |
 | `npm run lint` | Type-check the frontend, Vite configuration, scripts, and Express server with their explicit TypeScript projects. ESLint is not configured. |
+| `npm test` | Run the focused automated tests, including stylesheet compilation compatibility. |
+| `npm audit --audit-level=high` | Check dependency advisories; high and critical findings fail the verification workflow. |
 | `npm run db:cleanup:tests:preview --silent` | Print SQL that previews test evaluation rows, provides full rows for a private backup export, and rolls back. No database connection is made. |
 | `npm run db:cleanup:tests:sql --silent` | Print deletion SQL for reviewed test evaluation rows. Paste into the intended project's Supabase SQL Editor to execute; generating it does not delete data. |
+
+The [Verify workflow](.github/workflows/verify.yml) runs on pushes and pull requests with Node 22, a clean `npm ci`, TypeScript checks, tests, a production build, dependency auditing, and a separate secret scan.
 
 ### Cleaning test evaluations
 

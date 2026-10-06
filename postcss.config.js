@@ -1,6 +1,6 @@
+import tailwindcss from '@tailwindcss/postcss';
+import { legacyUtilityCompatibility } from './scripts/tailwindCompatibility.mjs';
+
 export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
+  plugins: [tailwindcss({ optimize: true }), legacyUtilityCompatibility()],
 };

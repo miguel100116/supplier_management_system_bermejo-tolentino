@@ -1,6 +1,37 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Keep the original cascade order: base, utilities, then application styles. */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/preflight.css";
+@import "tailwindcss/utilities.css" source(none);
+@config "../tailwind.config.js";
+@source "./";
+@source "../index.html";
+
+@custom-variant hover (&:hover);
+
+@theme {
+  --default-ring-width: 3px;
+  --default-ring-color: #3b82f6;
+}
+
+/* Preserve the v3 defaults and invisible accessibility outline. */
+*, ::before, ::after, ::backdrop, ::file-selector-button {
+  border-color: #e5e7eb;
+}
+input::placeholder, textarea::placeholder {
+  color: #9ca3af;
+  opacity: 1;
+}
+button, [role="button"] {
+  cursor: pointer;
+}
+dialog {
+  margin: auto;
+}
+
+@utility outline-none {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
 
 * {
   box-sizing: border-box;
