@@ -60,7 +60,7 @@ test('custom calendars and period selection remain available when no analytics m
     const current = renderToStaticMarkup(<AnalyticsPage {...props} dataScope="current" />);
     assert.doesNotMatch(current, /id="analytics-date-from"/);
   } finally {
-    if (previous === undefined) delete globals.React;
+    if (previous === undefined) Reflect.deleteProperty(globals, 'React');
     else globals.React = previous;
   }
 });

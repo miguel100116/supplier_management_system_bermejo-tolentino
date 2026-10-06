@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useModalEscape } from '../hooks/useModalEscape';
-import { ArrowLeft, Trash, Calendar, CalendarClock, Users, ClipboardCheck, AlertTriangle, Eye, Pencil, Building2, Check } from 'lucide-react';
+import { ArrowLeft, Trash, Calendar, CalendarClock, Users, ClipboardCheck, AlertTriangle, Eye, Pencil, Building2, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { CustomForm, SurveyResponse, PartnerCompany } from '../types/survey';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
 import { SurveyPreviewModal } from '../components/SurveyPreviewModal';
@@ -20,6 +20,8 @@ interface SurveyDetailsPageProps {
   isAdmin?: boolean;
 }
 
+const SUBMISSIONS_PAGE_SIZE = 10;
+
 export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], userEmail = '', onBack, onDelete, onEdit, isAdmin }: SurveyDetailsPageProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
@@ -31,6 +33,11 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
   const [submissionSort, setSubmissionSort] = useState<'date-desc' | 'date-asc' | 'company-asc' | 'company-desc'>('date-desc');
   const [submissionFrom, setSubmissionFrom] = useState('');
   const [submissionTo, setSubmissionTo] = useState('');
+  const [submissionPage, setSubmissionPage] = useState(1);
+
+  useEffect(() => {
+    setSubmissionPage(1);
+  }, [survey.id, submissionSearch, submissionSort, submissionFrom, submissionTo]);
 
   const { pendingCompanies, completedCount, totalCompanies } = useMemo(() => {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
@@ -103,6 +110,15 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
         return compareDate(b.submissionDate, a.submissionDate);
       });
   }, [submissions, submissionSearch, submissionSort, submissionFrom, submissionTo]);
+
+  const totalSubmissionPages = Math.max(1, Math.ceil(filteredSubmissions.length / SUBMISSIONS_PAGE_SIZE));
+  const currentSubmissionPage = Math.min(submissionPage, totalSubmissionPages);
+  const firstSubmissionIndex = (currentSubmissionPage - 1) * SUBMISSIONS_PAGE_SIZE;
+  const visibleSubmissions = filteredSubmissions.slice(firstSubmissionIndex, firstSubmissionIndex + SUBMISSIONS_PAGE_SIZE);
+
+  useEffect(() => {
+    setSubmissionPage((page) => Math.min(page, totalSubmissionPages));
+  }, [totalSubmissionPages]);
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -352,7 +368,7 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredSubmissions.map((sub) => {
+                {visibleSubmissions.map((sub) => {
                   const validAnswers = sub.answers.filter((a) => a.rating !== 'N/A');
                   const scoredAnswerCount = scoredResponses(sub.answers).length;
                   const submissionScore = submissionScores(sub.answers)[0]?.score;
@@ -391,6 +407,41 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
               </tbody>
             </table>
           </div>
+        )}
+        {filteredSubmissions.length > 0 && (
+          <nav
+            className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
+            aria-label="Recent form submissions pagination"
+          >
+            <p className="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
+              Showing {firstSubmissionIndex + 1}–{firstSubmissionIndex + visibleSubmissions.length} of {filteredSubmissions.length}
+            </p>
+            {totalSubmissionPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSubmissionPage(currentSubmissionPage - 1)}
+                  disabled={currentSubmissionPage === 1}
+                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  <ChevronLeft size={15} aria-hidden="true" />
+                  Previous
+                </button>
+                <span className="min-w-20 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Page {currentSubmissionPage} of {totalSubmissionPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionPage(currentSubmissionPage + 1)}
+                  disabled={currentSubmissionPage === totalSubmissionPages}
+                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  Next
+                  <ChevronRight size={15} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </nav>
         )}
       </div>
 

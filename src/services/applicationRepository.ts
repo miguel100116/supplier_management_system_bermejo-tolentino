@@ -1,5 +1,6 @@
 import type { PageModuleKey } from '../utils/rbac';
-import type { ComplianceDocument, PartnerCompany, SurveyAccessRole, SurveyResponse, SurveyType } from '../types/survey';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ComplianceDocument, PartnerCompany, SurveyResponse } from '../types/survey';
 import type { NotificationReadState } from '../utils/notificationReadState';
 import {
   createNotificationReadState,
@@ -7,6 +8,8 @@ import {
 } from '../utils/notificationReadState';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 import { parseApplicationRecordPayload } from './applicationRecordSchemas';
+import { parsePersistedProfile, type PersistedProfile } from '../features/account-management/domain/accountProfile';
+export { parsePersistedProfile, type PersistedProfile } from '../features/account-management/domain/accountProfile';
 
 export const APPLICATION_RECORD_TYPES = [
   'partner_company',
@@ -43,88 +46,6 @@ export function persistApplicationRecordsInBackground(operation: Promise<void>):
       window.dispatchEvent(new CustomEvent('supabase-persistence-error', { detail: message }));
     }
   });
-}
-
-export interface PersistedProfile {
-  email: string;
-  role: 'Admin' | 'Employee';
-  designation: SurveyAccessRole;
-  department: typeof PROFILE_DEPARTMENTS[number];
-  permissions?: {
-    pages: PageModuleKey[];
-    surveyTypes: SurveyType[];
-  };
-}
-
-const PROFILE_ROLES = ['Admin', 'Employee'] as const;
-const PROFILE_DESIGNATIONS = ['Rank & File', 'Supervisory', 'Managerial', 'Director', 'Executive'] as const;
-const PROFILE_DEPARTMENTS = [
-  'Accounts Payable - Trade',
-  'Business Solutions Manager',
-  'Executive Office',
-  'Logistics',
-  'Procurement Group',
-  'TASS',
-] as const;
-const PROFILE_PAGE_MODULES = [
-  'dashboard',
-  'survey-forms',
-  'explorer',
-  'analytics',
-  'reports',
-  'present',
-  'partner-companies',
-  'partners-feedback-hub',
-  'account-management',
-  'notifications',
-  'archive',
-  'import-evaluations',
-  'document-register',
-  'supplier-ranking',
-  'renew-documents',
-] as const satisfies readonly PageModuleKey[];
-const PROFILE_SURVEY_TYPES = ['Courier', 'Supplier', 'Subcontractor'] as const satisfies readonly SurveyType[];
-
-function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
-  return typeof value === 'string' && allowed.includes(value as T);
-}
-
-function parseOptionalEnumArray<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  label: string,
-): T[] | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (!Array.isArray(value) || value.some((item) => !isOneOf(item, allowed))) {
-    throw new Error(`${label} contains an unsupported value.`);
-  }
-  return [...new Set(value as T[])];
-}
-
-export function parsePersistedProfile(value: unknown, label = 'profile'): PersistedProfile {
-  assertObjectPayload(value, label);
-  const email = typeof value.email === 'string' ? value.email.trim().toLowerCase() : '';
-  if (!email.endsWith('@mgenesis.com')) throw new Error(`${label}.email must be an @mgenesis.com address.`);
-  if (!isOneOf(value.role, PROFILE_ROLES)) throw new Error(`${label}.role is invalid.`);
-  if (!isOneOf(value.designation, PROFILE_DESIGNATIONS)) throw new Error(`${label}.designation is invalid.`);
-  if (!isOneOf(value.department, PROFILE_DEPARTMENTS)) throw new Error(`${label}.department is invalid.`);
-
-  const pages = parseOptionalEnumArray(value.permission_pages, PROFILE_PAGE_MODULES, `${label}.permission_pages`);
-  const surveyTypes = parseOptionalEnumArray(
-    value.permission_survey_types,
-    PROFILE_SURVEY_TYPES,
-    `${label}.permission_survey_types`,
-  );
-
-  return {
-    email,
-    role: value.role,
-    designation: value.designation,
-    department: value.department,
-    ...(pages || surveyTypes
-      ? { permissions: { pages: pages ?? [], surveyTypes: surveyTypes ?? [] } }
-      : {}),
-  };
 }
 
 interface ApplicationRecordRow<T> {
@@ -379,6 +300,33 @@ export async function deleteApplicationRecords(
       throw new Error(`Unable to delete ${recordType} records: ${error.message}`);
     }
   }
+}
+
+/** Match provenance at the database boundary so a newer re-import keeps its rows. */
+export async function deleteImportedSurveyResponses(
+  client: SupabaseClient,
+  recordIds: readonly string[],
+  importBatchId: string,
+): Promise<string[]> {
+  if (!importBatchId.trim()) throw new Error('An import batch ID is required.');
+  const deletedIds: string[] = [];
+  for (let index = 0; index < recordIds.length; index += WRITE_CHUNK_SIZE) {
+    const { data, error } = await client.from('application_records').delete()
+      .eq('record_type', 'survey_response')
+      .eq('payload->>importBatchId', importBatchId)
+      .eq('payload->>dataSource', 'client_csv')
+      .in('record_id', recordIds.slice(index, index + WRITE_CHUNK_SIZE))
+      .select('record_id');
+    if (error) {
+      requestAuthoritativeRefresh('survey_response');
+      throw new Error(`Unable to remove imported responses: ${error.message}`);
+    }
+    if (!Array.isArray(data) || data.some((row) => !row || typeof row.record_id !== 'string')) {
+      throw new Error('Unable to confirm which imported responses were removed. Refresh before retrying.');
+    }
+    deletedIds.push(...data.map((row) => row.record_id));
+  }
+  return deletedIds;
 }
 
 export async function replaceApplicationRecords<T>(

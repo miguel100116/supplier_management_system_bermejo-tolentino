@@ -15,7 +15,7 @@ function renderForm(isAdmin: boolean, surveys = forms) {
   try {
     return renderToStaticMarkup(<SurveyFillerPage surveys={getVisibleSurveyForms(surveys, isAdmin)} partnerCompanies={[]} initialSurveyId="1" userEmail="employee@example.com" responses={[]} onSubmitted={() => undefined} onCancel={() => undefined} />);
   } finally {
-    if (previous === undefined) delete globals.React;
+    if (previous === undefined) Reflect.deleteProperty(globals, 'React');
     else globals.React = previous;
   }
 }

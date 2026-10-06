@@ -20,7 +20,10 @@ const survey: CustomForm = {
 
 function renderFormsPage(isAdmin: boolean) {
   const priorStorage = globalThis.localStorage;
-  globalThis.localStorage = { getItem: () => null } as Storage;
+  globalThis.localStorage = {
+    length: 0, getItem: () => null, key: () => null,
+    clear: () => {}, removeItem: () => {}, setItem: () => {},
+  };
   try {
     return renderToStaticMarkup(createElement(SurveyFormsPage, {
       surveys: [survey],

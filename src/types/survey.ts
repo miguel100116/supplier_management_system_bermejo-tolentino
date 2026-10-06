@@ -59,6 +59,8 @@ export interface BranchRecord {
 
 export interface PartnerCompany {
   id: string;
+  // Present only on temporary partners created by an isolated evaluation test import.
+  testImportBatchId?: string;
   name: string;
   type: PartnerCompanyType;
   supplierOrigin?: SupplierOrigin;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useModalEscape } from '../hooks/useModalEscape';
-import { AlertTriangle, Building2, ChevronDown, Eraser, GripVertical, History, Search, Trophy, X } from 'lucide-react';
+import { AlertTriangle, Building2, ChevronDown, ChevronLeft, ChevronRight, Eraser, GripVertical, History, Search, Trophy, X } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
 import { getRankingLog, logRankingChange, RankingLogEntry, RankingSnapshotSlot } from '../utils/supplierRankingLog';
 import { TableFilterBar } from '../components/TableFilterBar';
@@ -16,6 +16,7 @@ interface SupplierRankingPageProps {
 }
 
 const SLOT_COUNT = 20;
+const LOG_PAGE_SIZE = 10;
 
 function isRanked(c: PartnerCompany): boolean {
   return typeof c.evaluationRank === 'number' && c.evaluationRank >= 1 && c.evaluationRank <= SLOT_COUNT;
@@ -50,8 +51,13 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
   const [logSort, setLogSort] = useState<'date-desc' | 'date-asc' | 'actor-asc' | 'actor-desc'>('date-desc');
   const [logDateFrom, setLogDateFrom] = useState('');
   const [logDateTo, setLogDateTo] = useState('');
+  const [logPage, setLogPage] = useState(1);
   useModalEscape(showOngoingWarning, () => setShowOngoingWarning(false), 60);
   useModalEscape(Boolean(viewingEntry), () => setViewingEntry(null), 55);
+
+  useEffect(() => {
+    setLogPage(1);
+  }, [logSort, logDateFrom, logDateTo]);
 
   useEffect(() => {
     const refresh = () => setLogEntries(getRankingLog());
@@ -105,6 +111,15 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
       if (logSort === 'actor-desc') return compareText(b.actorEmail, a.actorEmail);
       return compareDate(b.timestamp, a.timestamp);
     }), [logEntries, logSort, logDateFrom, logDateTo]);
+
+  const totalLogPages = Math.max(1, Math.ceil(filteredLogEntries.length / LOG_PAGE_SIZE));
+  const currentLogPage = Math.min(logPage, totalLogPages);
+  const firstLogIndex = (currentLogPage - 1) * LOG_PAGE_SIZE;
+  const visibleLogEntries = filteredLogEntries.slice(firstLogIndex, firstLogIndex + LOG_PAGE_SIZE);
+
+  useEffect(() => {
+    setLogPage((page) => Math.min(page, totalLogPages));
+  }, [totalLogPages]);
 
   // "Ongoing" = a Supplier survey is currently published/open - status
   // 'Running', or unset (matches SurveyFormsPage's own "ACTIVE" badge rule:
@@ -387,7 +402,7 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredLogEntries.map((entry) => (
+                {visibleLogEntries.map((entry) => (
                   <tr key={entry.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/20 transition-colors">
                     <td className="px-3 py-2.5">
                       <button
@@ -412,6 +427,41 @@ export function SupplierRankingPage({ partnerCompanies, onUpdateCompaniesBulk, s
               </tbody>
             </table>
           </div>
+        )}
+        {filteredLogEntries.length > 0 && (
+          <nav
+            className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
+            aria-label="Modification log pagination"
+          >
+            <p className="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
+              Showing {firstLogIndex + 1}–{firstLogIndex + visibleLogEntries.length} of {filteredLogEntries.length}
+            </p>
+            {totalLogPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLogPage(currentLogPage - 1)}
+                  disabled={currentLogPage === 1}
+                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  <ChevronLeft size={15} aria-hidden="true" />
+                  Previous
+                </button>
+                <span className="min-w-20 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Page {currentLogPage} of {totalLogPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLogPage(currentLogPage + 1)}
+                  disabled={currentLogPage === totalLogPages}
+                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  Next
+                  <ChevronRight size={15} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </nav>
         )}
       </div>
 

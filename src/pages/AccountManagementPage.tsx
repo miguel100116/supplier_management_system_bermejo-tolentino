@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Shield, Search, Plus, Mail, Briefcase, Trash2, Edit2, AlertCircle, RotateCcw, Check, CheckSquare, Square } from 'lucide-react';
 import type { AccountProfile } from '../App';
 import { PageModuleKey, getDefaultPermissions, getDepartmentDefaultPermissions } from '../utils/rbac';
@@ -6,10 +6,13 @@ import { SurveyType } from '../types/survey';
 import { TableFilterBar } from '../components/TableFilterBar';
 import { compareText } from '../utils/tableFilters';
 import { useModalEscape } from '../hooks/useModalEscape';
+import { generateStrongPassword, validateNewAccountPassword } from '../features/account-management/domain/password';
+import { NewAccountPasswordField } from '../features/account-management/components/NewAccountPasswordField';
 
 interface AccountManagementPageProps {
   accounts: AccountProfile[];
   onUpdateAccounts: (accounts: AccountProfile[]) => void;
+  onCreateAccount: (profile: AccountProfile, password: string) => Promise<void>;
   isAdmin: boolean;
   currentUserEmail: string;
   departmentPermissions: Record<string, { pages: PageModuleKey[]; surveyTypes: SurveyType[] }>;
@@ -49,6 +52,7 @@ const SURVEY_TYPES: { key: SurveyType; label: string; description: string }[] = 
 export function AccountManagementPage({ 
   accounts, 
   onUpdateAccounts, 
+  onCreateAccount,
   isAdmin, 
   currentUserEmail,
   departmentPermissions,
@@ -62,6 +66,11 @@ export function AccountManagementPage({
 
   // Form State
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const creationPending = useRef(false);
+  const [creationSuccess, setCreationSuccess] = useState(false);
   const [role, setRole] = useState<AccountProfile['role']>('Employee');
   const [designation, setDesignation] = useState<AccountProfile['designation']>(DESIGNATION_OPTIONS[0]);
   const [department, setDepartment] = useState<AccountProfile['department']>(DEPARTMENT_OPTIONS[0]);
@@ -84,7 +93,13 @@ export function AccountManagementPage({
   const [deptSurveyTypes, setDeptSurveyTypes] = useState<SurveyType[]>([]);
   useModalEscape(Boolean(pendingEditAccount), () => setPendingEditAccount(null), 60);
   useModalEscape(isDeptOpen, () => setIsDeptOpen(false), 50);
-  useModalEscape(isAddOpen, () => setIsAddOpen(false), 50);
+  const closeAccountModal = () => {
+    if (creationPending.current) return;
+    setPassword('');
+    setSaveError('');
+    setIsAddOpen(false);
+  };
+  useModalEscape(isAddOpen, closeAccountModal, 50);
 
   // Load selected department permissions into modal state
   useEffect(() => {
@@ -183,6 +198,9 @@ export function AccountManagementPage({
   };
 
   const handleOpenAdd = () => {
+    setSaveError('');
+    setCreationSuccess(false);
+    setPassword(generateStrongPassword());
     setEmail('');
     setRole('Employee');
     const defaultDesignation = DESIGNATION_OPTIONS[0];
@@ -200,6 +218,8 @@ export function AccountManagementPage({
   };
 
   const openAccountEditor = (acc: AccountProfile) => {
+    setPassword('');
+    setSaveError('');
     setEmail(acc.email);
     setRole(acc.role);
     setDesignation(acc.designation);
@@ -228,8 +248,9 @@ export function AccountManagementPage({
     else openAccountEditor(acc);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin || creationPending.current) return;
     if (!email || !role || !designation || !department) return;
     
     let updated = [...accounts];
@@ -260,17 +281,26 @@ export function AccountManagementPage({
       } : a);
     } else {
       // Add mode - check if exists
-      if (updated.some(a => a.email.toLowerCase() === email.toLowerCase())) {
-        alert('An account with this email already exists.');
+      if (updated.some(a => a.email.trim().toLowerCase() === email.trim().toLowerCase())) {
+        setSaveError('An account with this email already exists.');
         return;
       }
-      updated.push({ 
-        email, 
-        role, 
-        designation, 
-        department,
-        permissions
-      });
+      setSaveError('');
+      creationPending.current = true;
+      setIsCreating(true);
+      try {
+        validateNewAccountPassword(password);
+        await onCreateAccount({ email: email.trim().toLowerCase(), role, designation, department, permissions }, password);
+        setPassword('');
+        setIsAddOpen(false);
+        setCreationSuccess(true);
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : 'Unable to create the account.');
+      } finally {
+        creationPending.current = false;
+        setIsCreating(false);
+      }
+      return;
     }
     
     onUpdateAccounts(updated);
@@ -329,6 +359,7 @@ export function AccountManagementPage({
 
   return (
     <div className="space-y-6">
+      {creationSuccess && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">Account created. The employee can sign in with the email and initial password.</p>}
       {/* Header section */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
         <div>
@@ -551,6 +582,7 @@ export function AccountManagementPage({
               <button
                 type="button"
                 onClick={() => applyDefaultPermissionsToForm(designation, department)}
+                disabled={isCreating}
                 className="text-xs font-bold text-rose-500 hover:text-rose-600 hover:underline flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900/50 bg-rose-50/20"
                 title="Reset overrides back to role defaults"
               >
@@ -560,7 +592,8 @@ export function AccountManagementPage({
             </div>
             
             <div className="p-6 overflow-y-auto space-y-6">
-              <form id="account-form" onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <form id="account-form" onSubmit={handleSave}>
+                <fieldset disabled={isCreating} className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {/* Profile Information Block */}
                 <div className="space-y-4">
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1.5 border-b border-slate-100 dark:border-slate-800">
@@ -568,20 +601,24 @@ export function AccountManagementPage({
                   </h4>
                   
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Email Address</label>
+                    <label htmlFor="account-email" className="text-sm font-medium text-slate-700 dark:text-slate-300">Email Address</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                       <input 
                         type="email"
+                        id="account-email"
                         required
                         value={email}
                         onChange={e => setEmail(e.target.value)}
                         disabled={!!editingEmail}
                         className="w-full pl-10 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-blue-500 transition-colors text-sm disabled:opacity-50"
-                        placeholder="user@example.com"
+                        placeholder="user@mgenesis.com"
                       />
                     </div>
                   </div>
+
+                  {!editingEmail && <NewAccountPasswordField value={password} onChange={setPassword} disabled={isCreating}
+                    onGenerate={() => setPassword(generateStrongPassword())} />}
 
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">System Role</label>
@@ -735,13 +772,16 @@ export function AccountManagementPage({
                     })}
                   </div>
                 </div>
+                </fieldset>
+                {saveError && <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-400">{saveError}</p>}
               </form>
             </div>
             
             <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 flex justify-end gap-3 mt-auto">
               <button
                 type="button"
-                onClick={() => setIsAddOpen(false)}
+                onClick={closeAccountModal}
+                disabled={isCreating}
                 className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
               >
                 Cancel
@@ -749,9 +789,10 @@ export function AccountManagementPage({
               <button
                 type="submit"
                 form="account-form"
+                disabled={isCreating}
                 className="px-4 py-2 text-sm font-bold text-white bg-[#0063a9] hover:bg-[#00528c] rounded-xl transition cursor-pointer shadow-md"
               >
-                {editingEmail ? 'Save Permissions' : 'Add Account'}
+                {isCreating ? 'Creating Account…' : editingEmail ? 'Save Permissions' : 'Add Account'}
               </button>
             </div>
           </div>
