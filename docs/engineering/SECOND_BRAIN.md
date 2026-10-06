@@ -277,6 +277,8 @@ Consequences: Champion cards, leaderboards, and best/least-performing charts con
 
 Evidence: `src/features/analytics/domain/rankings.ts`, `src/features/analytics/domain/rankings.test.ts`, `src/pages/AnalyticsPage.tsx`
 
+Correction (2026-10-06): Analytics' Company Leaderboard had drifted back to grouping submissions by display name and recalculating ranking scores in the page. It now uses the canonical `getLeaderboard` / `getPureAverageLeaderboard` scoring and stable company identity grouping, calculates volume confidence within each partner type, and displays the selected ranking score. All-N/A companies remain outside scored Analytics ranks. The weighted rank score is normalized across partner types when the All categories view combines the separate lists. Evidence: `getAnalyticsCompanyRankings` in `src/features/analytics/domain/rankings.ts` and its consumer in `src/pages/AnalyticsPage.tsx`.
+
 ### 2026-09-22 - Analytics presentation hierarchy
 
 Status: accepted
