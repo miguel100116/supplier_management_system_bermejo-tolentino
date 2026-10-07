@@ -902,7 +902,7 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
                         <span className="text-2xl font-black text-[#0063a9] dark:text-blue-400 leading-none">
                           {chartCenterValue}
                         </span>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1 text-center px-2 leading-tight">
+                        <span className="mt-1 max-w-[76px] whitespace-normal px-1 text-center text-[7px] font-bold uppercase leading-tight tracking-wide text-slate-400">
                           {chartCenterLabel}
                         </span>
                       </div>
