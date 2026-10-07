@@ -1,6 +1,6 @@
 # Supplier Management System — Engineering Second Brain
 
-Last verified: 2026-09-21
+Last verified: 2026-10-07
 
 This document preserves durable engineering context for maintainers and coding agents. It is a map, not a substitute for reading the relevant code. Verify details before making consequential changes.
 
@@ -21,6 +21,7 @@ Canonical product documentation:
 - React 18 and TypeScript frontend built with Vite 6.
 - Tailwind CSS for styling and Recharts for analytics visuals.
 - Thin Express host in `server.ts` for Vite development middleware, runtime public configuration, health checks, and production static serving.
+- Client navigation is mapped from `PageKey` values in `src/App.tsx` to `/<page-key>` paths. Direct paths and browser Back/Forward are handled with the History API; selected survey IDs are carried in query parameters. `server.ts` and Vite already provide the SPA fallback. Browser Back during an in-progress survey keeps the draft warning and restores the current history entry if the user cancels.
 - `server/index.js` is a second, overlapping server implementation and should be treated as legacy until its consumers are verified.
 - Main commands are declared in `package.json`: `dev`, `build`, `start`, `preview`, and `lint`.
 
@@ -39,6 +40,7 @@ Canonical product documentation:
 - Analytics provenance is explicit as of 2026-09-22: client CSV rows use `dataSource=client_csv`, approved live form submissions use `production_submission`, and staging form submissions use `test_submission`. Official Analytics includes only the first two. Legacy normalized/default-form and UI-import IDs are recognized as client data; legacy pre-production `RESP-*` rows remain stored but are classified as test data. `VITE_DEPLOYMENT_ENV` defaults to staging and must be set to production only for the approved live deployment.
 - Browser `localStorage` remains an authenticated startup cache and stores intentionally device-specific drafts/preferences. Eligible historical browser records are uploaded once when the remote set is empty; remote empty sets are authoritative after migration.
 - Supabase Realtime events invalidate the relevant client store and cause an RLS-protected refetch; event payloads are not trusted as application data.
+- Response reads are paged from `application_records`. Realtime-triggered refreshes for the same record type are coalesced in the client. Migration `202610070001_optimize_application_response_reads.sql` adds partial indexes for response visibility branches and evaluates stable RLS helpers per statement; it must be applied to each target environment before those database optimizations take effect.
 
 ### Authorization
 
@@ -277,7 +279,9 @@ Consequences: Champion cards, leaderboards, and best/least-performing charts con
 
 Evidence: `src/features/analytics/domain/rankings.ts`, `src/features/analytics/domain/rankings.test.ts`, `src/pages/AnalyticsPage.tsx`
 
-Correction (2026-10-06): Analytics' Company Leaderboard had drifted back to grouping submissions by display name and recalculating ranking scores in the page. It now uses the canonical `getLeaderboard` / `getPureAverageLeaderboard` scoring and stable company identity grouping, calculates volume confidence within each partner type, and displays the selected ranking score. All-N/A companies remain outside scored Analytics ranks. The weighted rank score is normalized across partner types when the All categories view combines the separate lists. Evidence: `getAnalyticsCompanyRankings` in `src/features/analytics/domain/rankings.ts` and its consumer in `src/pages/AnalyticsPage.tsx`.
+Correction (2026-10-06): Analytics' Company Leaderboard had drifted back to grouping submissions by display name and recalculating ranking scores in the page. It now uses canonical company aggregation, stable company identity grouping, and displays the selected ranking score. All-N/A companies remain outside scored Analytics ranks. Separate partner-type lists are normalized when the All categories view combines them. Evidence: `getAnalyticsCompanyRankings` in `src/features/analytics/domain/rankings.ts` and its consumer in `src/pages/AnalyticsPage.tsx`.
+
+Correction (2026-10-07): Analytics volume-weighted scores use the respondent-weighted global average `C = Σ(R × v) / Σv` within each partner type and reporting scope, then `(R × v + C × 5) / (v + 5)`. Pure Average continues to rank by raw company average. The same domain functions supply current, archived, and performance-chart rankings. Evidence: `src/features/analytics/domain/rankings.ts`.
 
 Correction (2026-10-06): Survey Forms → Modify → Ended now remains Completed even when its deadline is in the future, saves the status, and archives the active response rows for each ended partner type under a dated archive series. The Analytics Company Leaderboard Archives tab lists each category-period; selecting one opens a modal with its canonical company ranking. The same response rows are visible in Archive Center and remain restorable there. On remote persistence failure, the modal stays open with a retry message; the category archive is idempotent for that dated series. No partner registry records or database schema are changed. Evidence: `getSurveyStatus`, `SurveyFormsPage`, `archiveResponsesForSurveyTypes`, and `ArchivedCompanyRankings`.
 

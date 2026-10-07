@@ -21,7 +21,7 @@ const dataScopeOptions = [
 ] as const;
 
 const rankingOptions: ReadonlyArray<{ value: RankingMode; label: string; description: string }> = [
-  { value: 'weighted', label: 'Volume-Weighted', description: 'Ranks partner standings by adjusting low-volume scores toward their peer-group average.' },
+  { value: 'weighted', label: 'Volume-Weighted', description: 'Uses (supplier average × respondents + respondent-weighted global average × 5) ÷ (respondents + 5).' },
   { value: 'pure', label: 'Pure Average', description: 'Ranks partner standings by unadjusted average score, using evaluation count to break ties.' },
 ];
 

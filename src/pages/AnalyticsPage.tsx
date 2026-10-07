@@ -88,6 +88,17 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
     () => paginateCompanyRankings(visibleCompanies, leaderboardPage),
     [visibleCompanies, leaderboardPage],
   );
+  const leaderboardSplitIndex = Math.ceil(paginatedCompanies.items.length / 2);
+  const leaderboardColumns = [
+    {
+      items: paginatedCompanies.items.slice(0, leaderboardSplitIndex),
+      startIndex: paginatedCompanies.startIndex,
+    },
+    {
+      items: paginatedCompanies.items.slice(leaderboardSplitIndex),
+      startIndex: paginatedCompanies.startIndex + leaderboardSplitIndex,
+    },
+  ].filter((column) => column.items.length > 0);
   const evaluatedNames = useMemo(() => new Set(responses.map((response) => response.companyId || `${response.surveyType}:${response.company}`)), [responses]);
   const eligiblePartners = useMemo(() => partnerCompanies.filter((company) => !company.isArchived && company.type !== 'Uncategorized' && activeSurveyTypes.includes(company.type)), [partnerCompanies, activeSurveyTypes]);
   const evaluatedPartnerCount = eligiblePartners.length ? eligiblePartners.filter((company) => evaluatedNames.has(company.id) || evaluatedNames.has(`${company.type}:${company.name}`)).length : visibleCompanies.length;
@@ -179,22 +190,26 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
 
         {leaderboardTab === 'current' ? <div className="px-4 py-3 sm:px-6">
           <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_5rem] border-b border-slate-100 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:border-slate-800 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]"><span>Rank</span><span>Company</span><span className="text-right">{rankingMode === 'weighted' ? 'Rank score' : 'Average score'}</span><span className="hidden text-right sm:block">Forms</span></div>
-          <ol className="grid min-w-0 gap-x-5 xl:grid-cols-2">
-            {paginatedCompanies.items.map((company, index) => {
-              const style = typeStyles[company.type];
-              const rank = paginatedCompanies.startIndex + index + 1;
-              return (
-                <li key={`${company.type}:${company.name}`} className="min-w-0 border-b border-slate-100 dark:border-slate-800/70">
-                  <button type="button" onClick={() => setSelectedCompany(company)} className="grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center px-2 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900/70 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]">
-                    <span className={`flex h-6 w-7 items-center justify-center rounded-md text-[11px] font-bold ${rank === 1 ? 'bg-[#0078a8] text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'}`}>{rank}</span>
-                    <span className="min-w-0 pr-3"><span className="flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} /><span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={company.name}>{company.name}</span></span><span className="mt-0.5 block truncate pl-4 text-[10px] text-slate-400">{company.type} · {getBand(company.type, company.scorePercentage).label}</span></span>
-                    <span className={`flex items-center justify-end gap-1 text-xs font-bold tabular-nums ${style.text}`}>{formatCompositeScore(company.type, company.rankScore).valueText}<ChevronRight size={13} /></span>
-                    <span className="hidden text-right text-[11px] font-medium tabular-nums text-slate-400 sm:block">{company.count}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+          <div className="grid min-w-0 gap-x-5 xl:grid-cols-2">
+            {leaderboardColumns.map((column, columnIndex) => (
+              <ol key={columnIndex} start={column.startIndex + 1} className="min-w-0">
+                {column.items.map((company, index) => {
+                  const style = typeStyles[company.type];
+                  const rank = column.startIndex + index + 1;
+                  return (
+                    <li key={`${company.type}:${company.name}`} className={`min-w-0 border-b border-slate-100 dark:border-slate-800/70 ${rank % 2 === 1 ? 'bg-slate-50 dark:bg-slate-900/40' : 'bg-white dark:bg-slate-950'}`}>
+                      <button type="button" onClick={() => setSelectedCompany(company)} className="grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center px-2 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900/70 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]">
+                        <span className="flex h-7 w-8 items-center justify-center rounded-md bg-slate-200 text-xs font-extrabold text-slate-800 dark:bg-slate-700 dark:text-slate-100">{rank}</span>
+                        <span className="min-w-0 pr-3"><span className="flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} /><span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={company.name}>{company.name}</span></span><span className="mt-0.5 block truncate pl-4 text-[10px] text-slate-400">{company.type} · {getBand(company.type, company.scorePercentage).label}</span></span>
+                        <span className={`flex items-center justify-end gap-1 text-xs font-bold tabular-nums ${style.text}`}>{formatCompositeScore(company.type, company.rankScore).valueText}<ChevronRight size={13} /></span>
+                        <span className="hidden text-right text-[11px] font-medium tabular-nums text-slate-400 sm:block">{company.count}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            ))}
+          </div>
           {!visibleCompanies.length && <p className="py-10 text-center text-sm text-slate-500">No evaluated companies in this category.</p>}
           {visibleCompanies.length > 0 && (
             <div className="flex flex-col gap-3 pt-3 sm:flex-row sm:items-center sm:justify-between">
@@ -278,7 +293,7 @@ function AnalyticsHeader({ dataScope, onChangeDataScope, rankingMode, onChangeRa
           <PageDescription>Review evaluation results, identify performance gaps, and compare partner companies.</PageDescription>
         </div>
       </div>
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"><div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">{(['current', 'all-time', 'custom'] as const).map((scope) => (<button key={scope} type="button" onClick={() => onChangeDataScope?.(scope)} className={`rounded-md px-4 py-1.5 text-xs font-semibold ${dataScope === scope ? 'bg-[#0078a8] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'}`}>{scope === 'current' ? 'Current' : scope === 'all-time' ? 'All time' : 'Custom'}</button>))}</div><label className="flex items-center gap-2 text-xs font-semibold text-slate-500">Company ranking<select value={rankingMode} onChange={(event) => onChangeRankingMode(event.target.value as RankingMode)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><option value="weighted">Volume-weighted</option><option value="pure">Pure average</option></select></label></div>
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"><div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1 dark:bg-slate-900">{(['current', 'all-time', 'custom'] as const).map((scope) => (<button key={scope} type="button" onClick={() => onChangeDataScope?.(scope)} className={`rounded-md px-4 py-1.5 text-xs font-semibold ${dataScope === scope ? 'bg-[#0078a8] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'}`}>{scope === 'current' ? 'Current' : scope === 'all-time' ? 'All time' : 'Custom'}</button>))}</div><label className="flex items-center gap-2 text-xs font-semibold text-slate-500">Company ranking<select aria-label="Company ranking formula" title={rankingMode === 'weighted' ? 'Weighted = (supplier average × respondents + respondent-weighted global average × 5) ÷ (respondents + 5).' : 'Pure average uses the supplier average without respondent weighting.'} value={rankingMode} onChange={(event) => onChangeRankingMode(event.target.value as RankingMode)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><option value="weighted">Volume-weighted</option><option value="pure">Pure average</option></select></label></div>
     </header>
   );
 }
