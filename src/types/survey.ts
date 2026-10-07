@@ -59,6 +59,8 @@ export interface BranchRecord {
 
 export interface PartnerCompany {
   id: string;
+  // Present only on temporary partners created by an isolated evaluation test import.
+  testImportBatchId?: string;
   name: string;
   type: PartnerCompanyType;
   supplierOrigin?: SupplierOrigin;
@@ -187,6 +189,8 @@ export interface CustomForm {
   description: string;
   createdAt: string;
   archivedAt?: string;
+  /** Timestamp when an Admin explicitly ended this survey, independent of its deadline. */
+  manuallyEndedAt?: string;
   deadlineDate?: string;
   status?: 'Running' | 'Paused' | 'Completed' | 'Archived';
   accessDepartments?: string[];

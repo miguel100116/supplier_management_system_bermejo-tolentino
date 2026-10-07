@@ -29,7 +29,7 @@ test('seeds every distinct company from the three repository evaluation exports'
     assert.equal(localSeed?.sourceFileName, fileName);
     assert.match(migration, new RegExp(fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     for (const company of companies) {
-      assert.ok(migration.includes(`'${company.replaceAll("'", "''")}'`), `${company} is missing from the seed migration`);
+      assert.ok(migration.includes(`'${company.split("'").join("''")}'`), `${company} is missing from the seed migration`);
     }
   }
 });

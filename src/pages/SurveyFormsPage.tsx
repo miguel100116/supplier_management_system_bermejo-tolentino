@@ -23,6 +23,7 @@ interface SurveyFormsPageProps {
   onUpdateSurvey?: (survey: CustomForm) => void | Promise<unknown>;
   onUpdateSurveysBulk?: (updatedSurveysList: CustomForm[]) => void | Promise<unknown>;
   onArchiveResponses?: (surveyIds: string[], seriesLabel?: string) => void;
+  onArchiveSurveyTypes?: (surveyTypes: SurveyType[], seriesLabel: string, surveyIds?: string[]) => Promise<void>;
   isAdmin?: boolean;
 }
 
@@ -94,6 +95,7 @@ export function SurveyFormsPage({
   onUpdateSurvey,
   onUpdateSurveysBulk,
   onArchiveResponses,
+  onArchiveSurveyTypes,
   isAdmin,
 }: SurveyFormsPageProps) {
   const [surveyType, setSurveyType] = useState<'All' | SurveyType>('All');
@@ -127,6 +129,9 @@ export function SurveyFormsPage({
   const [newDeadlineDate, setNewDeadlineDate] = useState('');
   const [overrideStatus, setOverrideStatus] = useState(false);
   const [newStatus, setNewStatus] = useState<'Running' | 'Paused' | 'Completed' | 'Archived'>('Running');
+  const [archiveEndedCategory, setArchiveEndedCategory] = useState(false);
+  const [isSavingChanges, setIsSavingChanges] = useState(false);
+  const [saveChangesError, setSaveChangesError] = useState('');
   const [overrideAccess, setOverrideAccess] = useState(false);
   const [accessDepartments, setAccessDepartments] = useState<string[]>(departmentOptions);
   const [accessRoles, setAccessRoles] = useState<SurveyAccessRole[]>(roleOptions);
@@ -314,6 +319,7 @@ export function SurveyFormsPage({
     setModifyStep(1);
     setOverrideDeadline(false);
     setOverrideStatus(false);
+    setArchiveEndedCategory(false);
     setOverrideAccess(false);
     setNewDeadlineDate('');
     setNewStatus('Running');
@@ -327,6 +333,7 @@ export function SurveyFormsPage({
     setModifyStep(1);
     setOverrideDeadline(false);
     setOverrideStatus(false);
+    setArchiveEndedCategory(false);
     setOverrideAccess(false);
     setNewDeadlineDate('');
     setNewStatus('Running');
@@ -342,6 +349,7 @@ export function SurveyFormsPage({
     setIsSelectMode(false);
     setModifyStep(1);
     setNewStatus(getSurveyStatus(survey));
+    setArchiveEndedCategory(false);
     setNewDeadlineDate(ddmmToYyyymmdd(survey.deadlineDate || ''));
     setAccessDepartments(survey.accessDepartments?.length ? survey.accessDepartments : departmentOptions);
     setAccessRoles(survey.accessRoles?.length ? survey.accessRoles : roleOptions);
@@ -377,7 +385,7 @@ export function SurveyFormsPage({
     );
   };
 
-  const handleBulkSaveChanges = () => {
+  const handleBulkSaveChanges = async () => {
     if (!onUpdateSurveysBulk && !onUpdateSurvey) return;
     if (selectedSurveyIds.size === 0) return;
     if (!overrideDeadline && !overrideStatus && !overrideAccess) {
@@ -400,8 +408,10 @@ export function SurveyFormsPage({
         if (overrideStatus) {
           updated.status = newStatus;
           updated.archivedAt = newStatus === 'Archived' ? statusChangedAt : undefined;
+          if (archiveEndedCategory && newStatus === 'Completed') updated.manuallyEndedAt = survey.manuallyEndedAt || statusChangedAt;
+          else if (newStatus !== 'Completed') updated.manuallyEndedAt = undefined;
         }
-        if (overrideDeadline) updated.status = getSurveyStatus(updated);
+        if (overrideDeadline && !archiveEndedCategory) updated.status = getSurveyStatus(updated);
         if (overrideAccess) {
           updated.accessDepartments = accessDepartments;
           updated.accessRoles = accessRoles;
@@ -428,16 +438,38 @@ export function SurveyFormsPage({
     // Save selected notification frequency
     saveReminderFrequency(notificationFrequency);
 
-    if (onUpdateSurveysBulk) {
-      onUpdateSurveysBulk(updatedSurveysList);
-    } else if (onUpdateSurvey) {
-      updatedSurveysList.forEach((s) => onUpdateSurvey(s));
+    setSaveChangesError('');
+    setIsSavingChanges(true);
+    let surveysSaved = false;
+    try {
+      if (onUpdateSurveysBulk) {
+        await onUpdateSurveysBulk(updatedSurveysList);
+      } else if (onUpdateSurvey) {
+        await Promise.all(updatedSurveysList.map((survey) => onUpdateSurvey(survey)));
+      }
+      surveysSaved = true;
+
+      if (archiveEndedCategory && newStatus === 'Completed' && onArchiveSurveyTypes) {
+        const endedSurveys = updatedSurveysList.filter((survey) => survey.status === 'Completed');
+        const endedTypes = [...new Set(endedSurveys.map((survey) => survey.surveyType))];
+        const endedAt = endedSurveys.find((survey) => survey.manuallyEndedAt)?.manuallyEndedAt || new Date().toISOString();
+        const period = new Date(endedAt).toLocaleString();
+        const periodLabel = `${endedTypes.join(' & ')} · Ended ${period}`;
+        await onArchiveSurveyTypes(endedTypes, periodLabel, endedSurveys.map((survey) => survey.id));
+      }
+    } catch (error) {
+      setSaveChangesError(surveysSaved
+        ? `Survey status was saved, but its category archive failed: ${error instanceof Error ? error.message : 'Unable to archive these responses.'} You can retry Save Changes.`
+        : error instanceof Error ? error.message : 'Unable to save these survey changes.');
+      setIsSavingChanges(false);
+      return;
     }
 
     // Reset select state and exit
     setIsSelectMode(false);
     setSelectedSurveyIds(new Set());
     resetModifyState();
+    setIsSavingChanges(false);
   };
 
   const handleProceedArchive = async () => {
@@ -1039,6 +1071,7 @@ export function SurveyFormsPage({
                               checked={overrideStatus && newStatus === 'Running'}
                               onChange={() => {
                                 setNewStatus('Running');
+                                setArchiveEndedCategory(false);
                                 setOverrideStatus(true);
                               }}
                               className="h-4.5 w-4.5 text-[#0063a9] focus:ring-[#0063a9] transition"
@@ -1052,6 +1085,7 @@ export function SurveyFormsPage({
                               checked={overrideStatus && newStatus === 'Paused'}
                               onChange={() => {
                                 setNewStatus('Paused');
+                                setArchiveEndedCategory(false);
                                 setOverrideStatus(true);
                               }}
                               className="h-4.5 w-4.5 text-[#0063a9] focus:ring-[#0063a9] transition"
@@ -1065,12 +1099,19 @@ export function SurveyFormsPage({
                               checked={overrideStatus && newStatus === 'Completed'}
                               onChange={() => {
                                 setNewStatus('Completed');
+                                setArchiveEndedCategory(true);
                                 setOverrideStatus(true);
                               }}
+                              onClick={() => setArchiveEndedCategory(true)}
                               className="h-4.5 w-4.5 text-[#0063a9] focus:ring-[#0063a9] transition"
                             />
                             <span>Ended</span>
                           </label>
+                          {overrideStatus && newStatus === 'Completed' && (
+                            <p className="ml-7 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                              Saving as Ended archives current results for this partner category. Open Company Leaderboard → Archives to view the ranked companies.
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -1249,7 +1290,7 @@ export function SurveyFormsPage({
                 </div>
 
                 {/* Modal Footer (Static) */}
-                <div className="flex items-center justify-between p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 shrink-0">
                   {modifyStep === 1 ? (
                     <button
                       onClick={() => setModifyStep(2)}
@@ -1285,13 +1326,15 @@ export function SurveyFormsPage({
                       </button>
                       <button
                         onClick={handleBulkSaveChanges}
-                        className="px-4 py-2.5 rounded-xl bg-[#0063a9] text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md"
+                        disabled={isSavingChanges}
+                        className="px-4 py-2.5 rounded-xl bg-[#0063a9] text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md disabled:cursor-wait disabled:opacity-60"
                         type="button"
                       >
-                        Save Changes
+                        {isSavingChanges ? 'Saving...' : 'Save Changes'}
                       </button>
                     </div>
                   )}
+                  {modifyStep === 2 && saveChangesError && <p className="w-full text-right text-xs font-semibold text-rose-600 dark:text-rose-400" role="alert">{saveChangesError}</p>}
                 </div>
 
               </div>

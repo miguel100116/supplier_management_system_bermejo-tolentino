@@ -133,9 +133,9 @@ A **Data Scope** toggle further switches between *Current* (active period), *All
 | Module | What it does |
 |---|---|
 | **Dashboard** | Personalized performance indicators and KPIs. |
-| **Survey Forms** | View, fill, and publish feedback forms. Legacy forms named with a leading Test/Tests label are hidden from employee evaluation choices and remain available to Admins. Respondent Info starts directly with the progress steps and has only “Proceed to Form Questions” in its footer; sidebar navigation and the later Questions Form Return actions remain available. Date-range questions support calendar pickers with month/year selection or typed `dd/mm/yyyy` dates; both dates are required and the end must be on or after the start. |
+| **Survey Forms** | View, fill, and publish feedback forms. Marking a form **Ended** archives the active results for its partner category; the category ranking remains available in Company Leaderboard → Archives and the archived responses remain in Archive Center. Legacy forms named with a leading Test/Tests label are hidden from employee evaluation choices and remain available to Admins. Respondent Info starts directly with the progress steps and has only “Proceed to Form Questions” in its footer; sidebar navigation and the later Questions Form Return actions remain available. Date-range questions support calendar pickers with month/year selection or typed `dd/mm/yyyy` dates; both dates are required and the end must be on or after the start. |
 | **Survey Explorer** | Review each survey submission, filter by respondent email, inspect answers, and export all or filtered responses to Excel. |
-| **Analytics** | Company statistical charts, trends, rankings, and company comparisons over the response data authorized for the current session. |
+| **Analytics** | Company statistical charts, trends, rankings, and company comparisons over the response data authorized for the current session. Company Leaderboard has Current rankings and Archives views; choosing an archived category-period opens its company ranking list. |
 | **Reports** | Summary / Company / Question / Executive-Summary builders + raw exports (PDF, Excel, CSV). |
 | **Present** | Staggered slide-deck presentation builder (PDF/PPTX export). |
 | **Partner Companies** | Manage external courier, supplier, and subcontractor rosters, branches, documents, and the Admin-only dated Active Companies upload history. |
@@ -143,12 +143,16 @@ A **Data Scope** toggle further switches between *Current* (active period), *All
 | **Renew Compliance Documents** | Action permission: update document expiry/status without full Account Management access. |
 | **Supplier Ranking** | Curate and reorder the Top 20 suppliers evaluable by default in Supplier surveys. |
 | **Partners Feedback Hub** | Send report cards to partner companies (single or bulk email via Microsoft Graph). |
-| **Account Management** | Configure roles, ranks, departments, and per-user/per-department permissions. |
+| **Account Management** | Create company-domain logins with a generated or customized initial password, and configure roles, ranks, departments, and per-user/per-department permissions. |
 | **Notifications** | Audit trail of incoming survey responses and document-expiry alerts, opened as a modal from the header bell rather than a separate sidebar destination. |
 | **Archive Center** | Browse and restore archived feedback submissions and series. |
-| **Import Evaluation Responses** | Admins upload one Excel workbook containing Supplier, Subcontractor, and Courier evaluation worksheets. The system detects each form, matches companies against the full Partner Registry, and imports the categories together. The original workbook is stored once in a private Supabase Storage archive with Admin-only download access. |
+| **Import Evaluation Responses** | Admins select multiple CSV or Excel exports across Supplier, Subcontractor, and Courier, including multiple files for one category. The system detects each form, matches companies against the full Partner Registry, and imports the selected files together. Each original file is stored in a private Supabase Storage archive with Admin-only download access. |
 | **Categories Manager** | Rename the display labels of scoring categories per survey type. |
 | **Settings / Profile** | A large modal opened from the account-session dropdown. Employees retain their full profile, impact, recent-submission, preference, and session view; Admins retain the complete Settings view with activity, import, and cache-management tools. |
+
+Form details show **Recent Form Submissions** in pages of 10. The Supplier Ranking **Modification Log** also shows 10 entries per page. Both display the visible range and provide Previous/Next controls when needed; changing filters or sorting returns to the first page.
+
+Select or drop one or more `.csv`, `.xlsx`, or `.xls` response exports on the Import Evaluation Responses page. Each file may contain one or more recognized forms; the normal **Import selected files** action accepts any category mix. Choose non-overlapping exports: duplicate source response IDs in one batch are rejected to prevent silent replacement. To check a batch without replacing existing evaluations, use **Test import**. Its responses appear in Analytics under the files' submission dates. After an import, **Remove file** or **Remove test file** appears beside each uploaded file and remains available in **Stored Source Files** after a page refresh. The selection X is shown only before importing. Both removal actions delete responses still tagged to the selected file's import batch, the stored object, and its archive record. Test removal also deletes temporary partner records. Ordinary imports may have replaced earlier responses; those earlier values cannot be restored by removing the current file, and ordinary partner records remain in the registry. If a temporary partner has since been referenced by another evaluation, test removal stops before deleting data.
 
 ---
 
@@ -160,7 +164,7 @@ The application is a **single-page React app** with a thin Express server used o
 |---|---|
 | **UI framework** | React 18 + TypeScript |
 | **Build tool** | Vite 6 |
-| **Styling** | Tailwind CSS 3 |
+| **Styling** | Tailwind CSS 4 with the PostCSS integration |
 | **Charts** | Recharts |
 | **Icons / animation** | lucide-react, motion |
 | **Server** | Express (dev middleware via Vite; static host in production) |
@@ -168,6 +172,8 @@ The application is a **single-page React app** with a thin Express server used o
 | **Backend** | Supabase normalized import/audit tables plus an RLS-protected editable application store in staging |
 | **Email** | Microsoft Graph (`Mail.Send`, delegated) |
 | **Exports** | jsPDF + jspdf-autotable (PDF), xlsx (Excel), papaparse (CSV), pptxgenjs (PPTX), docx |
+
+The Tailwind 4 security upgrade retains the existing color/effect scales in `tailwind.config.js` and sibling spacing, divider, and outline behavior through `scripts/tailwindCompatibility.mjs`. Its stylesheet regression test runs with `npm test`. Supported browsers are Safari 16.4+, Chrome 111+, and Firefox 128+; see the [official browser requirements](https://tailwindcss.com/docs/upgrade-guide#browser-requirements).
 
 **Key design decision — the data source seam:** Authenticated staging sessions load shared business records, configuration, operational history, and per-user state through the Supabase application repository. The normalized CSV tables remain the immutable import/audit layer, while `application_records` is the editable UI-facing store. Realtime table changes trigger an RLS-protected refetch. Local storage is limited to authenticated startup caching and device-specific state; the frontend no longer generates or bundles mock business records.
 
@@ -221,7 +227,9 @@ The verified frontend/backend contract, record-type matrix, Realtime routing, an
 Staging signs users in with **Supabase email and password** because the team does not have access to the Microsoft Entra tenant. Only `@mgenesis.com` addresses are accepted, and email confirmation is enabled in the staging Supabase project.
 
 - **Email domain is enforced:** only `@mgenesis.com` addresses are accepted.
-- **Password management:** staging passwords belong to Supabase Auth. A reset UI is still pending.
+- **Password management:** passwords belong to Supabase Auth. Use **Forgot password** on the login page for recovery; configure the hosted recovery redirect allowlist.
+- **Add Account:** a signed-in Admin enters a verified employee's company email and access profile. The form generates a fresh 20-character password; the Admin can reveal, copy, regenerate, or replace it with a custom password of at least 16 characters (up to 72 UTF-8 bytes). Copy it before saving and share it through the approved private channel. The login becomes confirmed after its profile is saved, so the employee can sign in immediately. Passwords are not saved in application profiles, browser storage, or activity logs.
+- **Account creation server:** `POST /api/admin/accounts` requires the Express host (`npm run dev` or built `npm start`) and server environment variables `SUPABASE_URL` (or `VITE_SUPABASE_URL`) and `SUPABASE_SECRET_KEY`, all for the same Supabase project. Use a secret key or legacy service-role key only in the server environment. Static hosting and `npm run preview` do not provide this API. Missing configuration produces an error rather than a profile-only success. See [account operations](docs/engineering/AUTH_OPERATIONS.md).
 - **Session safety:** users can sign out manually; after 25 minutes without activity the app shows a five-minute warning, then signs out at 30 minutes. Activity in another open tab refreshes the same account-specific deadline.
 - **Microsoft features:** Microsoft login and Graph report-email delivery remain unavailable until Azure access is provided.
 
@@ -255,6 +263,8 @@ Create a staging account with an `@mgenesis.com` email, confirm it from the rece
 
 Copy `.env.example` to `.env` and configure at least one real authentication provider:
 
+Express loads Vite's `.env`, `.env.local`, and mode-specific files before configuring its APIs. For Admin account creation, put the matching project's `SUPABASE_SECRET_KEY` (or legacy `SUPABASE_SERVICE_ROLE_KEY`) in ignored `.env.local`, then restart `npm run dev`. Hosted environment variables take precedence. Do not use a `VITE_` prefix for server credentials.
+
 | Variable | Purpose |
 |---|---|
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase project connection. The Express host also exposes these public values through `/api/config`, so they may be supplied at runtime rather than baked into the client bundle. |
@@ -273,7 +283,21 @@ Full step-by-step Azure app-registration instructions are documented inline in [
 | `npm run build` | Type-check-free production build: Vite bundles the client, esbuild bundles the server to `dist/server.cjs`. |
 | `npm run start` | Run the built production server (`node dist/server.cjs`). |
 | `npm run preview` | Preview the built client with Vite. |
-| `npm run lint` | Type-check the project (`tsc --noEmit`). |
+| `npm run lint` | Type-check the frontend, Vite configuration, scripts, and Express server with their explicit TypeScript projects. ESLint is not configured. |
+| `npm test` | Run the focused automated tests, including stylesheet compilation compatibility. |
+| `npm audit --audit-level=high` | Check dependency advisories; high and critical findings fail the verification workflow. |
+| `npm run db:cleanup:tests:preview --silent` | Print SQL that previews test evaluation rows, provides full rows for a private backup export, and rolls back. No database connection is made. |
+| `npm run db:cleanup:tests:sql --silent` | Print deletion SQL for reviewed test evaluation rows. Paste into the intended project's Supabase SQL Editor to execute; generating it does not delete data. |
+
+The [Verify workflow](.github/workflows/verify.yml) runs on pushes and pull requests with Node 22, a clean `npm ci`, TypeScript checks, tests, a production build, dependency auditing, and a separate secret scan.
+
+### Cleaning test evaluations
+
+Run the preview command, copy only its SQL into Supabase SQL Editor, and verify the selected project. Review every listed company/evaluation and export the full candidate rows privately before deleting. `test_submission` reflects staging provenance, so real evaluations entered in staging may carry that label. Do not proceed if the results include real work.
+
+After reviewing the preview, generate the deletion SQL with the second command and run it in the same project's SQL Editor. It commits the deletion in one transaction; after commit, recovery requires restoring the exported full rows to `application_records` or using an existing database backup. Coordinate cleanup with other users so clients do not resubmit test evaluations during the operation, then refresh the app.
+
+Cleanup targets only whole `survey_response` groups marked `test_submission`, or unmarked groups for the exact company name `TEST` outside default imported forms. Mixed/uncertain groups and missing response IDs are retained. CSV/production provenance, `IMPORT-*` IDs, `client-csv:*` batch IDs, and normalized imported submission identities are protected. Both active and archived test evaluations are eligible. Companies, forms, accounts, documents, normalized import tables, project files, and CSV files are preserved. These commands do not use credentials, write files, apply migrations, or repair Realtime synchronization.
 
 ---
 
@@ -337,7 +361,7 @@ This system is **pre-production**. The most important open items (verified again
 
 | # | Issue | Recommendation |
 |---|---|---|
-| 1 | Supabase email/password is active in staging, but password-reset UI is not implemented. | Use the Supabase dashboard for staging recovery until a reset flow is added. |
+| 1 | Admin account creation requires the Express host and a server-only Supabase secret; live provisioning has not been verified. | Configure the server environment and verify creation, sign-in, and recovery in the authorized target environment. |
 | 2 | Supabase's leaked-password protection remains disabled in staging and is available only on the Pro plan and above. | Enable it in Auth settings before production if the target project plan supports it. |
 | 3 | The first confirmed account defaults to Employee unless it uses the bootstrap `admin@mgenesis.com` identity. | Promote an approved user in `app_profiles` from the Supabase dashboard before testing Admin edits. |
 | 4 | The old draft `supabase/schema.sql` contains temporary anonymous policies and is not the applied staging schema. | Use versioned migrations only; never apply the draft file as-is. |

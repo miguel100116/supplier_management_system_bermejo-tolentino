@@ -24,7 +24,7 @@ const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
 
 export function evaluationImportFileExtension(fileName: string): string {
   const extension = fileName.slice(fileName.lastIndexOf('.')).toLocaleLowerCase();
-  if (!Object.hasOwn(MIME_TYPE_BY_EXTENSION, extension)) {
+  if (!Object.prototype.hasOwnProperty.call(MIME_TYPE_BY_EXTENSION, extension)) {
     throw new Error('Choose a Microsoft Forms export file (.csv, .xls, or .xlsx).');
   }
   return extension;

@@ -51,9 +51,9 @@ Canonical product documentation:
 
 Verified on 2026-09-21:
 
-- `npm run lint` succeeds and runs TypeScript checks for both application and import scripts; ESLint is not configured.
+- Verification correction (2026-10-06): root `tsc --noEmit` does not traverse frontend project references. `npm run lint` now explicitly checks the frontend, Vite configuration, scripts, and Express server projects. The 13 frontend type errors were corrected without changing the UI or the ES2020 target. ESLint is not configured.
 - `npm test` covers focused domain, persistence-contract, import, mapping, and authorization helpers; broader component, integration, and end-to-end coverage is not yet established. Use the current command output as the source for the exact test count.
-- No repository CI workflow is present.
+- CI correction (2026-10-06): `.github/workflows/verify.yml` runs on pushes and pull requests with Node 22, `npm ci`, explicit TypeScript checks, tests, a production build, dependency auditing, a separate secret scan, and build-artifact upload.
 - The TypeScript source under `src/` is roughly 65,000 lines across about 100 files.
 - Major concentration points include `src/hooks/useSurveyData.ts`, `src/App.tsx`, several page components above 1,000 lines, and a very large generated/static partner seed file.
 - `.vite/` cache files are tracked despite being generated artifacts.
@@ -277,6 +277,10 @@ Consequences: Champion cards, leaderboards, and best/least-performing charts con
 
 Evidence: `src/features/analytics/domain/rankings.ts`, `src/features/analytics/domain/rankings.test.ts`, `src/pages/AnalyticsPage.tsx`
 
+Correction (2026-10-06): Analytics' Company Leaderboard had drifted back to grouping submissions by display name and recalculating ranking scores in the page. It now uses the canonical `getLeaderboard` / `getPureAverageLeaderboard` scoring and stable company identity grouping, calculates volume confidence within each partner type, and displays the selected ranking score. All-N/A companies remain outside scored Analytics ranks. The weighted rank score is normalized across partner types when the All categories view combines the separate lists. Evidence: `getAnalyticsCompanyRankings` in `src/features/analytics/domain/rankings.ts` and its consumer in `src/pages/AnalyticsPage.tsx`.
+
+Correction (2026-10-06): Survey Forms → Modify → Ended now remains Completed even when its deadline is in the future, saves the status, and archives the active response rows for each ended partner type under a dated archive series. The Analytics Company Leaderboard Archives tab lists each category-period; selecting one opens a modal with its canonical company ranking. The same response rows are visible in Archive Center and remain restorable there. On remote persistence failure, the modal stays open with a retry message; the category archive is idempotent for that dated series. No partner registry records or database schema are changed. Evidence: `getSurveyStatus`, `SurveyFormsPage`, `archiveResponsesForSurveyTypes`, and `ArchivedCompanyRankings`.
+
 ### 2026-09-22 - Analytics presentation hierarchy
 
 Status: accepted
@@ -389,23 +393,31 @@ Evidence: `src/types/survey.ts`, `src/services/applicationRecordSchemas.ts`, `sr
 
 ### 2026-09-30 - Archive source files for evaluation imports
 
-Status: implemented locally; Supabase migration has not been applied
+Status: implemented locally; migration `202609300001` applied and verified in staging `adxwaxhnqxpmgjvsxgug` on 2026-10-06. Production has not been verified.
 
 Decision: Store the original Supplier, Subcontractor, and Courier Microsoft Forms exports in the private `evaluation-import-archives` Storage bucket before committing parsed responses. Persist validated file metadata in Admin-only `evaluation_import_archive` application records and expose recent files with authenticated downloads on the Import Evaluation Responses page. Restrict files to 25 MB and the supported CSV/XLS/XLSX types; remove the uploaded object if metadata persistence fails.
 
-Consequences: The import is stopped if the original file cannot be archived, preventing a successful response import without its source file. Migration `202609300001_evaluation_import_archives.sql` creates the private bucket, Admin-only object policies, and application-record type. Apply that reviewed migration to the intended Supabase environment before relying on this workflow; it has not been applied remotely.
+Consequences: The import is stopped if the original file cannot be archived, preventing a successful response import without its source file. Migration `202609300001_evaluation_import_archives.sql` creates the private bucket, Admin-only object policies, and application-record type. Staging Management API checks confirmed the recorded migration version, private bucket with a 25 MB limit and CSV/XLS/XLSX MIME types, all three Admin object policies, and the archive record type. An authenticated Admin upload and Analytics refresh still need an end-to-end check.
 
 Evidence: `src/features/evaluation-imports/`, `src/pages/ImportEvaluationsPage.tsx`, `src/services/applicationRepository.ts`, `src/services/applicationRecordSchemas.ts`, `supabase/migrations/202609300001_evaluation_import_archives.sql`.
 
-### 2026-10-01 - Import all evaluation categories from one workbook
+### 2026-10-01 - Import all evaluation categories from one workbook (expanded to batches 2026-10-06)
 
 Status: implemented locally; production behavior has not been verified
 
-Decision: The Admin import page accepts one `.xlsx` or `.xls` workbook and detects exactly one worksheet for each Supplier, Subcontractor, and Courier form by its official company-name header. It previews all categories together, reviews unmatched company decisions in one dialog, archives the workbook once as a Combined source file, and upserts all categorized response rows together. Each row must have its source `ID`; that ID plus survey type forms the stable response key. Company resolution continues to check the full Partner Registry, including archived and differently classified entries.
+Decision: The Admin import page accepts one or more `.csv`, `.xlsx`, or `.xls` exports, including several files for the same category. It detects each recognized Supplier, Subcontractor, and Courier form by its official company-name header, previews category totals, reviews unmatched company decisions in one dialog, archives each source file, and upserts all categorized response rows together. A combined workbook remains supported. Each row must have its source `ID`; that ID plus survey type forms the stable response key. Overlapping source IDs within a category are rejected before archiving so no selected file silently replaces another. Company resolution continues to check the full Partner Registry, including archived and differently classified entries.
 
-Consequences: Combined source archive metadata uses `surveyType: Combined` under the existing record type and private bucket; no database migration is required because the archive type is validated in the application payload. A failed/partial multi-request Supabase write is not a database transaction and can still require refresh/retry. CSV remains unsupported for combined workbooks.
+Consequences: Combined source archive metadata uses `surveyType: Combined` under the existing record type and private bucket; no new database migration is required. The archive phase rolls back earlier files if a later source cannot be stored; a failed/partial multi-request response write is not a database transaction and can still require refresh/retry. Multiple new-partner matches across normal files reconcile to one partner. CSV files each represent one recognized form.
 
 Evidence: `src/pages/ImportEvaluationsPage.tsx`, `src/utils/rawEvaluationImport.ts`, `src/hooks/useSurveyData.ts`, `src/features/evaluation-imports/domain/importArchive.ts`.
+
+### 2026-10-06 - Isolated evaluation test imports and removal
+
+The Admin import page offers Test import with a unique `test-workbook:<uuid>` batch per selected source file. Test mode accepts single-category CSV exports or Excel workbooks with one or more recognized Supplier, Subcontractor, and Courier forms, including several files per category. Extensionless files with recognized CSV/XLSX MIME types receive the matching extension before archiving. Missing form categories are skipped only when their headers do not match; malformed recognized forms fail the preview. Test `client_csv` responses enter Analytics using `TESTIMPORT-*` IDs, preserving existing source-ID rows. Unmatched companies created for the test carry `testImportBatchId`, remain archived, and are excluded from subsequent company matching. After a successful test import, Remove test file appears beside each uploaded file; the Stored Source Files list retains the same per-file control after reload. Removal selects exact tagged response and partner records, rejects identity mismatches and partners referenced by other evaluations, then deletes responses, temporary partners, the Storage object, and archive metadata. Realtime invalidation refreshes Analytics. The delete spans multiple Supabase requests and is not atomic; a failed step leaves the archive entry available for retry. The archive migration is applied in staging; the multi-file test-import journey has not yet been verified there.
+
+Evidence: `src/features/evaluation-imports/domain/testImport.ts`, `evaluationFilePreview.ts`, their workbook/CSV/cleanup tests, `src/utils/rawEvaluationImport.ts`, `src/features/evaluation-imports/services/evaluationImportArchiveService.ts`, and `src/pages/ImportEvaluationsPage.tsx`.
+
+The Stored Source Files list now exposes every archive record and allows Admins to remove ordinary source files as well. After any successful import, the uploaded-file row uses the same persisted cleanup action; its X removes only an uncommitted selection. Ordinary removal deletes only responses still tagged to that file's import batch, the Storage object, and its `evaluation_import_archive` record; it leaves ordinary partner records in the registry because they have no safe per-file ownership tag. If a normal import replaced earlier responses, removal cannot restore those earlier values. The isolated test-import action continues to delete its tagged responses and temporary partners. The client rechecks the stored archive identity before deletion, and Supabase Admin policies enforce access at the database and Storage boundaries. The operation spans multiple Supabase requests and can require a retry after partial failure. This removal behavior is implemented locally and has not been exercised in an authenticated staging session.
 
 ### 2026-09-30 - Lazy-load authenticated application pages
 
@@ -505,6 +517,40 @@ Status: implemented locally; deployment not verified.
 Employee survey availability excludes legacy titles beginning with a standalone Test/Tests label, including numbered and separated variants. Admins retain those forms. Existing department, designation, and survey-type rules still apply. New Evaluation resolves hidden/stale form IDs to an available form, and survey details use the same accessible list. This is UI availability filtering; stored forms and evaluations are retained and no database migration is required.
 
 Evidence: SMS-75 in Notion, `src/features/evaluations/domain/surveySelection.ts`, focused selection/presentation tests, `src/App.tsx`, and `src/pages/SurveyFillerPage.tsx`.
+
+### 2026-10-02 — Test evaluation cleanup SQL commands
+
+`db:cleanup:tests:preview` and `db:cleanup:tests:sql` generate reviewable SQL without connecting to Supabase or changing files/data. Preview rolls back and exposes full candidate rows for a private recovery export; deletion SQL commits only whole test response groups, protects CSV/production provenance and normalized submission identities, and locks selection through deletion. Other record types and imported tables are preserved. Real evaluations may have staging provenance; review is required before executing the generated SQL in the intended environment. Remote execution has not been verified.
+
+Evidence: `scripts/database-cleanup/testEvaluationsSql.ts`, its safety tests, `package.json`, and README cleanup instructions.
+
+### 2026-10-02 — Connected CSV cleanup verification
+
+Read-only Supabase checks against the configured staging project `adxwaxhnqxpmgjvsxgug` confirmed all four source hashes match a fresh local import plan. Normalized/editable records contain 1,140 matching companies, all 280 CSV evaluations, and 6,355 answer rows with no missing/extra responses or differing company/question/rating/comment values against the versioned seed mapping. Only the three default forms remain; known sample feedback IDs and top-level references to the four previously removed test forms are absent. No further deletion was needed or performed. Operational histories/settings and active-company snapshots were retained; their nested contents, browser caches, and a separate production environment were not classified. Explicit `dataSource` is absent on these imported answers, so legacy imported-identity recognition remains relevant.
+
+Evidence and verification limits: [CSV data audit live follow-up](audits/2026-10-02-csv-data-context-audit.md#live-follow-up--2026-10-02), `supabase/verification/csv_company_reconciliation.sql`, and `supabase/verification/csv_data_audit.sql`.
+
+### 2026-10-06 — Admin-created account passwords
+
+Implemented locally: Add Account generates a 20-character cryptographic password and lets the Admin reveal, copy, regenerate, or replace it with a custom password of at least 16 characters (maximum 72 UTF-8 bytes). `POST /api/admin/accounts` verifies the Supabase identity and its current Admin profile, creates an unconfirmed Auth user, saves the access profile, then confirms the login. It rejects existing profiles/logins without resetting credentials and attempts cleanup after known partial failures. The Admin verifies the employee's email; no invitation email is sent. Passwords remain outside profiles, application storage, and logs. The shared profile parser now lives in the pure account-management domain and is re-exported by the application repository.
+
+Requires the Express host and server-only `SUPABASE_SECRET_KEY` (or the import CLI's `SUPABASE_SERVICE_ROLE_KEY`) plus the matching project URL. Configuration fix on 2026-10-06: Express loads Vite's env files before constructing the account endpoint; deployment/shell values remain authoritative, and `/api/config` uses an explicit public allowlist. The user configured the local staging server key on 2026-10-06. A read-only Supabase Auth Admin API check succeeded; reloading the existing development watcher changed the local account endpoint from missing-key 503 to the expected 401 for an invalid test token. The running public config endpoint was also verified to exclude the secret. No migration or remote provisioning was performed. Tests exercise env loading and the HTTP boundary with a mocked Supabase provider; live staging creation/sign-in remains unverified. See [account operations](AUTH_OPERATIONS.md) for setup and partial-failure recovery. Evidence: `src/features/account-management/`, `src/pages/AccountManagementPage.tsx`, `server/createAccount.ts`, `server/environment.ts`, their tests, and `.env.example`.
+
+### 2026-10-06 — Import removal concurrency regression
+
+Ordinary import removal now requires the record ID, import batch, and `client_csv` provenance to match in the database DELETE. A response overwritten by a newer batch between selection and deletion is preserved. Counts come from returned deleted IDs; the source file is retained if responses still belong to its batch after deletion. No schema or RLS change is required. The workflow still uses separate database and Storage requests and reports partial failures. Evidence: `deleteImportedSurveyResponses` in `src/services/applicationRepository.ts`, `src/features/evaluation-imports/services/evaluationImportArchiveService.ts`, and `src/services/importResponseDeletion.test.ts` (actual Supabase SDK with a simulated provider, including concurrent replacement and chunk failures).
+
+Local verification on 2026-10-06: all 194 tests, the explicit four-project TypeScript check, the production build, and `git diff --check` passed. Live account creation/sign-in remains unverified; these checks do not establish production readiness.
+
+### 2026-10-06 - Dependency audit failure and Tailwind compatibility
+
+The push and pull-request checks for `a2a72a8` passed TypeScript checks, tests, build, and secret scanning but failed dependency auditing with nine findings. Patched transitive `proxy-addr` to 2.0.8 and `source-map-js` to 1.2.2. Tailwind 3 depended on vulnerable, unpatched `braces`; upgrading Tailwind and its PostCSS integration to 4.3.3 removes that dependency chain rather than suppressing the audit gate.
+
+The original v3 palette and effect scales remain explicit in `tailwind.config.js`. `src/styles.css` retains the original cascade and preflight defaults, while `scripts/tailwindCompatibility.mjs` restores sibling spacing/dividers and accessible outline behavior. The actual stylesheet pipeline regression test covers colors, effects, responsive/dark selectors, spacing, dividers, and outlines. Four synthetic shared-control screenshots (desktop/mobile, light/dark) matched the baseline byte for byte; this is representative visual evidence, not an exhaustive application journey check. Tailwind 4 requires Safari 16.4+, Chrome 111+, or Firefox 128+; see the [official requirements](https://tailwindcss.com/docs/upgrade-guide#browser-requirements).
+
+Local verification on 2026-10-06: 195 tests, all four TypeScript projects, and the production build passed; an online `npm audit --audit-level=high` reported zero vulnerabilities. The existing bundle-size warning remains. Hosted verification must be checked for the pushed commit.
+
+Evidence: `package-lock.json`, `postcss.config.js`, `tailwind.config.js`, `src/styles.css`, `scripts/tailwindCompatibility.test.mjs`, and the [failed push run](https://github.com/miguel100116/supplier_management_system_bermejo-tolentino/actions/runs/37426378828). Rollback is a commit revert, which also restores the vulnerable dependency chain; no database changes are involved.
 
 ## Handoff template
 

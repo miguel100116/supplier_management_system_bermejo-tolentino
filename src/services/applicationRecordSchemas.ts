@@ -96,6 +96,7 @@ function assertRecordId(candidate: JsonObject, recordId: string, label: string, 
 function parsePartnerCompany(value: unknown, recordId: string, label: string): JsonObject {
   const candidate = object(value, label);
   assertRecordId(candidate, recordId, label);
+  optionalText(candidate.testImportBatchId, `${label}.testImportBatchId`, 2_000);
   text(candidate.name, `${label}.name`, { max: 500 });
   oneOf(candidate.type, PARTNER_TYPES, `${label}.type`);
   isoDate(candidate.createdAt, `${label}.createdAt`);

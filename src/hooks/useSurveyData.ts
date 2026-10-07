@@ -13,6 +13,7 @@ import {
 import { logAdminActivity } from '../utils/adminActivityLog';
 import { computeCompanyDocumentSummary, computeDocumentStatus, EXPIRING_SOON_DAYS } from '../utils/compliance';
 import { parseDeploymentEnvironment, submissionSourceForEnvironment } from '../features/analytics/domain/responseProvenance';
+import { reconcileEvaluationBatchPartners } from '../features/evaluation-imports/domain/evaluationBatch';
 import { getRequiredDocumentKeys } from '../utils/documentRequirements';
 import { getNotificationSettings, NOTIFICATION_SETTINGS_CHANGED_EVENT } from '../utils/documentNotificationSettings';
 import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from '../services/normalizedPartnerCompanies';
@@ -1962,6 +1963,57 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     ));
   };
 
+  const archiveResponsesForSurveyTypes = async (surveyTypes: SurveyType[], seriesLabel: string, surveyIds: string[] = []) => {
+    const targetTypes = new Set(surveyTypes);
+    if (!targetTypes.size) return;
+    const existingSeries = archiveSeries.find((series) => series.label.trim().toLowerCase() === seriesLabel.trim().toLowerCase());
+    const activeResponsesToArchive = responses.filter((response) => !response.archived && targetTypes.has(response.surveyType));
+    const responsesToRetry = existingSeries
+      ? responses.filter((response) => response.archived && response.seriesId === existingSeries.id && targetTypes.has(response.surveyType))
+      : [];
+    if (!activeResponsesToArchive.length && !responsesToRetry.length) return;
+    const changedResponses = [...activeResponsesToArchive, ...responsesToRetry];
+
+    const targetSurveyByType = new Map<SurveyType, CustomForm>();
+    surveys.forEach((survey) => {
+      if (targetTypes.has(survey.surveyType) && (!surveyIds.length || surveyIds.includes(survey.id)) && !targetSurveyByType.has(survey.surveyType)) {
+        targetSurveyByType.set(survey.surveyType, survey);
+      }
+    });
+    const seriesId = existingSeries?.id ?? getOrCreateSeries(seriesLabel);
+    const archivedAt = new Date().toISOString();
+
+    const targetSurveyIds = new Map([...targetSurveyByType].map(([type, survey]) => [type, survey.id]));
+    const targetSurveyTitles = new Map([...targetSurveyByType].map(([type, survey]) => [type, survey.title]));
+    const series = existingSeries ?? { id: seriesId, label: seriesLabel.trim(), createdAt: archivedAt };
+    const updatedResponses = responses.map((response) => {
+      if (response.archived || !targetTypes.has(response.surveyType)) return response;
+      return {
+        ...response,
+        archived: true,
+        archivedAt,
+        archivedBySurveyId: targetSurveyIds.get(response.surveyType),
+        archivedBySurveyTitle: targetSurveyTitles.get(response.surveyType),
+        seriesId,
+      };
+    });
+
+    setResponses(updatedResponses);
+    safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
+    await persistRemoteAsync(upsertApplicationRecords('archive_series', [series], (archive) => archive.id));
+    await persistRemoteAsync(upsertApplicationRecords('survey_response', changedResponses.map((response) => {
+      const survey = targetSurveyByType.get(response.surveyType);
+      return {
+        ...response,
+        archived: true,
+        archivedAt,
+        archivedBySurveyId: survey?.id,
+        archivedBySurveyTitle: survey?.title,
+        seriesId,
+      };
+    }), surveyResponseRecordId));
+  };
+
   const restoreResponseGroup = async (responseId: string) => {
     const updatedResponses = responses.map(r => {
       if (r.responseId === responseId) {
@@ -2060,7 +2112,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   // via commitRawEvaluations.
   const previewRawEvaluations = async (file: File, surveyType: SurveyType): Promise<RawEvalPreview> => {
     const accountProfiles = accounts.map((a) => ({ email: a.email, designation: a.designation, department: a.department }));
-    return previewRawEvaluationImportFile(file, surveyType, partnerCompanies, accountProfiles);
+    return previewRawEvaluationImportFile(file, surveyType, partnerCompanies.filter((company) => !company.testImportBatchId), accountProfiles);
   };
 
   // Commits a previously-parsed import. Re-uploading the same file is safe:
@@ -2109,21 +2161,23 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
   const commitRawEvaluationsBatch = async (
     entries: Array<{ preview: RawEvalPreview; decisions: Record<string, CompanyDecision> }>,
   ): Promise<RawEvalImportSummary[]> => {
-    const committed = entries.map(({ preview, decisions }) => ({
+    const committed = reconcileEvaluationBatchPartners(entries.map(({ preview, decisions }) => ({
       preview,
       ...commitRawEvaluationImportRows(preview, decisions),
-    }));
+    })));
     const allRows = committed.flatMap((entry) => entry.responses);
+    const recordIds = allRows.map(surveyResponseRecordId);
+    if (new Set(recordIds).size !== recordIds.length) {
+      throw new Error('This batch contains duplicate response IDs. No responses were imported.');
+    }
     const newIds = new Set(allRows.map((response) => response.responseId));
     const replacedIds = new Set(responses.filter((response) => newIds.has(response.responseId)).map((response) => response.responseId));
     const addedCompaniesById = new Map<string, PartnerCompany>();
     committed.forEach((entry) => entry.newPartnerCompanies.forEach((company) => addedCompaniesById.set(company.id, company)));
     const newCompanies = [...addedCompaniesById.values()].map(normalizePartnerCompany);
 
-    // Persist this workbook's partner additions and response rows as shared
-    // Supabase records before reporting success. All three categories are
-    // sent through one response upsert operation (chunked by the repository
-    // only when the workbook exceeds its request-size limit).
+    // Persist the selected files' partner additions and response rows as shared
+    // Supabase records before reporting success. The repository chunks large writes.
     if (newCompanies.length) {
       await persistRemoteAsync(upsertApplicationRecords('partner_company', newCompanies, (company) => company.id));
     }
@@ -2151,7 +2205,9 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     }));
     const totalSubmissions = summaries.reduce((total, summary) => total + summary.imported, 0);
     logAdminActivity(
-      'Imported combined evaluation workbook',
+      entries.length === 3 && new Set(entries.map((entry) => entry.preview.fileName)).size === 1
+        ? 'Imported combined evaluation workbook'
+        : 'Imported evaluation response files',
       `${totalSubmissions} submissions across ${summaries.map((summary) => summary.surveyType).join(', ')}`,
     );
     return summaries;
@@ -2325,6 +2381,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     archiveSeries,
     renameArchiveSeries,
     archiveResponsesForSurveys,
+    archiveResponsesForSurveyTypes,
     restoreResponseGroup,
     restoreResponsesForSurvey,
     deleteArchivedResponseGroups,

@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { PartnerCompany, Rating, SurveyResponse, SurveyType } from '../types/survey';
 import { normalizeCompanyName, nameSimilarity } from './masterListImport';
+import { testImportCompanyId, testImportResponseId, testImportToken } from '../features/evaluation-imports/domain/testImport';
 
 // Parses the raw Microsoft Forms exports for the three official MBS
 // evaluation forms (20-002 Form 2/3/4) directly into SurveyResponse rows,
@@ -367,6 +368,8 @@ export interface RawEvalCommitResult {
   summary: RawEvalImportSummary;
 }
 
+export class EvaluationFormMismatchError extends Error {}
+
 export async function previewRawEvaluationImport(
   file: File,
   surveyType: SurveyType,
@@ -396,7 +399,7 @@ export async function previewRawEvaluationImport(
 
   if (matchingSheets.length === 0) {
     const colLetter = XLSX.utils.encode_col(spec.headerAnchor.col);
-    throw new Error(
+    throw new EvaluationFormMismatchError(
       `This doesn't look like the ${surveyType} Evaluation Form export - expected column ${colLetter} to contain "${spec.headerAnchor.text}" in a header row within the first ${headerSearchRows} rows of a worksheet.`
     );
   }
@@ -502,6 +505,7 @@ export async function previewRawEvaluationImport(
  */
 export function commitRawEvaluationImport(preview: RawEvalPreview, decisions: Record<string, CompanyDecision> = {}): RawEvalCommitResult {
   const spec = FORM_SPECS[preview.surveyType];
+  const isTestImport = testImportToken(preview.importBatchId) !== null;
   const matchByNormalized = new Map(preview.companyMatches.map((m) => [m.normalizedName, m]));
 
   const needsReclassification: ReclassificationNotice[] = preview.companyMatches
@@ -514,7 +518,7 @@ export function commitRawEvaluationImport(preview: RawEvalPreview, decisions: Re
 
   const responses: SurveyResponse[] = [];
 
-  for (const row of preview.rows) {
+  for (const [rowIndex, row] of preview.rows.entries()) {
     const match = matchByNormalized.get(row.normalizedCompany);
     let company: string;
     let companyId: string;
@@ -529,13 +533,17 @@ export function commitRawEvaluationImport(preview: RawEvalPreview, decisions: Re
       company = row.rawCompany;
       if (!newCompanyByNormalized.has(row.normalizedCompany)) {
         const now = new Date().toISOString();
-        const id = `pc-import-raw-${row.normalizedCompany.toLowerCase().replace(/\s+/g, '-').slice(0, 60)}-${Date.now()}-${newCompanyByNormalized.size}`;
+        const id = isTestImport
+          ? testImportCompanyId(preview.importBatchId, preview.surveyType, newCompanyByNormalized.size)
+          : `pc-import-raw-${row.normalizedCompany.toLowerCase().replace(/\s+/g, '-').slice(0, 60)}-${Date.now()}-${newCompanyByNormalized.size}`;
         newCompanyByNormalized.set(row.normalizedCompany, {
           id,
+          ...(isTestImport ? { testImportBatchId: preview.importBatchId } : {}),
           name: row.rawCompany,
           type: preview.surveyType,
           createdAt: now,
-          isArchived: false,
+          // Test-only additions should not appear as active partners or survey choices.
+          isArchived: isTestImport,
           accreditationStatus: 'Unaccredited',
           branches: [{ id: `${id}-branch-1`, bpCode: '' }],
         });
@@ -547,7 +555,9 @@ export function commitRawEvaluationImport(preview: RawEvalPreview, decisions: Re
     }
 
     const base: ResponseBase = {
-      responseId: row.responseId,
+      responseId: isTestImport
+        ? testImportResponseId(preview.importBatchId, preview.surveyType, rowIndex)
+        : row.responseId,
       companyId,
       dataSource: 'client_csv',
       importBatchId: preview.importBatchId,

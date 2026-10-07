@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, Info, Trophy, X } from 'lucide-react';
+import { Archive, BarChart3, ChevronLeft, ChevronRight, Info, Trophy, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CompanyAnalysisPanel } from '../components/CompanyAnalysisPanel';
 import { PageDescription } from '../components/PageDescription';
@@ -8,9 +8,10 @@ import { formatCompositeScore, getBand } from '../data/questionWeights';
 import { ArchiveSeries, FilterState, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import { formatNumber, monthlyTrend, questionPerformance, responseVolume, seriesTrend, submissionCount, submissionScores, yearlyTrend } from '../utils/analytics';
 import { computeCompanyComposite, RankingMode } from '../utils/scoring';
-import { paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from '../features/analytics/domain/rankings';
+import { getAnalyticsCompanyRankings, paginateAnalyticsItems, paginateCompanyRankings } from '../features/analytics/domain/rankings';
 import { QuestionPerformanceRow } from '../features/analytics/components/QuestionPerformanceRow';
 import { AnalyticsDateRangeControls } from '../features/analytics/components/AnalyticsDateRangeControls';
+import { ArchivedCompanyRankings } from '../features/analytics/components/ArchivedCompanyRankings';
 import type { AnalyticsDateRange } from '../features/analytics/domain/dateRange';
 import { useModalEscape } from '../hooks/useModalEscape';
 
@@ -27,6 +28,7 @@ interface AnalyticsPageProps {
   dateRange?: AnalyticsDateRange;
   onChangeDateRange?: (range: AnalyticsDateRange) => void;
   partnerCompanies?: PartnerCompany[];
+  archivedResponses?: SurveyResponse[];
 }
 
 type CompanySummary = {
@@ -63,8 +65,9 @@ function AnalyticsTooltip({ text }: { text: string }) {
   );
 }
 
-export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilters, dataScope = 'current', onChangeDataScope, archiveSeries = [], selectedSeriesIds = [], onChangeSelectedSeriesIds, dateRange = { from: '', to: '' }, onChangeDateRange, partnerCompanies = [] }: AnalyticsPageProps) {
+export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilters, dataScope = 'current', onChangeDataScope, archiveSeries = [], selectedSeriesIds = [], onChangeSelectedSeriesIds, dateRange = { from: '', to: '' }, onChangeDateRange, partnerCompanies = [], archivedResponses = [] }: AnalyticsPageProps) {
   const [rankingMode, setRankingMode] = useState<RankingMode>('weighted');
+  const [leaderboardTab, setLeaderboardTab] = useState<'current' | 'archives'>('current');
   const [selectedCompany, setSelectedCompany] = useState<CompanySummary | null>(null);
   const [trendGranularity, setTrendGranularity] = useState<'monthly' | 'yearly' | 'series'>('monthly');
   const [leaderboardPage, setLeaderboardPage] = useState(0);
@@ -77,22 +80,8 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
   const averageScore = scoredSubmissions.length ? scoredSubmissions.reduce((sum, submission) => sum + submission.score, 0) / scoredSubmissions.length : 0;
 
   const companySummaries = useMemo(() => {
-    const groups = new Map<string, { name: string; type: SurveyType; total: number; count: number }>();
-    submissionScores(responses).forEach((submission) => {
-      const key = `${submission.surveyType}:${submission.company}`;
-      const current = groups.get(key) ?? { name: submission.company, type: submission.surveyType, total: 0, count: 0 };
-      current.total += submission.score;
-      current.count += 1;
-      groups.set(key, current);
-    });
-    return rankCompanySummaries([...groups.values()].map((company) => ({
-      name: company.name,
-      type: company.type,
-      average: company.total / company.count,
-      scorePercentage: company.total / company.count,
-      count: company.count,
-    })), rankingMode) as CompanySummary[];
-  }, [responses, rankingMode]);
+    return getAnalyticsCompanyRankings(responses, activeSurveyTypes, rankingMode) as CompanySummary[];
+  }, [responses, activeSurveyTypes, rankingMode]);
 
   const visibleCompanies = useMemo(() => selectedType === 'All' ? companySummaries : companySummaries.filter((company) => company.type === selectedType), [companySummaries, selectedType]);
   const paginatedCompanies = useMemo(
@@ -109,7 +98,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
     () => paginateAnalyticsItems(questionData, questionPerformancePage),
     [questionData, questionPerformancePage],
   );
-  const trendData = useMemo(() => {
+  const trendData = useMemo<Array<{ key: string; average: number; responses: number }>>(() => {
     if (trendGranularity === 'yearly') return yearlyTrend(responses).map((item) => ({ key: item.year, ...item }));
     if (trendGranularity === 'series') return seriesTrend(responses, archiveSeries).map((item) => ({ key: item.label, ...item }));
     return monthlyTrend(responses).map((item) => ({ key: item.month, ...item }));
@@ -146,7 +135,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
     </>
   );
 
-  if (!responses.length) {
+  if (!responses.length && !archivedResponses.length) {
     return (
       <div className="space-y-5">
         {analyticsHeader}
@@ -173,15 +162,23 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Compare evaluated partners and select a company to review its category performance.</p>
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900 sm:grid-cols-4">
+          <div className="mt-4 flex gap-2 border-b border-slate-100 dark:border-slate-800">
+            <button type="button" onClick={() => setLeaderboardTab('current')} aria-pressed={leaderboardTab === 'current'} className={`border-b-2 px-3 py-2 text-xs font-bold transition ${leaderboardTab === 'current' ? 'border-[#0078a8] text-[#0078a8]' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}>
+              Current rankings
+            </button>
+            <button type="button" onClick={() => setLeaderboardTab('archives')} aria-pressed={leaderboardTab === 'archives'} className={`inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-bold transition ${leaderboardTab === 'archives' ? 'border-[#0078a8] text-[#0078a8]' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}>
+              <Archive size={13} aria-hidden="true" /> Archives
+            </button>
+          </div>
+          {leaderboardTab === 'current' && <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900 sm:grid-cols-4">
             {(['All', ...surveyTypes] as const).map((type) => (
               <button type="button" key={type} onClick={() => selectType(type)} aria-pressed={selectedType === type} className={`rounded-md px-3 py-2 text-xs font-semibold transition ${selectedType === type ? 'bg-[#0078a8] text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white'}`}>{type === 'All' ? 'All categories' : type}</button>
             ))}
-          </div>
+          </div>}
         </div>
 
-        <div className="px-4 py-3 sm:px-6">
-          <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_5rem] border-b border-slate-100 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:border-slate-800 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]"><span>Rank</span><span>Company</span><span className="text-right">Score</span><span className="hidden text-right sm:block">Forms</span></div>
+        {leaderboardTab === 'current' ? <div className="px-4 py-3 sm:px-6">
+          <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_5rem] border-b border-slate-100 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:border-slate-800 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]"><span>Rank</span><span>Company</span><span className="text-right">{rankingMode === 'weighted' ? 'Rank score' : 'Average score'}</span><span className="hidden text-right sm:block">Forms</span></div>
           <ol className="grid min-w-0 gap-x-5 xl:grid-cols-2">
             {paginatedCompanies.items.map((company, index) => {
               const style = typeStyles[company.type];
@@ -191,7 +188,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
                   <button type="button" onClick={() => setSelectedCompany(company)} className="grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center px-2 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900/70 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]">
                     <span className={`flex h-6 w-7 items-center justify-center rounded-md text-[11px] font-bold ${rank === 1 ? 'bg-[#0078a8] text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'}`}>{rank}</span>
                     <span className="min-w-0 pr-3"><span className="flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${style.dot}`} /><span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={company.name}>{company.name}</span></span><span className="mt-0.5 block truncate pl-4 text-[10px] text-slate-400">{company.type} · {getBand(company.type, company.scorePercentage).label}</span></span>
-                    <span className={`flex items-center justify-end gap-1 text-xs font-bold tabular-nums ${style.text}`}>{formatCompositeScore(company.type, company.scorePercentage).valueText}<ChevronRight size={13} /></span>
+                    <span className={`flex items-center justify-end gap-1 text-xs font-bold tabular-nums ${style.text}`}>{formatCompositeScore(company.type, company.rankScore).valueText}<ChevronRight size={13} /></span>
                     <span className="hidden text-right text-[11px] font-medium tabular-nums text-slate-400 sm:block">{company.count}</span>
                   </button>
                 </li>
@@ -213,7 +210,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
               )}
             </div>
           )}
-        </div>
+        </div> : <div className="px-4 py-4 sm:px-6"><ArchivedCompanyRankings responses={archivedResponses} archiveSeries={archiveSeries} rankingMode={rankingMode} /></div>}
       </section>
 
       <section aria-labelledby="analytics-detail-heading" className="space-y-4">
