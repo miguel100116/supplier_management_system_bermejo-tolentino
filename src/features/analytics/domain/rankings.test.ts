@@ -39,14 +39,14 @@ test('pure and weighted company summaries use their respective ranking values', 
   assert.equal(rankCompanySummaries(candidates, 'weighted')[0].name, 'Established');
 
   const weightedByName = new Map(rankCompanySummaries(candidates, 'weighted').map((item) => [item.name, item.rankScore]));
-  assert.ok(Math.abs(weightedByName.get('One Review')! - 83.73983739837398) < 1e-10);
-  assert.ok(Math.abs(weightedByName.get('Established')! - 88.09756097560976) < 1e-10);
-  assert.ok(Math.abs(weightedByName.get('Peer')! - 72.09756097560975) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('One Review')! - 87.3015873015873) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Established')! - 88.33333333333333) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Peer')! - 78.33333333333333) < 1e-10);
 });
 
-test('Analytics uses the respondent-weighted peer average and five-response benchmark', () => {
-  // Supplier peer average is (100 × 1 + 90 × 9 + 70 × 10) / 20 = 80.5.
-  // The unrelated Courier response must not enter this Supplier peer group.
+test('Analytics uses Bayesian peer mean and median response benchmark', () => {
+  // Supplier peer mean is (100 + 90 + 70) / 3 = 86.67; the median response
+  // count is 9. The unrelated Courier response must not enter this peer group.
   const responses = [
     supplierResponse('One Review', 'one-1', 4),
     ...Array.from({ length: 9 }, (_, index) => supplierResponse('Established', `established-${index}`, 3.6)),
@@ -59,9 +59,9 @@ test('Analytics uses the respondent-weighted peer average and five-response benc
   assert.equal(weightedByName.get('One Review')?.count, 1);
   assert.equal(weightedByName.get('Established')?.count, 9);
   assert.equal(weightedByName.get('Peer')?.count, 10);
-  assert.ok(Math.abs(weightedByName.get('One Review')!.rankScore - 83.75) < 1e-10);
-  assert.ok(Math.abs(weightedByName.get('Established')!.rankScore - 86.60714285714286) < 1e-10);
-  assert.ok(Math.abs(weightedByName.get('Peer')!.rankScore - 73.5) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('One Review')!.rankScore - 88) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Established')!.rankScore - 88.33333333333333) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Peer')!.rankScore - 77.89473684210526) < 1e-10);
 
   const pure = getAnalyticsCompanyRankings(responses, ['Supplier'], 'pure');
   const pureByName = new Map(pure.map((item) => [item.name, item.rankScore]));

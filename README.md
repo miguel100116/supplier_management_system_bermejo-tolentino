@@ -89,7 +89,7 @@ Each survey type's questions are grouped into **5 scored categories** plus a fix
 
 - **Weighted rubric:** Each question carries a point value validated against the company's original paper evaluation forms (`src/data/questionWeights.ts`). Answers are scored, summed per category, and normalized so **every survey type shares one 0–100 composite axis** (`src/utils/scoring.ts`).
 - **Score bands:** Composite scores map to labeled bands (e.g. Critical → Excellent). Companies with no scoreable answers yet get a distinct "No Score Yet" band instead of being mislabeled as failing.
-- **Ranking:** Analytics offers Pure Average (the supplier's raw average) and Volume-weighted scoring: `(R × v + C × 5) / (v + 5)`, where `C = Σ(R × v) / Σv` is the respondent-weighted global average for the same partner type and reporting scope.
+- **Ranking:** Analytics offers Pure Average (the supplier's raw average) and Bayesian volume-weighted scoring: `(R × v + C × m) / (v + m)`, where `C` is the unweighted mean of peer company averages and `m` is the median peer response count (minimum 3) for the same partner type and reporting scope.
 - **Renaming vs. rubric:** Admins can **rename** a category's display label via the **Categories Manager** without ever touching the underlying point values — display names are translated by slot position, keeping the validated rubric intact.
 
 ### 3.3 Roles, Designations & Departments (RBAC)

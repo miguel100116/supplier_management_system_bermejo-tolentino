@@ -586,6 +586,7 @@ module.exports = [
         heading: 'Building and exporting a Companies Report',
         blocks: [
           { type: 'p', text: 'A one-company "report card" with charts and a score trend for a single partner — this is also the only report type you can export as a Word document.' },
+          { type: 'p', text: 'Stakeholder comments include overall feedback and free-text remarks left on survey sections. Each comment is labeled with its section, and repeated copies of the same remark from one respondent and section appear only once.' },
           { type: 'steps', items: [
             'From Generate Report, click "Build report" on the Companies Report card.',
             'Choose the "Category" (Courier, Supplier, or Subcontractor), then the specific "Company".',

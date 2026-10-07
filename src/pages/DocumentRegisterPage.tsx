@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalEscape } from '../hooks/useModalEscape';
 import { Search, Globe, MapPin, Truck, Package, Briefcase, RefreshCw, X, Check, Users, ShieldCheck, Clock, XCircle, Gauge, LayoutGrid, Settings2, RotateCcw, AlertTriangle, History, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, BellPlus, Plus, SlidersHorizontal, Trash2, Filter } from 'lucide-react';
@@ -24,6 +24,7 @@ import {
   matchesDocumentFilter,
   type DocumentStatusFilter,
 } from '../features/document-tracker/domain/filters';
+import { scrollDocumentMatrixWithArrowKey } from '../features/document-tracker/components/documentMatrixKeyboard';
 
 interface DocumentRegisterPageProps {
   partnerCompanies: PartnerCompany[];
@@ -448,6 +449,18 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const realTheadRef = useRef<HTMLTableSectionElement>(null);
   const overlayScrollRef = useRef<HTMLDivElement>(null);
+  const handleMatrixKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.target instanceof Element && event.target.closest(
+      'input, select, textarea, [contenteditable="true"], [role="slider"], [role="listbox"], [role="combobox"], [role="spinbutton"]',
+    )) {
+      return;
+    }
+
+    const scrollSurface = tableScrollRef.current;
+    if (scrollSurface && scrollDocumentMatrixWithArrowKey(scrollSurface, event.key)) {
+      event.preventDefault();
+    }
+  }, []);
   const isHeaderStuckRef = useRef(false);
   const [stickyHeader, setStickyHeader] = useState<{ left: number; width: number; colWidths: number[] } | null>(null);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
@@ -1962,7 +1975,17 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
         </div>
       ) : (
         <div className="panel p-0 overflow-hidden" ref={matrixPanelRef}>
-          <div className="overflow-x-auto" ref={tableScrollRef}>
+          <div className="flex justify-end border-b border-slate-100 px-3 py-1.5 text-[10px] text-slate-400 dark:border-slate-800">
+            Focus the table and use ← / → arrow keys to scroll sideways.
+          </div>
+          <div
+            className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#0063a9]"
+            ref={tableScrollRef}
+            role="region"
+            aria-label="Partner compliance document matrix. Focus this region and use left and right arrow keys to scroll horizontally."
+            tabIndex={0}
+            onKeyDown={handleMatrixKeyDown}
+          >
             <table className="w-full border-collapse text-sm">
               <thead ref={realTheadRef}>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-950/60">
@@ -2157,7 +2180,7 @@ export function DocumentRegisterPage({ partnerCompanies, onUpdateCompany, onRene
           style={{ position: 'fixed', top: NAV_HEIGHT, left: stickyHeader.left, width: stickyHeader.width, zIndex: 45 }}
           className="shadow-md"
         >
-          <div ref={overlayScrollRef} className="overflow-hidden">
+          <div ref={overlayScrollRef} className="overflow-hidden" onKeyDown={handleMatrixKeyDown}>
             <table className="border-collapse text-sm" style={{ tableLayout: 'fixed' }}>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-950/60">

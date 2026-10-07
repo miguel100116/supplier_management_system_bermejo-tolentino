@@ -430,12 +430,12 @@ function addCommentTablePages(
 ) {
   doc.addPage();
   const body = data.selectedCommentsList.length
-    ? data.selectedCommentsList.map((comment, index) => [String(index + 1), comment.comment])
-    : [[{ content: 'No comments submitted', colSpan: 2, styles: { halign: 'center' as const, fontStyle: 'italic' as const } }]];
+    ? data.selectedCommentsList.map((comment, index) => [String(index + 1), comment.questionCategory, comment.comment])
+    : [[{ content: 'No comments submitted', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'italic' as const } }]];
 
   autoTable(doc, {
     startY: 116,
-    head: [['#', 'Feedback / Comments']],
+    head: [['#', 'Section', 'Feedback / Comments']],
     body,
     margin: { left: marginLeft, right: marginLeft, top: 116, bottom: 56 },
     styles: {
@@ -449,7 +449,8 @@ function addCommentTablePages(
     },
     columnStyles: {
       0: { cellWidth: 30, halign: 'center' },
-      1: { cellWidth: 'auto', fontStyle: 'italic' },
+      1: { cellWidth: 90 },
+      2: { cellWidth: 'auto', fontStyle: 'italic' },
     },
     headStyles: { fillColor: BRAND as unknown as [number, number, number], textColor: 255, fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [247, 249, 252] },
@@ -812,7 +813,14 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
             shading: { fill: BRAND_HEX },
             verticalAlign: VerticalAlign.CENTER,
             margins: { top: 60, bottom: 60, left: 100, right: 100 },
-            width: { size: 92, type: WidthType.PERCENTAGE },
+            width: { size: 22, type: WidthType.PERCENTAGE },
+            children: [new Paragraph({ children: [new TextRun({ text: 'Section', bold: true, color: 'FFFFFF', size: 18 })] })],
+          }),
+          new TableCell({
+            shading: { fill: BRAND_HEX },
+            verticalAlign: VerticalAlign.CENTER,
+            margins: { top: 60, bottom: 60, left: 100, right: 100 },
+            width: { size: 70, type: WidthType.PERCENTAGE },
             children: [new Paragraph({ children: [new TextRun({ text: 'Feedback / Comments', bold: true, color: 'FFFFFF', size: 18 })] })],
           }),
         ]
@@ -826,6 +834,11 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
                 shading: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF' },
                 margins: { top: 50, bottom: 50, left: 100, right: 100 },
                 children: [new Paragraph({ children: [new TextRun({ text: String(idx + 1), size: 18 })] })],
+              }),
+              new TableCell({
+                shading: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF' },
+                margins: { top: 50, bottom: 50, left: 100, right: 100 },
+                children: [new Paragraph({ children: [new TextRun({ text: c.questionCategory, size: 18 })] })],
               }),
               new TableCell({
                 shading: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF' },
