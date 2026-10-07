@@ -55,11 +55,19 @@ export async function archiveEvaluationBatch<T>(
   archive: (item: T) => Promise<EvaluationImportArchive>,
   discard: (archive: EvaluationImportArchive) => Promise<void>,
 ): Promise<EvaluationImportArchive[]> {
+  const archiveConcurrency = 3;
+  const results: PromiseSettledResult<EvaluationImportArchive>[] = [];
+  for (let index = 0; index < items.length; index += archiveConcurrency) {
+    const batch = await Promise.allSettled(items.slice(index, index + archiveConcurrency).map(archive));
+    results.push(...batch);
+    if (batch.some((result) => result.status === 'rejected')) break;
+  }
   const staged: EvaluationImportArchive[] = [];
-  try {
-    for (const item of items) staged.push(await archive(item));
-    return staged;
-  } catch (error) {
+  results.forEach((result) => {
+    if (result.status === 'fulfilled') staged.push(result.value);
+  });
+  const rejected = results.find((result) => result.status === 'rejected');
+  if (rejected?.status === 'rejected') {
     const failedCleanup: string[] = [];
     for (const stored of [...staged].reverse()) {
       try {
@@ -69,9 +77,12 @@ export async function archiveEvaluationBatch<T>(
       }
     }
     if (failedCleanup.length) {
-      const reason = error instanceof Error ? error.message : 'Unable to archive a source file.';
+      const reason = rejected.reason instanceof Error ? rejected.reason.message : 'Unable to archive a source file.';
       throw new Error(`${reason} Earlier files could not be removed: ${failedCleanup.join(', ')}. No responses were imported.`);
     }
-    throw error;
+    throw rejected.reason;
   }
+  // Promise.allSettled preserves input order, so keep archive cards aligned
+  // with their corresponding selected files.
+  return results.map((result) => (result as PromiseFulfilledResult<EvaluationImportArchive>).value);
 }

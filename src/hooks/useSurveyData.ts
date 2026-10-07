@@ -2175,20 +2175,18 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     const addedCompaniesById = new Map<string, PartnerCompany>();
     committed.forEach((entry) => entry.newPartnerCompanies.forEach((company) => addedCompaniesById.set(company.id, company)));
     const newCompanies = [...addedCompaniesById.values()].map(normalizePartnerCompany);
+    const previousImportedResponses = responses.filter((response) => newIds.has(response.responseId));
+    const newCompanyIds = new Set(newCompanies.map((company) => company.id));
+    const previousCompanies = partnerCompanies.filter((company) => newCompanyIds.has(company.id));
 
-    // Persist the selected files' partner additions and response rows as shared
-    // Supabase records before reporting success. The repository chunks large writes.
-    if (newCompanies.length) {
-      await persistRemoteAsync(upsertApplicationRecords('partner_company', newCompanies, (company) => company.id));
-    }
-    await persistRemoteAsync(upsertApplicationRecords('survey_response', allRows, surveyResponseRecordId));
-
+    // Update this session immediately after source archives have been stored.
+    // The remote write continues below; if it fails, restore just these IDs
+    // and let the repository's authoritative refresh reconcile any partial save.
     setResponses((current) => {
       const updatedResponses = [...current.filter((response) => !newIds.has(response.responseId)), ...allRows];
       safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
       return updatedResponses;
     });
-
     if (newCompanies.length) {
       setPartnerCompanies((current) => {
         const existingIds = new Set(current.map((company) => company.id));
@@ -2196,6 +2194,31 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
         safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(updated));
         return updated;
       });
+    }
+
+    // Persist partner additions before responses that may reference them.
+    // The repository writes large record sets in bounded concurrent chunks.
+    let companiesSaved = false;
+    try {
+      if (newCompanies.length) {
+        await persistRemoteAsync(upsertApplicationRecords('partner_company', newCompanies, (company) => company.id));
+        companiesSaved = true;
+      }
+      await persistRemoteAsync(upsertApplicationRecords('survey_response', allRows, surveyResponseRecordId));
+    } catch (error) {
+      setResponses((current) => {
+        const restored = [...current.filter((response) => !newIds.has(response.responseId)), ...previousImportedResponses];
+        safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(restored)));
+        return restored;
+      });
+      if (!companiesSaved && newCompanyIds.size) {
+        setPartnerCompanies((current) => {
+          const restored = [...current.filter((company) => !newCompanyIds.has(company.id)), ...previousCompanies];
+          safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(restored));
+          return restored;
+        });
+      }
+      throw error;
     }
 
     const summaries = committed.map((entry) => ({
