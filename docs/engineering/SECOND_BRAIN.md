@@ -279,6 +279,8 @@ Evidence: `src/features/analytics/domain/rankings.ts`, `src/features/analytics/d
 
 Correction (2026-10-06): Analytics' Company Leaderboard had drifted back to grouping submissions by display name and recalculating ranking scores in the page. It now uses the canonical `getLeaderboard` / `getPureAverageLeaderboard` scoring and stable company identity grouping, calculates volume confidence within each partner type, and displays the selected ranking score. All-N/A companies remain outside scored Analytics ranks. The weighted rank score is normalized across partner types when the All categories view combines the separate lists. Evidence: `getAnalyticsCompanyRankings` in `src/features/analytics/domain/rankings.ts` and its consumer in `src/pages/AnalyticsPage.tsx`.
 
+Correction (2026-10-06): Survey Forms → Modify → Ended now remains Completed even when its deadline is in the future, saves the status, and archives the active response rows for each ended partner type under a dated archive series. The Analytics Company Leaderboard Archives tab lists each category-period; selecting one opens a modal with its canonical company ranking. The same response rows are visible in Archive Center and remain restorable there. On remote persistence failure, the modal stays open with a retry message; the category archive is idempotent for that dated series. No partner registry records or database schema are changed. Evidence: `getSurveyStatus`, `SurveyFormsPage`, `archiveResponsesForSurveyTypes`, and `ArchivedCompanyRankings`.
+
 ### 2026-09-22 - Analytics presentation hierarchy
 
 Status: accepted

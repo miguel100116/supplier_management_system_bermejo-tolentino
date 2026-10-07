@@ -1963,6 +1963,57 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     ));
   };
 
+  const archiveResponsesForSurveyTypes = async (surveyTypes: SurveyType[], seriesLabel: string, surveyIds: string[] = []) => {
+    const targetTypes = new Set(surveyTypes);
+    if (!targetTypes.size) return;
+    const existingSeries = archiveSeries.find((series) => series.label.trim().toLowerCase() === seriesLabel.trim().toLowerCase());
+    const activeResponsesToArchive = responses.filter((response) => !response.archived && targetTypes.has(response.surveyType));
+    const responsesToRetry = existingSeries
+      ? responses.filter((response) => response.archived && response.seriesId === existingSeries.id && targetTypes.has(response.surveyType))
+      : [];
+    if (!activeResponsesToArchive.length && !responsesToRetry.length) return;
+    const changedResponses = [...activeResponsesToArchive, ...responsesToRetry];
+
+    const targetSurveyByType = new Map<SurveyType, CustomForm>();
+    surveys.forEach((survey) => {
+      if (targetTypes.has(survey.surveyType) && (!surveyIds.length || surveyIds.includes(survey.id)) && !targetSurveyByType.has(survey.surveyType)) {
+        targetSurveyByType.set(survey.surveyType, survey);
+      }
+    });
+    const seriesId = existingSeries?.id ?? getOrCreateSeries(seriesLabel);
+    const archivedAt = new Date().toISOString();
+
+    const targetSurveyIds = new Map([...targetSurveyByType].map(([type, survey]) => [type, survey.id]));
+    const targetSurveyTitles = new Map([...targetSurveyByType].map(([type, survey]) => [type, survey.title]));
+    const series = existingSeries ?? { id: seriesId, label: seriesLabel.trim(), createdAt: archivedAt };
+    const updatedResponses = responses.map((response) => {
+      if (response.archived || !targetTypes.has(response.surveyType)) return response;
+      return {
+        ...response,
+        archived: true,
+        archivedAt,
+        archivedBySurveyId: targetSurveyIds.get(response.surveyType),
+        archivedBySurveyTitle: targetSurveyTitles.get(response.surveyType),
+        seriesId,
+      };
+    });
+
+    setResponses(updatedResponses);
+    safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(updatedResponses)));
+    await persistRemoteAsync(upsertApplicationRecords('archive_series', [series], (archive) => archive.id));
+    await persistRemoteAsync(upsertApplicationRecords('survey_response', changedResponses.map((response) => {
+      const survey = targetSurveyByType.get(response.surveyType);
+      return {
+        ...response,
+        archived: true,
+        archivedAt,
+        archivedBySurveyId: survey?.id,
+        archivedBySurveyTitle: survey?.title,
+        seriesId,
+      };
+    }), surveyResponseRecordId));
+  };
+
   const restoreResponseGroup = async (responseId: string) => {
     const updatedResponses = responses.map(r => {
       if (r.responseId === responseId) {
@@ -2330,6 +2381,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     archiveSeries,
     renameArchiveSeries,
     archiveResponsesForSurveys,
+    archiveResponsesForSurveyTypes,
     restoreResponseGroup,
     restoreResponsesForSurvey,
     deleteArchivedResponseGroups,

@@ -362,6 +362,7 @@ export default function App() {
     archiveSeries,
     renameArchiveSeries,
     archiveResponsesForSurveys,
+    archiveResponsesForSurveyTypes,
     restoreResponseGroup,
     restoreResponsesForSurvey,
     deleteArchivedResponseGroups,
@@ -589,6 +590,10 @@ export default function App() {
   const analyticsFilteredResponses = useMemo(
     () => applyFilters(officialAnalyticsResponses, filters),
     [officialAnalyticsResponses, filters],
+  );
+  const analyticsArchivedResponses = useMemo(
+    () => archivedResponses.filter(isOfficialAnalyticsResponse),
+    [archivedResponses],
   );
   
   const activeSurveyTypes = filters.surveyType.length ? filters.surveyType : effectiveSurveyTypes;
@@ -985,6 +990,7 @@ export default function App() {
         onUpdateSurvey={updateSurvey}
         onUpdateSurveysBulk={updateSurveysBulk}
         onArchiveResponses={archiveResponsesForSurveys}
+        onArchiveSurveyTypes={archiveResponsesForSurveyTypes}
         onSelectSurvey={(id) => {
           setSelectedSurveyId(id);
           navigateTo('view-form');
@@ -1000,6 +1006,7 @@ export default function App() {
     analytics: (
       <AnalyticsPage
         responses={analyticsFilteredResponses}
+        archivedResponses={analyticsArchivedResponses}
         activeSurveyTypes={activeSurveyTypes}
         filters={filters}
         setFilters={setFilters}

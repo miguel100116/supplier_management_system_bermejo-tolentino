@@ -189,6 +189,8 @@ export interface CustomForm {
   description: string;
   createdAt: string;
   archivedAt?: string;
+  /** Timestamp when an Admin explicitly ended this survey, independent of its deadline. */
+  manuallyEndedAt?: string;
   deadlineDate?: string;
   status?: 'Running' | 'Paused' | 'Completed' | 'Archived';
   accessDepartments?: string[];
