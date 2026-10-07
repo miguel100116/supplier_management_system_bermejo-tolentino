@@ -1,7 +1,20 @@
 import { formatCompositeScore } from '../../../data/questionWeights';
 import { SurveyResponse, SurveyType } from '../../../types/survey';
-import { computeRankScore } from '../../../utils/analytics';
-import { computeCompanyComposite, getLeaderboard, getPureAverageLeaderboard, RankingMode } from '../../../utils/scoring';
+import { computeCompanyComposite, getPureAverageLeaderboard, RankingMode } from '../../../utils/scoring';
+
+const RESPONDENT_BENCHMARK = 5;
+
+function respondentWeightedGlobalAverage<T extends { score: number; count: number }>(companies: T[]): number {
+  const totalRespondents = companies.reduce((sum, company) => sum + company.count, 0);
+  if (totalRespondents <= 0) return 0;
+
+  return companies.reduce((sum, company) => sum + company.score * company.count, 0) / totalRespondents;
+}
+
+function applyRespondentWeightedScore(score: number, count: number, globalAverage: number): number {
+  if (count <= 0) return score;
+  return ((score * count) + (globalAverage * RESPONDENT_BENCHMARK)) / (count + RESPONDENT_BENCHMARK);
+}
 
 export interface CompanyRankingCandidate {
   name: string;
@@ -28,19 +41,21 @@ export function getAnalyticsCompanyRankings(
   rankingMode: RankingMode,
 ): AnalyticsCompanySummary[] {
   const summaries = surveyTypes.flatMap((type) => {
-    const companies = rankingMode === 'weighted'
-      ? getLeaderboard(responses, type)
-      : getPureAverageLeaderboard(responses, type);
+    const companies = getPureAverageLeaderboard(responses, type).filter((company) => company.hasScore);
+    const globalAverage = respondentWeightedGlobalAverage(
+      companies.map((company) => ({ score: company.compositeScore, count: company.evaluationCount })),
+    );
 
     return companies
-      .filter((company) => company.hasScore)
       .map((company) => ({
         name: company.company,
         type: company.surveyType,
         average: company.compositeScore,
         scorePercentage: company.compositeScore,
         count: company.evaluationCount,
-        rankScore: rankingMode === 'weighted' ? company.rankScore : company.compositeScore,
+        rankScore: rankingMode === 'weighted'
+          ? applyRespondentWeightedScore(company.compositeScore, company.evaluationCount, globalAverage)
+          : company.compositeScore,
       }));
   });
 
@@ -114,11 +129,13 @@ export function rankCompanySummaries<T extends CompanyRankingCandidate>(
       });
   }
 
-  const peers = candidates.map((candidate) => ({ score: candidate.scorePercentage, count: candidate.count }));
+  const globalAverage = respondentWeightedGlobalAverage(
+    candidates.map((candidate) => ({ score: candidate.scorePercentage, count: candidate.count })),
+  );
   return candidates
     .map((candidate) => ({
       ...candidate,
-      rankScore: computeRankScore(candidate.scorePercentage, candidate.count, peers),
+      rankScore: applyRespondentWeightedScore(candidate.scorePercentage, candidate.count, globalAverage),
     }))
     .sort((left, right) => {
       const scoreDifference = visibleScore(right.rankScore) - visibleScore(left.rankScore);
@@ -183,12 +200,14 @@ export function getCompanyPerformanceRanking(
     }];
   });
 
-  const peers = rawStats.map((item) => ({ score: item.rawScore, count: item.evaluationCount }));
+  const globalAverage = respondentWeightedGlobalAverage(
+    rawStats.map((item) => ({ score: item.rawScore, count: item.evaluationCount })),
+  );
   return rawStats
     .map((item) => ({
       ...item,
       score: rankingMode === 'weighted'
-        ? computeRankScore(item.rawScore, item.evaluationCount, peers)
+        ? applyRespondentWeightedScore(item.rawScore, item.evaluationCount, globalAverage)
         : item.rawScore,
     }))
     .sort((left, right) => {

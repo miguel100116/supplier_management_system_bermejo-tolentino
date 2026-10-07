@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SurveyResponse } from '../../../types/survey';
-import { getCompanyPerformanceRanking, paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from './rankings';
+import { getAnalyticsCompanyRankings, getCompanyPerformanceRanking, paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from './rankings';
 
 function courierResponse(company: string, responseId: string, rating: number): SurveyResponse {
   return {
@@ -19,6 +19,15 @@ function courierResponse(company: string, responseId: string, rating: number): S
   };
 }
 
+function supplierResponse(company: string, responseId: string, rating: number): SurveyResponse {
+  return {
+    ...courierResponse(company, responseId, rating),
+    surveyType: 'Supplier',
+    questionId: 'Q39',
+    questionCategory: 'Documentation',
+  };
+}
+
 test('pure and weighted company summaries use their respective ranking values', () => {
   const candidates = [
     { name: 'One Review', scorePercentage: 100, count: 1, type: 'Courier' as const },
@@ -28,6 +37,37 @@ test('pure and weighted company summaries use their respective ranking values', 
 
   assert.equal(rankCompanySummaries(candidates, 'pure')[0].name, 'One Review');
   assert.equal(rankCompanySummaries(candidates, 'weighted')[0].name, 'Established');
+
+  const weightedByName = new Map(rankCompanySummaries(candidates, 'weighted').map((item) => [item.name, item.rankScore]));
+  assert.ok(Math.abs(weightedByName.get('One Review')! - 83.73983739837398) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Established')! - 88.09756097560976) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Peer')! - 72.09756097560975) < 1e-10);
+});
+
+test('Analytics uses the respondent-weighted peer average and five-response benchmark', () => {
+  // Supplier peer average is (100 × 1 + 90 × 9 + 70 × 10) / 20 = 80.5.
+  // The unrelated Courier response must not enter this Supplier peer group.
+  const responses = [
+    supplierResponse('One Review', 'one-1', 4),
+    ...Array.from({ length: 9 }, (_, index) => supplierResponse('Established', `established-${index}`, 3.6)),
+    ...Array.from({ length: 10 }, (_, index) => supplierResponse('Peer', `peer-${index}`, 2.8)),
+    courierResponse('Other partner type', 'courier-1', 15),
+  ];
+
+  const weighted = getAnalyticsCompanyRankings(responses, ['Supplier'], 'weighted');
+  const weightedByName = new Map(weighted.map((item) => [item.name, item]));
+  assert.equal(weightedByName.get('One Review')?.count, 1);
+  assert.equal(weightedByName.get('Established')?.count, 9);
+  assert.equal(weightedByName.get('Peer')?.count, 10);
+  assert.ok(Math.abs(weightedByName.get('One Review')!.rankScore - 83.75) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Established')!.rankScore - 86.60714285714286) < 1e-10);
+  assert.ok(Math.abs(weightedByName.get('Peer')!.rankScore - 73.5) < 1e-10);
+
+  const pure = getAnalyticsCompanyRankings(responses, ['Supplier'], 'pure');
+  const pureByName = new Map(pure.map((item) => [item.name, item.rankScore]));
+  assert.equal(pureByName.get('One Review'), 100);
+  assert.equal(pureByName.get('Established'), 90);
+  assert.equal(pureByName.get('Peer'), 70);
 });
 
 test('performance chart ordering and displayed score follow the selected ranking mode', () => {

@@ -39,6 +39,7 @@ import {
   notificationReadStateUserKey,
   parseNotificationReadState,
 } from '../utils/notificationReadState';
+import { createCoalescedTaskRunner } from '../utils/coalescedTask';
 
 // Versioned browser cache for the authenticated Partner Company registry.
 // A missing cache starts empty until Supabase hydration completes.
@@ -1522,6 +1523,8 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       }
     };
 
+    const refreshRecordTypeCoalesced = createCoalescedTaskRunner(refreshRecordType, () => cancelled);
+
     const runHydration = (backgroundRefresh = false, recordType?: ApplicationRecordType) => {
       if (backgroundRefresh) {
         activeBackgroundRefreshes += 1;
@@ -1531,7 +1534,7 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       }
 
       const operation = backgroundRefresh && recordType
-        ? refreshRecordType(recordType)
+        ? refreshRecordTypeCoalesced(recordType)
         : hydrateFromSupabase();
 
       void operation

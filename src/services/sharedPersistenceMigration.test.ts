@@ -14,6 +14,10 @@ const startupRlsMigration = readFileSync(
   new URL('../../supabase/migrations/202609300002_cache_startup_rls_helpers.sql', import.meta.url),
   'utf8',
 ).toLowerCase();
+const optimizedResponseReadsMigration = readFileSync(
+  new URL('../../supabase/migrations/202610070001_optimize_application_response_reads.sql', import.meta.url),
+  'utf8',
+).toLowerCase();
 const provenanceMigration = readFileSync(
   new URL('../../supabase/migrations/202609220001_response_provenance.sql', import.meta.url),
   'utf8',
@@ -105,4 +109,26 @@ test('caches startup RLS helpers without changing the existing select predicates
   assert.match(startupRlsMigration, /\(select private\.my_app_email\(\)\)/);
   assert.match(startupRlsMigration, /\(select public\.is_confirmed_mgenesis_user\(\)\)/);
   assert.doesNotMatch(startupRlsMigration, /\b(delete from|truncate table|drop table|disable row level security)\b/);
+});
+
+test('optimizes response reads without changing select authorization or stored rows', () => {
+  const policy = (sql: string, name: string) => {
+    const match = sql.match(new RegExp(`create policy "${name}"[\\s\\S]*?;`));
+    assert.ok(match, `missing policy ${name}`);
+    return match[0]
+      .replace(/\(\s*select\s+((?:private|public)\.[a-z_]+\(\))\s*\)/g, '$1')
+      .replace(/\s+/g, ' ')
+      .replace(/\(\s+/g, '(')
+      .replace(/\s+\)/g, ')')
+      .trim();
+  };
+
+  assert.equal(
+    policy(optimizedResponseReadsMigration, 'application_records_select'),
+    policy(startupRlsMigration, 'application_records_select'),
+  );
+  assert.match(optimizedResponseReadsMigration, /create index if not exists application_records_response_department_order_idx[\s\S]*?where record_type = 'survey_response'/);
+  assert.match(optimizedResponseReadsMigration, /create index if not exists application_records_response_email_order_idx[\s\S]*?where record_type = 'survey_response'/);
+  assert.match(optimizedResponseReadsMigration, /create index if not exists application_records_response_owner_order_idx[\s\S]*?where record_type = 'survey_response' and owner_id is not null/);
+  assert.doesNotMatch(optimizedResponseReadsMigration, /\b(delete from|truncate table|drop table|disable row level security)\b/);
 });

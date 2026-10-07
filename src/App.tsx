@@ -37,6 +37,8 @@ import { PageModuleKey, getDefaultPermissions, getEffectiveSurveyTypes, hasPageA
 import { clearSessionActivity, recordSessionActivity, useIdleSessionTimeout } from './hooks/useIdleSessionTimeout';
 import { formatSessionTimeRemaining } from './utils/sessionTimeout';
 import { useModalEscape } from './hooks/useModalEscape';
+import { getPageKeyFromPathname, getPagePathname, type PageKey } from './utils/pageRouting';
+import { createBrowserPageHistory } from './utils/pageHistory';
 
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(({ AnalyticsPage }) => ({ default: AnalyticsPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(({ DashboardPage }) => ({ default: DashboardPage })));
@@ -120,7 +122,7 @@ const BOOTSTRAP_ADMIN_ACCOUNTS: AccountProfile[] = BOOTSTRAP_ADMIN_EMAILS.map((e
 
 const DEFAULT_ACCOUNTS: AccountProfile[] = [...BOOTSTRAP_ADMIN_ACCOUNTS];
 
-type PageKey = 'dashboard' | 'partner-companies' | 'document-register' | 'supplier-ranking' | 'partners-feedback-hub' | 'account-management' | 'survey-forms' | 'analytics' | 'present' | 'explorer' | 'reports' | 'notifications' | 'create-form' | 'view-form' | 'fill-form' | 'archive' | 'import-evaluations' | 'my-submissions' | 'profile-settings' | 'pending-review' | 'export-history' | 'settings' | 'categories-manager';
+const ROUTE_BASE_PATH = import.meta.env.BASE_URL.replace(/\/+$/, '');
 
 // Admin sidebar: grouped by workflow stage (raw data -> insight -> output)
 // rather than flat/alphabetical, per the dashboard IA redesign.
@@ -407,10 +409,34 @@ export default function App() {
     resetAllData,
   } = useSurveyData(accounts, account, isAdmin);
 
-  const [activePage, setActivePage] = useState<PageKey>('dashboard');
-  // SPA navigation has no URL history. Keep an explicit module history so
-  // page-level Back and Cancel controls return to where the user came from.
+  const [activePage, setActivePage] = useState<PageKey>(() => getPageKeyFromPathname(window.location.pathname, ROUTE_BASE_PATH));
+  const browserHistoryRef = useRef(createBrowserPageHistory());
+  // Keep an explicit history for page-level Back and Cancel controls. Browser
+  // Back/Forward is tracked separately through the URL history below.
   const pageHistoryRef = useRef<PageKey[]>([]);
+  const updatePageUrl = (
+    page: PageKey,
+    mode: 'push' | 'replace',
+    routeContext?: { surveyId?: string | null; editSurveyId?: string | null }
+  ) => {
+    const url = new URL(window.location.href);
+    url.pathname = getPagePathname(page, ROUTE_BASE_PATH);
+    url.searchParams.delete('surveyId');
+    url.searchParams.delete('editSurveyId');
+    const surveyId = routeContext?.surveyId !== undefined
+      ? routeContext.surveyId
+      : page === 'view-form' || page === 'fill-form' ? selectedSurveyId : null;
+    const editSurveyId = routeContext?.editSurveyId !== undefined
+      ? routeContext.editSurveyId
+      : page === 'create-form' ? editingSurveyId : null;
+    if (surveyId) url.searchParams.set('surveyId', surveyId);
+    if (editSurveyId) url.searchParams.set('editSurveyId', editSurveyId);
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    const nextState = browserHistoryRef.current.createState(window.history.state, page, mode);
+
+    if (mode === 'push') window.history.pushState(nextState, '', href);
+    else window.history.replaceState(nextState, '', href);
+  };
   const [isSupabaseHydrating, setIsSupabaseHydrating] = useState(isSupabaseConfigured);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -418,7 +444,10 @@ export default function App() {
   useModalEscape(isSettingsModalOpen, () => setIsSettingsModalOpen(false), 200);
   useModalEscape(isSessionWarningVisible, staySignedIn, 300);
 
-  const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(null);
+  const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(() => {
+    const routeParams = new URLSearchParams(window.location.search);
+    return routeParams.get('surveyId') ?? routeParams.get('editSurveyId');
+  });
   const surveyFillerRef = useRef<SurveyFillerHandle>(null);
 
   // Any navigation away from the survey-filling page (sidebar Home logo, a
@@ -434,17 +463,19 @@ export default function App() {
     }
   };
 
-  const navigateTo = (targetPage: PageKey) => {
+  const navigateTo = (targetPage: PageKey, routeContext?: { surveyId?: string | null; editSurveyId?: string | null }) => {
     if (targetPage === activePage) return;
 
     navigateFrom(targetPage, () => {
       pageHistoryRef.current.push(activePage);
+      updatePageUrl(targetPage, 'push', routeContext);
       setActivePage(targetPage);
     });
   };
 
   const resetNavigationTo = (targetPage: PageKey) => {
     pageHistoryRef.current = [];
+    updatePageUrl(targetPage, 'replace');
     setActivePage(targetPage);
   };
 
@@ -456,10 +487,58 @@ export default function App() {
       if (pageHistoryRef.current.at(-1) === previousPage) {
         pageHistoryRef.current.pop();
       }
+      updatePageUrl(previousPage, 'push');
       setActivePage(previousPage);
     });
   };
-  const [editingSurveyId, setEditingSurveyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isPasswordRecovery) return;
+
+    const currentPage = getPageKeyFromPathname(window.location.pathname, ROUTE_BASE_PATH);
+    if (window.location.pathname !== getPagePathname(currentPage, ROUTE_BASE_PATH)) {
+      updatePageUrl(currentPage, 'replace');
+    } else {
+      const state = browserHistoryRef.current.createState(window.history.state, currentPage, 'replace');
+      window.history.replaceState(state, '', `${window.location.pathname}${window.location.search}${window.location.hash}`);
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      const historyDelta = browserHistoryRef.current.handlePopState(event.state);
+      if (historyDelta === null) return;
+      const targetPage = getPageKeyFromPathname(window.location.pathname, ROUTE_BASE_PATH);
+      if (window.location.pathname !== getPagePathname(targetPage, ROUTE_BASE_PATH)) {
+        updatePageUrl(targetPage, 'replace');
+      }
+      const routeParams = new URLSearchParams(window.location.search);
+      setSelectedSurveyId(routeParams.get('surveyId') ?? (targetPage === 'create-form' ? routeParams.get('editSurveyId') : null));
+      setEditingSurveyId(routeParams.get('editSurveyId'));
+      if (targetPage === activePage) return;
+
+      const restoreCurrentHistoryEntry = () => {
+        const traversal = browserHistoryRef.current.cancelPopNavigation(historyDelta);
+        if (traversal === null) {
+          updatePageUrl(activePage, 'replace');
+          return;
+        }
+        window.history.go(traversal);
+      };
+      const acceptBrowserNavigation = () => {
+        pageHistoryRef.current = [];
+        setActivePage(targetPage);
+      };
+
+      if (activePage === 'fill-form' && surveyFillerRef.current) {
+        surveyFillerRef.current.attemptExit(acceptBrowserNavigation, restoreCurrentHistoryEntry);
+      } else {
+        acceptBrowserNavigation();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activePage, isPasswordRecovery]);
+  const [editingSurveyId, setEditingSurveyId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('editSurveyId'));
 
   // Deep-link into Partner Companies' detail/edit panel for one specific
   // company (e.g. from a notification click-through).
@@ -680,13 +759,13 @@ export default function App() {
 
   // Safe routing guard redirecting users to permitted views
   useEffect(() => {
-    if (!account) return;
+    if (!account || isSupabaseHydrating) return;
     const currentIsAllowed = hasPageAccess(userPermissions.pages, activePage, isAdmin);
     if (!currentIsAllowed) {
       const fallback = flatNavLeaves.find(page => hasPageAccess(userPermissions.pages, page.key, isAdmin))?.key || 'dashboard';
       resetNavigationTo(fallback as PageKey);
     }
-  }, [activePage, userPermissions.pages, flatNavLeaves, account, isAdmin]);
+  }, [activePage, userPermissions.pages, flatNavLeaves, account, isAdmin, isSupabaseHydrating]);
 
   // Supabase Auth is the source of truth whenever the backend is configured.
   // This prevents a manually edited localStorage value from bypassing the
@@ -859,7 +938,7 @@ export default function App() {
     recordSessionActivity(email);
     setAccount(email);
     localStorage.setItem('user_account', email);
-    resetNavigationTo('dashboard');
+    resetNavigationTo(getPageKeyFromPathname(window.location.pathname, ROUTE_BASE_PATH));
   };
 
   const completePasswordRecovery = async () => {
@@ -867,7 +946,13 @@ export default function App() {
     setIsPasswordRecovery(false);
     setAccount(null);
     localStorage.removeItem('user_account');
-    window.history.replaceState({}, document.title, window.location.pathname);
+    const recoveryUrl = new URL(window.location.href);
+    recoveryUrl.searchParams.delete('type');
+    window.history.replaceState(
+      window.history.state,
+      document.title,
+      `${recoveryUrl.pathname}${recoveryUrl.search}`
+    );
   };
 
   // Hold the first paint until MSAL has been consulted, so the app never
@@ -1000,12 +1085,12 @@ export default function App() {
         onArchiveSurveyTypes={archiveResponsesForSurveyTypes}
         onSelectSurvey={(id) => {
           setSelectedSurveyId(id);
-          navigateTo('view-form');
+          navigateTo('view-form', { surveyId: id });
         }}
         onNavigateToCreate={() => navigateTo('create-form')}
         onFillForm={(id) => {
           setSelectedSurveyId(id);
-          navigateTo('fill-form');
+          navigateTo('fill-form', { surveyId: id });
         }}
         isAdmin={isAdmin}
       />
@@ -1098,7 +1183,7 @@ export default function App() {
           responses={responses}
           onFillForm={(id) => {
             setSelectedSurveyId(id);
-            navigateTo('fill-form');
+            navigateTo('fill-form', { surveyId: id });
           }}
         />
       )
@@ -1120,12 +1205,12 @@ export default function App() {
               createdAt: currentSurvey?.createdAt || new Date().toISOString(),
             });
             setEditingSurveyId(null);
-            navigateTo('view-form');
+            navigateTo('view-form', { surveyId: selectedSurveyId });
           } else {
             const newSurvey = createSurvey(surveyData);
             if (newSurvey) {
               setSelectedSurveyId(newSurvey.id);
-              navigateTo('view-form');
+              navigateTo('view-form', { surveyId: newSurvey.id });
             }
           }
         }}
@@ -1155,7 +1240,7 @@ export default function App() {
           }}
           onEdit={(id) => {
             setEditingSurveyId(id);
-            navigateTo('create-form');
+            navigateTo('create-form', { editSurveyId: id });
           }}
           isAdmin={isAdmin}
         />
@@ -1256,7 +1341,7 @@ export default function App() {
                   responses={responses}
                   onFillForm={(id) => {
                     setSelectedSurveyId(id);
-                    navigateTo('fill-form');
+                    navigateTo('fill-form', { surveyId: id });
                   }}
                   onViewAll={() => setIsNotificationModalOpen(true)}
                   variant="header"
@@ -1414,7 +1499,7 @@ export default function App() {
                       onFillForm={(id) => {
                         setIsNotificationModalOpen(false);
                         setSelectedSurveyId(id);
-                        navigateTo('fill-form');
+                        navigateTo('fill-form', { surveyId: id });
                       }}
                     />
                   )

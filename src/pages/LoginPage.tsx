@@ -181,7 +181,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     setPasswordMessage('');
     setIsPasswordSubmitting(true);
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}`;
+      const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
       await requestSupabasePasswordReset(email, redirectTo);
       setPasswordMessage('If that company account exists, a password reset link has been sent.');
     } catch (err) {

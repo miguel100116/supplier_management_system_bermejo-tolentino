@@ -19,9 +19,15 @@ export interface SurveyFillerHandle {
    * If the respondent is mid-survey (step 2), this shows the draft-save
    * warning and only calls `onAllowed` once the respondent resolves it
    * (Save Draft & Exit / Exit Without Saving). If there's nothing at risk
-   * (step 1 or 3), `onAllowed` is invoked immediately.
+   * (step 1 or 3), `onAllowed` is invoked immediately. `onCancelled` runs if
+   * the respondent chooses to stay on the form.
    */
-  attemptExit: (onAllowed: () => void) => void;
+  attemptExit: (onAllowed: () => void, onCancelled?: () => void) => void;
+}
+
+interface PendingExit {
+  onAllowed: () => void;
+  onCancelled?: () => void;
 }
 
 interface SurveyFillerPageProps {
@@ -60,7 +66,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   // Holds the navigation callback to run once the respondent resolves the
   // "Save Progress Draft?" warning, when that warning was triggered by
   // navigation initiated OUTSIDE this component (e.g. sidebar Home click).
-  const pendingExitRef = useRef<(() => void) | null>(null);
+  const pendingExitRef = useRef<PendingExit | null>(null);
   // Timestamp captured the moment the respondent first enters the Questions
   // Form for this submission (see setHasStartedForm(true) below) - a ref,
   // not state, since it's read-only until submit and shouldn't trigger
@@ -181,11 +187,11 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   }, [matchingCompanies]);
 
   useImperativeHandle(ref, () => ({
-    attemptExit: (onAllowed: () => void) => {
+    attemptExit: (onAllowed: () => void, onCancelled?: () => void) => {
       if (step === 2) {
         // Mid-survey: don't let external navigation (Home, sidebar, etc.)
-        // silently wipe in-progress answers — surface the same draft warning.
-        pendingExitRef.current = onAllowed;
+        // silently wipe in-progress answers - surface the same draft warning.
+        pendingExitRef.current = { onAllowed, onCancelled };
         setShowDraftModal(true);
       } else {
         onAllowed();
@@ -299,7 +305,7 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
     const pendingExit = pendingExitRef.current;
     pendingExitRef.current = null;
     if (pendingExit) {
-      pendingExit();
+      pendingExit.onAllowed();
     } else if (onCancel) {
       onCancel();
     }
@@ -332,10 +338,12 @@ export const SurveyFillerPage = forwardRef<SurveyFillerHandle, SurveyFillerPageP
   };
 
   const handleCancelDraftModal = () => {
-    // Respondent chose to stay on the form — cancel any pending external
+    // Respondent chose to stay on the form - cancel any pending external
     // navigation instead of letting it fire later.
+    const pendingExit = pendingExitRef.current;
     pendingExitRef.current = null;
     setShowDraftModal(false);
+    pendingExit?.onCancelled?.();
   };
   useModalEscape(showDraftModal, handleCancelDraftModal);
 
