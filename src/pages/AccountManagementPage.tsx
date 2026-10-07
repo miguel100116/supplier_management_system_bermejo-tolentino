@@ -1,11 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Shield, Search, Plus, Mail, Briefcase, Trash2, Edit2, AlertCircle, RotateCcw, Check, CheckSquare, Square } from 'lucide-react';
+import { Shield, Search, Plus, Mail, Briefcase, Trash2, Edit2, AlertCircle, RotateCcw, Check, CheckSquare, Square, ArrowDownAZ, Building2, ChevronDown } from 'lucide-react';
 import type { AccountProfile } from '../App';
 import { PageModuleKey, getDefaultPermissions, getDepartmentDefaultPermissions } from '../utils/rbac';
 import { SurveyType } from '../types/survey';
-import { TableFilterBar } from '../components/TableFilterBar';
-import { compareText } from '../utils/tableFilters';
 import { useModalEscape } from '../hooks/useModalEscape';
+import { filterAndSortAccounts, type AccountDepartmentFilter, type AccountRoleFilter, type AccountSort } from '../features/account-management/domain/accountFilters';
 import { generateStrongPassword, validateNewAccountPassword } from '../features/account-management/domain/password';
 import { NewAccountPasswordField } from '../features/account-management/components/NewAccountPasswordField';
 
@@ -59,7 +58,9 @@ export function AccountManagementPage({
   onUpdateDepartmentPermissions
 }: AccountManagementPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [tableSort, setTableSort] = useState<'email-asc' | 'email-desc' | 'department-asc' | 'designation-asc'>('email-asc');
+  const [tableSort, setTableSort] = useState<AccountSort>('email-asc');
+  const [roleFilter, setRoleFilter] = useState<AccountRoleFilter>('All');
+  const [departmentFilter, setDepartmentFilter] = useState<AccountDepartmentFilter>('All Departments');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
   const [pendingEditAccount, setPendingEditAccount] = useState<AccountProfile | null>(null);
@@ -174,19 +175,15 @@ export function AccountManagementPage({
     return true;
   };
 
-  const filteredAccounts = useMemo(() => {
-    const matching = accounts.filter(a =>
-      a.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      a.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.designation.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    return matching.sort((a, b) => {
-      if (tableSort === 'email-desc') return compareText(b.email, a.email);
-      if (tableSort === 'department-asc') return compareText(a.department, b.department) || compareText(a.email, b.email);
-      if (tableSort === 'designation-asc') return compareText(a.designation, b.designation) || compareText(a.email, b.email);
-      return compareText(a.email, b.email);
-    });
-  }, [accounts, searchTerm, tableSort]);
+  const filteredAccounts = useMemo(
+    () => filterAndSortAccounts(accounts, roleFilter, searchTerm, tableSort, departmentFilter),
+    [accounts, roleFilter, searchTerm, tableSort, departmentFilter],
+  );
+  const roleCounts = useMemo(() => ({
+    All: accounts.length,
+    Admin: accounts.filter((account) => account.role === 'Admin').length,
+    Employee: accounts.filter((account) => account.role === 'Employee').length,
+  }), [accounts]);
 
   // Whenever designation or department changes in form, automatically assign default permissions
   // if we are NOT editing, or if we want to reset permissions in editing.
@@ -389,38 +386,62 @@ export function AccountManagementPage({
 
       {/* Main Content */}
       <div className="panel">
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="relative max-w-md w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="Search by email, department, or designation..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 dark:border-slate-700 dark:bg-slate-800/50 dark:text-white dark:focus:border-blue-500 dark:focus:bg-slate-800"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3.5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="mb-3 inline-flex flex-wrap items-center gap-1 rounded-lg bg-[#eef3ff] p-1 dark:bg-slate-800" role="group" aria-label="Filter accounts by system role">
+              {(['All', 'Admin', 'Employee'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setRoleFilter(tab)}
+                  aria-pressed={roleFilter === tab}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                    roleFilter === tab
+                      ? 'bg-[#0063a9] text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <span>{tab}</span>
+                  <span className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[10px] leading-none tabular-nums ${roleFilter === tab ? 'bg-white/20' : 'bg-white text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
+                    {roleCounts[tab]}
+                  </span>
+                </button>
+              ))}
           </div>
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <span className="font-medium text-slate-700 dark:text-slate-300">{filteredAccounts.length}</span> Accounts Found
-          </div>
-        </div>
 
-        <div className="mb-4">
-          <TableFilterBar
-            sortOptions={[
-              { value: 'email-asc', label: 'Email: A–Z' },
-              { value: 'email-desc', label: 'Email: Z–A' },
-              { value: 'department-asc', label: 'Department: A–Z' },
-              { value: 'designation-asc', label: 'Designation: A–Z' },
-            ]}
-            sortValue={tableSort}
-            onSortChange={setTableSort}
-            resultCount={filteredAccounts.length}
-            onReset={() => {
-              setSearchTerm('');
-              setTableSort('email-asc');
-            }}
-          />
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <div className="relative min-w-0 w-full flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+              <input
+                type="text"
+                placeholder="Search by email, department, or designation..."
+                className="w-full rounded-lg border border-transparent bg-[#eef3ff] py-2.5 pl-9 pr-11 text-sm outline-none transition placeholder:text-slate-500 focus:border-blue-300 focus:ring-2 focus:ring-blue-500/15 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-400"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-white/70 px-1.5 py-1 text-[9px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">ESC</span>
+            </div>
+            <label className="relative flex min-w-0 flex-1 items-center md:flex-none">
+              <ArrowDownAZ className="pointer-events-none absolute left-3 text-slate-600 dark:text-slate-300" size={16} />
+              <select value={tableSort} onChange={(event) => setTableSort(event.target.value as AccountSort)} aria-label="Sort accounts" className="w-full appearance-none rounded-lg border border-transparent bg-[#eef3ff] py-2.5 pl-9 pr-9 text-xs font-semibold text-slate-800 outline-none focus:border-blue-300 dark:bg-slate-800 dark:text-slate-100 md:min-w-[185px]">
+                <option value="email-asc">Sort by: Email (A–Z)</option>
+                <option value="email-desc">Sort by: Email (Z–A)</option>
+                <option value="department-asc">Sort by: Department (A–Z)</option>
+                <option value="designation-asc">Sort by: Designation (A–Z)</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 text-slate-500" size={14} />
+            </label>
+            <label className="relative flex min-w-0 flex-1 items-center md:flex-none">
+              <Building2 className="pointer-events-none absolute left-3 text-slate-600 dark:text-slate-300" size={16} />
+              <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value as AccountDepartmentFilter)} aria-label="Filter accounts by department" className="w-full appearance-none rounded-lg border border-transparent bg-[#eef3ff] py-2.5 pl-9 pr-9 text-xs font-semibold text-slate-800 outline-none focus:border-blue-300 dark:bg-slate-800 dark:text-slate-100 md:min-w-[190px]">
+                <option value="All Departments">All Departments</option>
+                {DEPARTMENT_OPTIONS.map((departmentOption) => <option key={departmentOption} value={departmentOption}>{departmentOption}</option>)}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 text-slate-500" size={14} />
+            </label>
+            <button type="button" onClick={() => { setSearchTerm(''); setTableSort('email-asc'); setRoleFilter('All'); setDepartmentFilter('All Departments'); }} aria-label="Reset account filters" title="Reset filters" className="inline-flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-lg bg-[#eef3ff] text-slate-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 md:self-auto">
+              <RotateCcw size={16} aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -512,7 +533,11 @@ export function AccountManagementPage({
                   <td colSpan={6} className="py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center">
                       <AlertCircle className="mb-2 h-8 w-8 text-slate-400" />
-                      <p>No accounts found matching your search.</p>
+                      <p>
+                        {searchTerm.trim() || roleFilter === 'All' || departmentFilter !== 'All Departments'
+                          ? 'No accounts found matching your search.'
+                          : `No ${roleFilter.toLowerCase()} accounts found.`}
+                      </p>
                     </div>
                   </td>
                 </tr>

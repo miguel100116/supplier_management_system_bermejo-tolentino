@@ -55,6 +55,7 @@ interface ApplicationRecordRow<T> {
 }
 
 const WRITE_CHUNK_SIZE = 300;
+const WRITE_CHUNK_CONCURRENCY = 4;
 const READ_PAGE_SIZE = 1_000;
 const READ_PAGE_CONCURRENCY = 12;
 
@@ -271,13 +272,27 @@ export async function upsertApplicationRecords<T>(
     throw error;
   }
 
+  const writeChunks: Array<typeof rows> = [];
   for (let index = 0; index < rows.length; index += WRITE_CHUNK_SIZE) {
-    const { error } = await supabase
-      .from('application_records')
-      .upsert(rows.slice(index, index + WRITE_CHUNK_SIZE), { onConflict: 'record_type,record_id' });
-    if (error) {
+    writeChunks.push(rows.slice(index, index + WRITE_CHUNK_SIZE));
+  }
+  for (let index = 0; index < writeChunks.length; index += WRITE_CHUNK_CONCURRENCY) {
+    const chunkBatch = writeChunks.slice(index, index + WRITE_CHUNK_CONCURRENCY);
+    const results = await Promise.allSettled(chunkBatch.map((chunk) =>
+      supabase
+        .from('application_records')
+        .upsert(chunk, { onConflict: 'record_type,record_id' }),
+    ));
+    const failure = results.find((result) => result.status === 'rejected');
+    const databaseError = results.find((result) => result.status === 'fulfilled' && result.value.error)?.status === 'fulfilled'
+      ? results.find((result) => result.status === 'fulfilled' && result.value.error)
+      : undefined;
+    if (failure || databaseError) {
       requestAuthoritativeRefresh(recordType);
-      throw new Error(`Unable to save ${recordType} records: ${error.message}`);
+      const reason = failure?.status === 'rejected'
+        ? failure.reason instanceof Error ? failure.reason.message : String(failure.reason)
+        : databaseError?.status === 'fulfilled' ? databaseError.value.error?.message : 'Unknown database error.';
+      throw new Error(`Unable to save ${recordType} records: ${reason}`);
     }
   }
 }

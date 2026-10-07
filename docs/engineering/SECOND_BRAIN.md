@@ -585,6 +585,12 @@ Decision: The Evaluation Workspace Responses tab lists current, access-scoped su
 
 Evidence: src/App.tsx, src/pages/SurveyExplorerPage.tsx, src/features/evaluations/domain/surveyResponses.ts, src/features/evaluations/workers/surveyResponsesExport.worker.ts.
 
+### 2026-10-07 - Evaluation import responsiveness
+
+Decision: Archive selected evaluation source files with at most three concurrent uploads. Once archiving succeeds, apply imported responses and any new partner records to the current client state immediately, then persist them to Supabase. On persistence failure, restore unsaved IDs and rely on the repository's Realtime invalidation/refetch to reconcile partial writes. Application-record upserts send at most four 300-row chunks concurrently; newly created partner records remain saved before responses that may reference them.
+
+Evidence: `src/features/evaluation-imports/domain/evaluationBatch.ts`, `src/hooks/useSurveyData.ts`, and `src/services/applicationRepository.ts`. This improves perceived latency and reduces sequential round trips; single-file transfer time remains dependent on file size and network throughput.
+
 ### 2026-10-02 - Shared modal scroll behavior
 
 Decision: Open dialogs registered through useModalEscape share a reference-counted document scroll lock. The lock fixes the body at its current scroll position, compensates for scrollbar width, and restores the original inline styles and position when the last dialog closes. Popovers can opt out; the employee notification dropdown does so. Modal content remains independently scrollable with overscroll containment in the Active Companies, Settings, and Modify Settings views.

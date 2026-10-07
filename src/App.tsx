@@ -319,6 +319,12 @@ export default function App() {
   };
 
   const profile = useMemo(() => getUserProfile(account), [account, accounts]);
+  // Organizational metadata for employee evaluations must come from the
+  // persisted account row, not getUserProfile's access-oriented fallback.
+  const accountProfile = useMemo(
+    () => accounts.find((item) => item.email.trim().toLowerCase() === account?.trim().toLowerCase()) ?? null,
+    [accounts, account],
+  );
 
   // centralize user permissions mapping based on active profile and overrides
   const userPermissions = useMemo(() => {
@@ -889,7 +895,8 @@ export default function App() {
     answers: any[],
     startTime?: string
   ) => {
-    submitResponse(surveyId, company, department, respondentType, address, answers, account || undefined, startTime);
+    if (!accountProfile) return;
+    submitResponse(surveyId, company, accountProfile.department, accountProfile.designation, address, answers, account || undefined, startTime);
   };
 
   // ----------------------------------------------------
@@ -1161,8 +1168,8 @@ export default function App() {
         partnerCompanies={userAccessiblePartnerCompanies}
         initialSurveyId={selectedSurveyId}
         userEmail={account || ''}
-        defaultDepartment={profile?.department}
-        defaultRespondentType={profile?.designation}
+        defaultDepartment={accountProfile?.department}
+        defaultRespondentType={accountProfile?.designation}
         responses={userAccessibleResponses}
         onSubmitted={handleSurveySubmit}
         onCancel={() => goToPreviousPage('survey-forms')}
@@ -1271,8 +1278,8 @@ export default function App() {
             <div className="pl-1 sm:pl-3">
               <AccountMenu
                 email={account}
-                designation={profile?.designation}
-                department={profile?.department}
+                designation={accountProfile?.designation}
+                department={accountProfile?.department}
                 role={profile?.role}
                 onOpenSettings={() => setIsSettingsModalOpen(true)}
                 onLogout={handleLogout}
