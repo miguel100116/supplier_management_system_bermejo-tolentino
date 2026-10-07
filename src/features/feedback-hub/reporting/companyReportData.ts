@@ -30,12 +30,16 @@ export interface CompanyReportChartImages {
 }
 
 export interface CompanyReportComment {
+  id: string;
   responseId: string;
   comment: string;
+  questionCategory: string;
   respondentType: string;
   department?: string;
   submissionDate: string;
 }
+
+export type CompanyReportCommentScope = 'overall' | 'all';
 
 export interface CompanyReportCategoryRow {
   category: string;
@@ -94,12 +98,23 @@ export interface CreateCompanyReportDataInput {
   generatedOn?: string;
   graphs?: CompanyReportGraphSelection;
   includeComments?: boolean;
+  commentScope?: CompanyReportCommentScope;
   selectedCommentIds?: ReadonlySet<string>;
   chartImages?: CompanyReportChartImages;
   logoDataUrl?: string;
   // Feedback Hub leaves this enabled. The standalone Company Report Builder
   // can opt out because it reports across all current surveys of one type.
   scopeToSurveyId?: boolean;
+}
+
+export interface GetCompanyReportCommentResponsesInput {
+  survey: Pick<CustomForm, 'id' | 'surveyType'>;
+  companyId: string;
+  partnerCompanies: PartnerCompany[];
+  responses: SurveyResponse[];
+  scopeToSurveyId?: boolean;
+  commentScope?: CompanyReportCommentScope;
+  selectedCommentIds?: ReadonlySet<string>;
 }
 
 function normalizeQuestionLabel(question: string): string {
@@ -234,6 +249,58 @@ export function filterResponsesForReport(
   });
 }
 
+function selectCompanyReportCommentResponses(
+  responses: SurveyResponse[],
+  surveyType: SurveyType,
+  commentScope: CompanyReportCommentScope = 'overall',
+  selectedCommentIds?: ReadonlySet<string>,
+): SurveyResponse[] {
+  const overallQuestionId = getOverallFeedbackQuestionId(surveyType);
+  const seenComments = new Set<string>();
+
+  return responses.filter((response) => {
+    const comment = typeof response.comment === 'string' ? response.comment.trim() : '';
+    if (!comment || comment === 'Submitted successfully.') return false;
+    if (commentScope === 'overall' && response.questionId !== overallQuestionId) return false;
+    const isSelected = !selectedCommentIds ||
+      selectedCommentIds.has(getCompanyReportCommentId(response)) ||
+      selectedCommentIds.has(response.responseId);
+    if (!isSelected) return false;
+
+    // Subcontractor imports copy one matrix remark to each related subquestion.
+    // Keep that shared text once per respondent and section in the report.
+    const dedupeKey = JSON.stringify([response.responseId, response.questionCategory, comment]);
+    if (seenComments.has(dedupeKey)) return false;
+    seenComments.add(dedupeKey);
+
+    return true;
+  });
+}
+
+export function getCompanyReportCommentId(response: Pick<SurveyResponse, 'responseId' | 'questionId'>): string {
+  return JSON.stringify([response.responseId, response.questionId]);
+}
+
+/** Uses the same company identity, scope, and selection rules as report exports. */
+export function getCompanyReportCommentResponses(
+  input: GetCompanyReportCommentResponsesInput,
+): SurveyResponse[] {
+  const company = resolveReportCompany(input.companyId, input.survey.surveyType, input.partnerCompanies);
+  const reportResponses = filterResponsesForReport(
+    input.survey,
+    company,
+    input.partnerCompanies,
+    input.responses,
+    input.scopeToSurveyId ?? true,
+  );
+  return selectCompanyReportCommentResponses(
+    reportResponses,
+    input.survey.surveyType,
+    input.commentScope,
+    input.selectedCommentIds,
+  );
+}
+
 export function normalizeReportResponsesForCompany(
   companyName: string,
   responses: SurveyResponse[],
@@ -313,19 +380,18 @@ export function createCompanyReportData(input: CreateCompanyReportDataInput): Co
   const composite = computeReportComposite(company.name, survey.surveyType, reportResponses);
   const template = getReportTemplateConfig(survey.surveyType);
   const includeComments = input.includeComments ?? true;
-  const overallQuestionId = getOverallFeedbackQuestionId(survey.surveyType);
   const comments = includeComments
-    ? reportResponses
-        .filter(
-          (response) =>
-            response.questionId === overallQuestionId &&
-            response.comment.trim().length > 0 &&
-            response.comment.trim() !== 'Submitted successfully.' &&
-            (!input.selectedCommentIds || input.selectedCommentIds.has(response.responseId)),
-        )
+    ? selectCompanyReportCommentResponses(
+        reportResponses,
+        survey.surveyType,
+        input.commentScope,
+        input.selectedCommentIds,
+      )
         .map((response) => ({
+          id: getCompanyReportCommentId(response),
           responseId: response.responseId,
           comment: response.comment,
+          questionCategory: response.questionCategory,
           respondentType: response.respondentType,
           department: response.department,
           submissionDate: response.submissionDate,

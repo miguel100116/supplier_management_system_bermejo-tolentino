@@ -7,6 +7,8 @@ import {
   CompanyReportDataError,
   createCompanyReportData,
   formatCategoryMetricLabel,
+  getCompanyReportCommentId,
+  getCompanyReportCommentResponses,
   getOverallFeedbackQuestionId,
 } from './companyReportData';
 import { REPORT_TEMPLATE_BY_SURVEY_TYPE } from './reportTemplateConfig';
@@ -203,6 +205,170 @@ test('creates a truthful no-data report without fake comments or invalid categor
     assert.ok(category.maximum > 0);
     assert.doesNotMatch(formatCategoryMetricLabel(category), /NaN|Infinity|-\d/);
   });
+});
+
+test('loads selected overall comments by stable company ID and keeps preview and export selection consistent', () => {
+  const survey = makeSurvey('Supplier');
+  const company = makeCompany('supplier-current', 'Current Supplier Name', 'Supplier');
+  const otherCompany = makeCompany('supplier-other', 'Other Supplier', 'Supplier');
+  const commentQuestionId = getOverallFeedbackQuestionId('Supplier');
+  const commentOne = makeResponse({
+    responseId: 'respondent-one',
+    survey,
+    company,
+    questionId: commentQuestionId,
+    question: 'Overall feedback',
+    category: 'Overall',
+    rating: 'N/A',
+    comment: 'Helpful and reliable service.',
+  });
+  const commentTwo = makeResponse({
+    responseId: 'respondent-two',
+    survey,
+    company,
+    questionId: commentQuestionId,
+    question: 'Overall feedback',
+    category: 'Overall',
+    rating: 'N/A',
+    comment: 'Please improve delivery updates.',
+  });
+  const oldNameComment = { ...commentOne, responseId: 'respondent-old-name', company: 'Historical Supplier Name' };
+  const otherCompanyComment = { ...commentOne, responseId: 'respondent-other', companyId: otherCompany.id, company: otherCompany.name };
+  const placeholderComment = { ...commentOne, responseId: 'respondent-placeholder', comment: ' Submitted successfully. ' };
+  const archivedComment = { ...commentOne, responseId: 'respondent-archived', comment: 'Archived feedback', archived: true };
+  const responses = [commentOne, commentTwo, oldNameComment, otherCompanyComment, placeholderComment, archivedComment];
+  const commentQuery = {
+    survey: { id: survey.id, surveyType: survey.surveyType },
+    companyId: company.id,
+    partnerCompanies: [company, otherCompany],
+    responses,
+    scopeToSurveyId: false,
+  };
+
+  const previewComments = getCompanyReportCommentResponses(commentQuery);
+  assert.deepEqual(previewComments.map((response) => response.comment), [
+    'Helpful and reliable service.',
+    'Please improve delivery updates.',
+    'Helpful and reliable service.',
+  ]);
+  assert.deepEqual(
+    getCompanyReportCommentResponses({ ...commentQuery, selectedCommentIds: new Set(['respondent-two', 'respondent-old-name']) })
+      .map((response) => response.responseId),
+    ['respondent-two', 'respondent-old-name'],
+  );
+
+  const exported = createCompanyReportData({
+    survey,
+    companyId: company.id,
+    partnerCompanies: [company, otherCompany],
+    responses,
+    scopeToSurveyId: false,
+    includeComments: true,
+    selectedCommentIds: new Set(previewComments.map((response) => response.responseId)),
+  });
+  assert.deepEqual(exported.selectedCommentsList.map((comment) => comment.comment), previewComments.map((response) => response.comment));
+});
+
+test('includes section remarks once per respondent and section in company reports', () => {
+  const survey = makeSurvey('Subcontractor');
+  const company = makeCompany('subcontractor-current', 'Current Subcontractor', 'Subcontractor');
+  const otherCompany = makeCompany('subcontractor-other', 'Other Subcontractor', 'Subcontractor');
+  const responses = [
+    makeResponse({
+      responseId: 'subcontractor-respondent-one',
+      survey,
+      company,
+      questionId: 'Q-SUB-03',
+      question: 'Documentation quality',
+      category: 'Documentation',
+      rating: 4,
+      comment: 'Certificates were current.',
+    }),
+    // The importer repeats matrix section remarks across related subquestions.
+    makeResponse({
+      responseId: 'subcontractor-respondent-one',
+      survey,
+      company,
+      questionId: 'Q-SUB-04',
+      question: 'Documentation completeness',
+      category: 'Documentation',
+      rating: 4,
+      comment: 'Certificates were current.',
+    }),
+    makeResponse({
+      responseId: 'subcontractor-respondent-one',
+      survey,
+      company,
+      questionId: 'Q-SUB-08',
+      question: 'Delivery performance',
+      category: 'Delivery',
+      rating: 4,
+      comment: 'Delivery updates could be more frequent.',
+    }),
+    makeResponse({
+      responseId: 'subcontractor-respondent-one',
+      survey,
+      company,
+      questionId: 'Q-SUB-09',
+      question: 'Delivery documentation',
+      category: 'Delivery',
+      rating: 4,
+      comment: '  ',
+    }),
+    makeResponse({
+      responseId: 'subcontractor-respondent-other',
+      survey,
+      company: otherCompany,
+      questionId: 'Q-SUB-03',
+      question: 'Documentation quality',
+      category: 'Documentation',
+      rating: 4,
+      comment: 'A different company comment.',
+    }),
+  ];
+  const commentQuery = {
+    survey: { id: survey.id, surveyType: survey.surveyType },
+    companyId: company.id,
+    partnerCompanies: [company, otherCompany],
+    responses,
+    scopeToSurveyId: false,
+  };
+
+  assert.deepEqual(getCompanyReportCommentResponses(commentQuery), []);
+  const previewComments = getCompanyReportCommentResponses({ ...commentQuery, commentScope: 'all' });
+  assert.deepEqual(
+    previewComments.map(({ questionCategory, comment }) => [questionCategory, comment]),
+    [
+      ['Documentation', 'Certificates were current.'],
+      ['Delivery', 'Delivery updates could be more frequent.'],
+    ],
+  );
+
+  const selectedComment = previewComments[1];
+  assert.ok(selectedComment);
+  assert.deepEqual(
+    getCompanyReportCommentResponses({
+      ...commentQuery,
+      commentScope: 'all',
+      selectedCommentIds: new Set([getCompanyReportCommentId(previewComments[1])]),
+    }).map((response) => response.comment),
+    ['Delivery updates could be more frequent.'],
+  );
+
+  const exported = createCompanyReportData({
+    survey,
+    companyId: company.id,
+    partnerCompanies: [company, otherCompany],
+    responses,
+    scopeToSurveyId: false,
+    includeComments: true,
+    commentScope: 'all',
+    selectedCommentIds: new Set(previewComments.map(getCompanyReportCommentId)),
+  });
+  assert.deepEqual(
+    exported.selectedCommentsList.map(({ questionCategory, comment }) => [questionCategory, comment]),
+    previewComments.map(({ questionCategory, comment }) => [questionCategory, comment]),
+  );
 });
 
 test('keeps report questions in form order instead of ranking them by score', () => {

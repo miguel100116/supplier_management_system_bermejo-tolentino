@@ -12,6 +12,7 @@ import { PageDescription } from '../components/PageDescription';
 
 interface ReportsPageProps {
   responses: SurveyResponse[];
+  companyReportResponses?: SurveyResponse[];
   partnerCompanies?: PartnerCompany[];
   canExport?: boolean;
 }
@@ -24,7 +25,7 @@ function runExport(format: ExportFormat, reportTitle: string, tables: ExportTabl
   else exportTablesAsPDF(reportTitle, tables, filenameBase);
 }
 
-export function ReportsPage({ responses, partnerCompanies = [], canExport = false }: ReportsPageProps) {
+export function ReportsPage({ responses, companyReportResponses, partnerCompanies = [], canExport = false }: ReportsPageProps) {
   const [showSummaryBuilder, setShowSummaryBuilder] = useState(false);
   const [showCompanyBuilder, setShowCompanyBuilder] = useState(false);
   const [showQuestionBuilder, setShowQuestionBuilder] = useState(false);
@@ -120,7 +121,7 @@ export function ReportsPage({ responses, partnerCompanies = [], canExport = fals
   if (showCompanyBuilder) {
     return (
       <CompanyReportBuilderPage
-        responses={responses}
+        responses={companyReportResponses ?? responses}
         partnerCompanies={partnerCompanies}
         canExport={canExport}
         onBack={() => setShowCompanyBuilder(false)}

@@ -36,7 +36,12 @@ import { formatNumber, getScoreAxisDomain, questionPerformance } from '../utils/
 import { computeCompanyComposite, getCompanyTrend, getLeaderboard, getSectionPeerAverages } from '../utils/scoring';
 import { captureChartImage, exportCompanyReportAsDocx, exportCompanyReportAsPDF } from '../utils/companyReportExport';
 import { radarPointLabel } from '../utils/radarChartLabels';
-import { createCompanyReportData } from '../features/feedback-hub/reporting';
+import {
+  createCompanyReportData,
+  getCompanyReportCommentId,
+  getCompanyReportCommentResponses,
+  getOverallFeedbackQuestionId,
+} from '../features/feedback-hub/reporting';
 
 interface CompanyReportBuilderPageProps {
   responses: SurveyResponse[];
@@ -72,46 +77,57 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
   const [tempSelectedComments, setTempSelectedComments] = useState<Record<string, boolean>>({});
   useModalEscape(isCommentsModalOpen, () => setIsCommentsModalOpen(false));
 
-  const overallFeedbackQuestionId = useMemo(() => {
-    return category === 'Courier' ? 'Q-CON-OVERALL-FEEDBACK' :
-           category === 'Supplier' ? 'Q-SUP-OVERALL-FEEDBACK' :
-           'Q-SUB-OVERALL-FEEDBACK';
-  }, [category]);
+  const selectedCompanyRecord = useMemo(
+    () => partnerCompanies.find(
+      (company) => !company.isArchived && company.type === category && company.name === selectedCompany,
+    ) ?? null,
+    [partnerCompanies, category, selectedCompany],
+  );
 
   const respondentComments = useMemo(() => {
-    if (!selectedCompany) return [];
-    return responses.filter(
-      (r) =>
-        r.company === selectedCompany &&
-        r.surveyType === category &&
-        r.questionId === overallFeedbackQuestionId &&
-        r.comment &&
-        r.comment.trim() !== ''
-    );
-  }, [responses, selectedCompany, category, overallFeedbackQuestionId]);
+    if (!selectedCompanyRecord) return [];
+    return getCompanyReportCommentResponses({
+      survey: { id: `company-report-${category.toLowerCase()}`, surveyType: category },
+      companyId: selectedCompanyRecord.id,
+      partnerCompanies,
+      responses,
+      scopeToSurveyId: false,
+      commentScope: 'all',
+    });
+  }, [responses, selectedCompanyRecord, partnerCompanies, category]);
 
   useEffect(() => {
     if (category && selectedCompany) {
       const key = `selected_comments_${category}_${selectedCompany}`;
       const saved = localStorage.getItem(key);
+      let savedSelection: Record<string, boolean> = {};
       if (saved) {
         try {
-          setSelectedComments(JSON.parse(saved));
-        } catch (e) {
-          setSelectedComments({});
+          const parsed: unknown = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            savedSelection = Object.fromEntries(
+              Object.entries(parsed).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'),
+            );
+          }
+        } catch {
+          savedSelection = {};
         }
-      } else {
-        const defaultSelections: Record<string, boolean> = {};
-        respondentComments.forEach((c) => {
-          defaultSelections[c.responseId] = true;
-        });
-        setSelectedComments(defaultSelections);
       }
+
+      const nextSelection: Record<string, boolean> = {};
+      respondentComments.forEach((comment) => {
+        const commentId = getCompanyReportCommentId(comment);
+        const legacyOverallSelection = comment.questionId === getOverallFeedbackQuestionId(category)
+          ? savedSelection[comment.responseId]
+          : undefined;
+        nextSelection[commentId] = savedSelection[commentId] ?? legacyOverallSelection ?? true;
+      });
+      setSelectedComments(nextSelection);
     }
   }, [category, selectedCompany, respondentComments]);
 
   const selectedCommentsList = useMemo(() => {
-    return respondentComments.filter((c) => selectedComments[c.responseId]);
+    return respondentComments.filter((comment) => selectedComments[getCompanyReportCommentId(comment)]);
   }, [respondentComments, selectedComments]);
 
   const handleOpenCommentsModal = () => {
@@ -190,9 +206,6 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
 
   const handleExport = async (format: 'pdf' | 'docx') => {
     if (!composite || !selectedCompany) return;
-    const selectedCompanyRecord = partnerCompanies.find(
-      (company) => !company.isArchived && company.type === category && company.name === selectedCompany,
-    );
     if (!selectedCompanyRecord) return;
     setIsExporting(format);
     setExportMenuOpen(false);
@@ -214,8 +227,9 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
         scopeToSurveyId: false,
         graphs,
         includeComments,
+        commentScope: 'all',
         chartImages,
-        selectedCommentIds: new Set(selectedCommentsList.map((comment) => comment.responseId)),
+        selectedCommentIds: new Set(selectedCommentsList.map(getCompanyReportCommentId)),
       });
       if (format === 'pdf') await exportCompanyReportAsPDF(data);
       else await exportCompanyReportAsDocx(data);
@@ -543,23 +557,29 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                     {includeComments && (
                       <div className="mt-6">
                         <h4 className="mb-2 text-base font-bold text-slate-800 dark:text-slate-100">Stakeholder Comments</h4>
-                        {selectedCommentsList.length === 0 ? (
+                        {respondentComments.length === 0 ? (
                           <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm italic text-slate-400 dark:border-slate-700 dark:text-slate-500">
-                            No stakeholder comments selected for display. Click "Review Stakeholder Remarks" to select comments.
+                            No stakeholder comments have been submitted for this company and category.
+                          </p>
+                        ) : selectedCommentsList.length === 0 ? (
+                          <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm italic text-slate-400 dark:border-slate-700 dark:text-slate-500">
+                            No comments are selected for display. Click "Review Stakeholder Remarks" to select comments.
                           </p>
                         ) : (
                           <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
                             <table className="w-full text-left text-[10px]">
                               <thead className="bg-[#0063a9] text-white">
-                                <tr>
-                                  <th className="px-2.5 py-1.5 font-semibold w-12">#</th>
-                                  <th className="px-2.5 py-1.5 font-semibold">Feedback / Comments</th>
-                                </tr>
+                              <tr>
+                                <th className="px-2.5 py-1.5 font-semibold w-12">#</th>
+                                <th className="px-2.5 py-1.5 font-semibold">Section</th>
+                                <th className="px-2.5 py-1.5 font-semibold">Feedback / Comments</th>
+                              </tr>
                               </thead>
                               <tbody>
                                 {selectedCommentsList.map((c, idx) => (
-                                  <tr key={c.responseId} className={idx % 2 === 0 ? 'bg-slate-50 dark:bg-slate-800/40' : ''}>
+                                  <tr key={getCompanyReportCommentId(c)} className={idx % 2 === 0 ? 'bg-slate-50 dark:bg-slate-800/40' : ''}>
                                     <td className="px-2.5 py-1.5 text-slate-600 dark:text-slate-300 font-medium">{idx + 1}</td>
+                                    <td className="px-2.5 py-1.5 text-slate-600 dark:text-slate-300">{c.questionCategory}</td>
                                     <td className="px-2.5 py-1.5 text-slate-600 dark:text-slate-300 italic">"{c.comment}"</td>
                                   </tr>
                                 ))}
@@ -648,7 +668,7 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                         onClick={() => {
                           const updated: Record<string, boolean> = {};
                           respondentComments.forEach(c => {
-                            updated[c.responseId] = true;
+                            updated[getCompanyReportCommentId(c)] = true;
                           });
                           setTempSelectedComments(updated);
                         }}
@@ -670,39 +690,40 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                   </div>
 
                   <div className="space-y-3">
-                    {respondentComments.map((c) => {
-                      const isChecked = !!tempSelectedComments[c.responseId];
-                      return (
-                        <label
-                          key={c.responseId}
-                          className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition text-sm ${
-                            isChecked
-                              ? 'border-[#0063a9]/30 bg-[#0063a9]/5 dark:border-blue-900/30 dark:bg-blue-950/20'
-                              : 'border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/50'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              setTempSelectedComments((prev) => ({
-                                ...prev,
-                                [c.responseId]: e.target.checked,
-                              }));
-                            }}
-                            className="mt-1 h-4 w-4 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9]"
-                          />
-                          <div className="flex-1 space-y-1">
-                            <p className="text-slate-700 dark:text-slate-200 italic leading-relaxed">
-                              "{c.comment}"
-                            </p>
-                            <p className="text-[10px] text-slate-400 font-semibold uppercase dark:text-slate-500">
-                              Anonymous Respondent Feedback
-                            </p>
-                          </div>
-                        </label>
-                      );
-                    })}
+                  {respondentComments.map((c) => {
+                    const commentId = getCompanyReportCommentId(c);
+                    const isChecked = !!tempSelectedComments[commentId];
+                    return (
+                      <label
+                        key={commentId}
+                        className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition text-sm ${
+                          isChecked
+                            ? 'border-[#0063a9]/30 bg-[#0063a9]/5 dark:border-blue-900/30 dark:bg-blue-950/20'
+                            : 'border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setTempSelectedComments((prev) => ({
+                              ...prev,
+                              [commentId]: e.target.checked,
+                            }));
+                          }}
+                          className="mt-1 h-4 w-4 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9]"
+                        />
+                        <div className="flex-1 space-y-1">
+                          <p className="text-slate-700 dark:text-slate-200 italic leading-relaxed">
+                            "{c.comment}"
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase dark:text-slate-500">
+                            {c.questionCategory} · Anonymous Respondent Feedback
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
                   </div>
                 </>
               )}
