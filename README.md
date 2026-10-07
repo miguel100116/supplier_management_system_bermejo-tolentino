@@ -305,6 +305,8 @@ Cleanup targets only whole `survey_response` groups marked `test_submission`, or
 
 The production build produces a static client plus a small Express server that serves it and provides an `/api/health` health check.
 
+For Vercel SPA deployments, the root `vercel.json` rewrites frontend paths to `index.html` so direct links and browser refreshes reach the client router. `/api/*` is excluded from that rewrite and must be served by the configured API host.
+
 ```bash
 npm run build
 NODE_ENV=production npm run start
