@@ -751,52 +751,6 @@ export function AccountManagementPage({
                   </div>
                 </div>
 
-                {/* Module Permissions Checklist */}
-                <div className="md:col-span-2 space-y-4">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1.5 border-b border-slate-100 dark:border-slate-800">
-                    Permitted Navigation Modules
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Explicitly grant or revoke access to system pages. Redundant navigation modules are completely hidden.
-                  </p>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {PAGE_MODULES.map(module => {
-                      const isDepartmentAllowed = departmentPageCeiling.includes(module.key);
-                      const isChecked = isDepartmentAllowed && selectedPages.includes(module.key);
-                      return (
-                        <button
-                          key={module.key}
-                          type="button"
-                          onClick={() => togglePageSelection(module.key)}
-                          disabled={!isDepartmentAllowed}
-                          title={!isDepartmentAllowed ? `Blocked by department access control for ${department}` : undefined}
-                          className={`flex items-start gap-3 p-2.5 rounded-xl border text-left transition-all ${
-                            !isDepartmentAllowed
-                              ? 'cursor-not-allowed border-slate-200 bg-slate-100 opacity-50 dark:border-slate-800 dark:bg-slate-950'
-                              : isChecked
-                                ? 'border-blue-500 bg-blue-50/20 dark:bg-blue-950/20'
-                                : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                          }`}
-                        >
-                          <div className="pt-0.5">
-                            {isChecked ? (
-                              <div className="h-4.5 w-4.5 rounded flex items-center justify-center bg-blue-600 text-white">
-                                <Check size={12} strokeWidth={3} />
-                              </div>
-                            ) : (
-                              <div className="h-4.5 w-4.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900" />
-                            )}
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-slate-800 dark:text-slate-200">{module.label}</div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400">{isDepartmentAllowed ? module.description : 'Blocked by department access control'}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
                 </fieldset>
                 {saveError && <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-400">{saveError}</p>}
               </form>
