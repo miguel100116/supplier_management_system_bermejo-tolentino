@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash, ArrowLeft, Save, AlertCircle, FileText, CalendarClock } from 'lucide-react';
+import { Plus, Trash, ArrowLeft, Save, AlertCircle, FileText, ChevronDown } from 'lucide-react';
 import { SurveyType, CustomForm } from '../types/survey';
 import { isValidDDMMYYYY } from '../utils/time';
 import { DEFAULT_CATEGORIES, OVERALL_CATEGORY } from '../data/questionCategories';
@@ -172,23 +172,23 @@ export function CreateSurveyPage({ onBack, onSave, surveyToEdit, categoryLabels 
           <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-900/50 space-y-4">
             <div>
               <label htmlFor="survey-type" className="field-label">Survey Type (Audience) *</label>
-              <select
-                id="survey-type"
-                className="field"
-                value={surveyType}
-                onChange={(e) => setSurveyType(e.target.value as SurveyType)}
-              >
-                <option value="Courier">Courier (Courier/Logistics)</option>
-                <option value="Supplier">Supplier (Goods/Materials)</option>
-                <option value="Subcontractor">Subcontractor (On-Site/Execution)</option>
-              </select>
+              <div className="relative mt-1">
+                <select
+                  id="survey-type"
+                  className="field !mt-0 appearance-none pr-10"
+                  value={surveyType}
+                  onChange={(e) => setSurveyType(e.target.value as SurveyType)}
+                >
+                  <option value="Courier">Courier (Courier/Logistics)</option>
+                  <option value="Supplier">Supplier (Goods/Materials)</option>
+                  <option value="Subcontractor">Subcontractor (On-Site/Execution)</option>
+                </select>
+                <ChevronDown aria-hidden="true" size={16} className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-700 dark:text-slate-300" />
+              </div>
             </div>
 
             <div>
-              <label htmlFor="survey-deadline" className="field-label flex items-center gap-1.5">
-                <CalendarClock size={13} className="text-slate-400" />
-                <span>Deadline Date</span>
-              </label>
+              <label htmlFor="survey-deadline" className="field-label">Deadline Date</label>
               <input
                 id="survey-deadline"
                 type="text"
@@ -302,17 +302,20 @@ export function CreateSurveyPage({ onBack, onSave, surveyToEdit, categoryLabels 
                     </div>
                     <div className="w-full md:w-48 shrink-0">
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Category</label>
-                      <select
-                        className="field mt-1"
-                        value={q.questionCategory}
-                        onChange={(e) => handleCategoryChange(idx, e.target.value)}
-                      >
-                        {categoryOptions.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative mt-1">
+                        <select
+                          className="field !mt-0 appearance-none pr-9"
+                          value={q.questionCategory}
+                          onChange={(e) => handleCategoryChange(idx, e.target.value)}
+                        >
+                          {categoryOptions.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown aria-hidden="true" size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-700 dark:text-slate-300" />
+                      </div>
                     </div>
                   </div>
 
@@ -334,8 +337,9 @@ export function CreateSurveyPage({ onBack, onSave, surveyToEdit, categoryLabels 
 
                     <div>
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Input Type / Response Format</label>
-                      <select
-                        className="field mt-1 py-1 px-2.5 text-xs"
+                      <div className="relative mt-1">
+                        <select
+                        className="field !mt-0 appearance-none py-1 pl-2.5 pr-9 text-xs"
                         value={q.inputType || 'rating'}
                         onChange={(e) => {
                           const next = [...questions];
@@ -354,7 +358,9 @@ export function CreateSurveyPage({ onBack, onSave, surveyToEdit, categoryLabels 
                         <option value="select">Dropdown Menu Selector</option>
                         <option value="typed-rating">Typed Rating with Range Bounds (e.g. 0-15)</option>
                         <option value="text">Text Field Answer</option>
-                      </select>
+                        </select>
+                        <ChevronDown aria-hidden="true" size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-700 dark:text-slate-300" />
+                      </div>
                     </div>
 
                     {q.inputType === 'select' && (

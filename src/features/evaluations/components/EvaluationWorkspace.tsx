@@ -17,11 +17,18 @@ export function EvaluationWorkspace({ activePage, onNavigate, children }: {
   onNavigate: (page: EvaluationWorkspacePage) => void;
   children: ReactNode;
 }) {
-  const activeTab = EVALUATION_WORKSPACE_TABS.find((tab) => tab.key === activePage)!;
   return (
-    <div className="space-y-5">
-      <section className="panel space-y-3">
-        <nav aria-label="Evaluation workspace views" className="flex flex-wrap gap-2">
+    <div className="space-y-6">
+      <p className="-mt-3 text-base text-slate-500 dark:text-slate-400">Create and manage evaluation forms, assigned companies, deadlines, and access.</p>
+      {activePage === 'pending-review' ? (
+        <section className="panel space-y-3">
+          <nav aria-label="Evaluation workspace views" className="flex flex-wrap gap-2">
+            {EVALUATION_WORKSPACE_TABS.map((tab) => <button key={tab.key} type="button" aria-current={activePage === tab.key ? 'page' : undefined} onClick={() => onNavigate(tab.key)} className={activePage === tab.key ? 'rounded-lg bg-[#0063a9] px-4 py-2 text-sm font-semibold text-white dark:bg-blue-600' : 'secondary-button px-4 py-2 text-sm font-semibold'}>{tab.label}</button>)}
+          </nav>
+        </section>
+      ) : <>
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <nav aria-label="Evaluation workspace views" className="inline-flex rounded-lg bg-slate-100 p-1 dark:bg-slate-900">
           {EVALUATION_WORKSPACE_TABS.map((tab) => (
             <button
               key={tab.key}
@@ -29,15 +36,15 @@ export function EvaluationWorkspace({ activePage, onNavigate, children }: {
               aria-current={activePage === tab.key ? 'page' : undefined}
               onClick={() => onNavigate(tab.key)}
               className={activePage === tab.key
-                ? 'rounded-lg bg-[#0063a9] px-4 py-2 text-sm font-semibold text-white dark:bg-blue-600'
-                : 'secondary-button px-4 py-2 text-sm font-semibold'}
+                ? 'rounded-md bg-[#0063a9] px-5 py-2 text-sm font-semibold text-white shadow-sm dark:bg-blue-600'
+                : 'rounded-md px-5 py-2 text-sm font-medium text-slate-600 hover:bg-white/70 dark:text-slate-300'}
             >
               {tab.label}
             </button>
           ))}
         </nav>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{activeTab.description}</p>
       </section>
+      </>}
       {children}
     </div>
   );

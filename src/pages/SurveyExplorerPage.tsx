@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, ChevronLeft, Download, Search } from 'lucide-react';
+import { CalendarClock, ChevronLeft, Download, Search, SlidersHorizontal } from 'lucide-react';
 import type { CustomForm, SurveyResponse } from '../types/survey';
 import { getSurveyStatus } from '../utils/surveyStatus';
 import { logExport } from '../utils/exportHistory';
@@ -23,19 +23,43 @@ export function SurveyExplorerPage({ responses, surveys = [] }: SurveyExplorerPa
   const [selectedSurveyId, setSelectedSurveyId] = useState<string | null>(null);
   const [selectedResponseId, setSelectedResponseId] = useState<string | null>(null);
   const [emailSearch, setEmailSearch] = useState('');
-  const [exportScope, setExportScope] = useState<'all' | 'filtered'>('all');
+  const [exportScope, setExportScope] = useState<'all' | 'filtered'>('filtered');
   const [page, setPage] = useState(1);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [designations, setDesignations] = useState<string[]>([]);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [categoryFilters, setCategoryFilters] = useState<string[]>([]);
+  const [formFilters, setFormFilters] = useState<string[]>([]);
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => () => workerRef.current?.terminate(), []);
 
-  const selectedSurvey = useMemo(() => surveys.find((survey) => survey.id === selectedSurveyId), [selectedSurveyId, surveys]);
+  const orderedSurveys = useMemo(() => surveys.filter((survey) =>
+    (!categoryFilters.length || categoryFilters.includes(survey.surveyType))
+    && (!formFilters.length || formFilters.includes(survey.id))
+  ).sort((left, right) => {
+    const order = { Courier: 0, Subcontractor: 1, Supplier: 2 };
+    return order[left.surveyType] - order[right.surveyType] || left.title.localeCompare(right.title);
+  }), [surveys, categoryFilters, formFilters]);
+  const selectedSurvey = useMemo(() => orderedSurveys.find((survey) => survey.id === selectedSurveyId)
+    ?? orderedSurveys.find((survey) => getSurveyStatus(survey) === 'Running')
+    ?? orderedSurveys[0], [selectedSurveyId, surveys, orderedSurveys]);
   const submissions = useMemo(() => selectedSurvey
     ? groupSurveySubmissions(selectSurveyResponses(selectedSurvey, surveys, responses))
     : [], [selectedSurvey, surveys, responses]);
-  const filteredSubmissions = useMemo(() => filterSurveySubmissions(submissions, emailSearch), [submissions, emailSearch]);
+  const departmentOptions = useMemo(() => [...new Set(submissions.map((item) => item.first.department).filter((value): value is string => Boolean(value)))].sort(), [submissions]);
+  const designationOptions = useMemo(() => [...new Set(submissions.map((item) => item.first.respondentType).filter(Boolean))].sort(), [submissions]);
+  const filteredSubmissions = useMemo(() => filterSurveySubmissions(submissions, emailSearch).filter((item) => {
+    const date = new Date(item.first.submissionDate);
+    const day = Number.isNaN(date.getTime()) ? '' : `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    return (!departments.length || departments.includes(item.first.department ?? ''))
+      && (!designations.length || designations.includes(item.first.respondentType))
+      && (!dateFrom || (day && day >= dateFrom)) && (!dateTo || (day && day <= dateTo));
+  }), [submissions, emailSearch, departments, designations, dateFrom, dateTo]);
   const selectedSubmission = submissions.find((submission) => submission.id === selectedResponseId);
   const totalPages = Math.max(1, Math.ceil(filteredSubmissions.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -47,7 +71,8 @@ export function SurveyExplorerPage({ responses, surveys = [] }: SurveyExplorerPa
     setSelectedSurveyId(id);
     setSelectedResponseId(null);
     setEmailSearch('');
-    setExportScope('all');
+    setDepartments([]); setDesignations([]); setDateFrom(''); setDateTo('');
+    setExportScope('filtered');
     setPage(1);
     setExportError('');
   }
@@ -86,53 +111,25 @@ export function SurveyExplorerPage({ responses, surveys = [] }: SurveyExplorerPa
     worker.postMessage(buildSurveyResponseExport(selectedSurvey, exportSubmissions));
   }
 
-  if (!selectedSurvey) {
-    return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {surveys.map((survey) => {
-          const status = getSurveyStatus(survey);
-          const statusColor = status === 'Paused'
-            ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'
-            : status === 'Completed' || status === 'Archived'
-              ? 'border-slate-400 bg-slate-50 dark:bg-slate-900/50'
-              : 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20';
-          const dotColor = status === 'Paused' ? 'bg-orange-500' : status === 'Completed' || status === 'Archived' ? 'bg-slate-400' : 'bg-emerald-500';
-          return (
-            <button
-              key={survey.id}
-              type="button"
-              onClick={() => openSurvey(survey.id)}
-              className={'w-full rounded-xl border-2 p-5 text-left transition hover:shadow-md ' + statusColor}
-            >
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <h4 className="font-bold text-slate-900 dark:text-slate-100">{survey.title}</h4>
-                <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-semibold shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                  <span className={'h-2 w-2 rounded-full ' + dotColor} />
-                  <span>{status}</span>
-                </div>
-              </div>
-              <p className="line-clamp-2 text-sm text-slate-600 dark:text-slate-400">{survey.description}</p>
-              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                <span className="rounded border border-slate-200 bg-white px-2 py-1 dark:border-slate-800 dark:bg-slate-900">{survey.surveyType}</span>
-                {survey.deadlineDate && <span className="flex items-center gap-1"><CalendarClock size={14} />{survey.deadlineDate}</span>}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
-      <button onClick={() => { setSelectedSurveyId(null); setSelectedResponseId(null); }} className="secondary-button inline-flex items-center gap-2" type="button">
-        <ChevronLeft size={16} /> Back to Surveys
-      </button>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {orderedSurveys.map((survey) => {
+          const status = getSurveyStatus(survey);
+          const selected = survey.id === selectedSurvey?.id;
+          const dotColor = status === 'Paused' ? 'bg-amber-500' : status === 'Completed' || status === 'Archived' ? 'bg-slate-400' : 'bg-emerald-500';
+          const typeColor = survey.surveyType === 'Courier' ? 'border-sky-200 bg-sky-50 text-sky-700' : survey.surveyType === 'Supplier' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-orange-200 bg-orange-50 text-orange-700';
+          return <button key={survey.id} type="button" aria-pressed={selected} onClick={() => openSurvey(survey.id)} className={`min-h-[229px] w-full rounded-2xl border px-6 py-5 text-left transition ${selected ? 'border-[#0063a9] bg-[#0063a9] text-white shadow-md' : 'border-slate-200 bg-white text-slate-900 shadow-sm hover:border-blue-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'}`}>
+            <div className="flex items-start justify-between gap-3"><h3 className="max-w-[215px] text-lg font-semibold leading-6">{survey.title}</h3><span className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1 text-sm ${selected ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}><i className={`h-2 w-2 rounded-full ${dotColor}`}/>{status === 'Running' ? 'Running' : status === 'Completed' ? 'Completed' : status}</span></div>
+            <p className={`mt-3 min-h-[52px] text-sm leading-[22px] ${selected ? 'text-blue-100' : 'text-slate-600 dark:text-slate-300'}`}>{survey.description}</p>
+            <div className={`mt-4 flex items-center gap-3 border-t pt-3 text-sm ${selected ? 'border-white/20 text-blue-50' : 'border-slate-100 text-slate-500 dark:border-slate-800'}`}><span className={`rounded-md border px-3 py-1 text-xs font-semibold ${selected ? 'border-white/25 bg-white/10 text-white' : typeColor}`}>{survey.surveyType}</span>{survey.deadlineDate && <span className="flex items-center gap-2"><CalendarClock size={14}/>{survey.deadlineDate}</span>}</div>
+          </button>;
+        })}
+      </div>
+      {!selectedSurvey && <section className="panel py-10 text-center text-sm text-slate-500">No evaluation forms are available yet.</section>}
+      {selectedSurvey && <>
       <section className="panel space-y-4">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{selectedSurvey.title}</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{selectedSurvey.description}</p>
-        </div>
+        <header className="-mx-6 -mt-6 border-b border-slate-100 px-6 py-5 dark:border-slate-800"><h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{selectedSurvey.title}</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{selectedSurvey.description}</p></header>
         {selectedSubmission ? (
           <>
             <button className="secondary-button inline-flex items-center gap-2" type="button" onClick={() => setSelectedResponseId(null)}>
@@ -159,35 +156,42 @@ export function SurveyExplorerPage({ responses, surveys = [] }: SurveyExplorerPa
           </>
         ) : (
           <>
-            <div className="flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-              <div className="min-w-56 flex-1 sm:max-w-md">
-                <label htmlFor="response-email-search" className="mb-2 block text-sm font-semibold">Search respondent email</label>
+            <div className="grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-end">
+              <div className="min-w-0">
+                <label htmlFor="response-email-search" className="mb-1.5 block text-xs font-semibold">Search respondent email</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input id="response-email-search" type="search" placeholder="Filter by email..." className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#0063a9] dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-600" value={emailSearch} onChange={(event) => { setEmailSearch(event.target.value); setPage(1); }} />
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <input id="response-email-search" type="search" placeholder="Filter by email..." className="h-9 w-full min-w-0 rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-[#0063a9] dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-600" value={emailSearch} onChange={(event) => { setEmailSearch(event.target.value); setPage(1); }} />
                 </div>
               </div>
+              <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"><SlidersHorizontal size={14}/> Filters</button>
               <div>
-                <label htmlFor="response-export-scope" className="mb-2 block text-sm font-semibold">Export rows</label>
-                <select id="response-export-scope" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" value={exportScope} onChange={(event) => setExportScope(event.target.value as 'all' | 'filtered')}>
+                <label htmlFor="response-export-scope" className="mb-1.5 block text-xs font-semibold">Export rows</label>
+                <select id="response-export-scope" className="h-9 w-full min-w-[150px] rounded-lg border border-slate-300 bg-white px-3 text-xs dark:border-slate-700 dark:bg-slate-900" value={exportScope} onChange={(event) => setExportScope(event.target.value as 'all' | 'filtered')}>
                   <option value="all">All responses</option>
                   <option value="filtered">Filtered responses</option>
                 </select>
               </div>
-              <button type="button" onClick={exportExcel} disabled={!exportSubmissions.length || isExporting} className="inline-flex items-center gap-2 rounded-lg bg-[#0063a9] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-600">
-                <Download size={16} /> {isExporting ? 'Preparing Excel...' : 'Export to Excel'}
+              <button type="button" onClick={exportExcel} disabled={!exportSubmissions.length || isExporting} className="inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#0063a9] px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-600">
+                <Download size={14} /> {isExporting ? 'Preparing Excel...' : 'Export to Excel'}
               </button>
             </div>
+            {filtersOpen && <div className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/50 sm:grid-cols-2 lg:grid-cols-4">
+              <fieldset className="space-y-2"><legend className="mb-1 text-xs font-bold uppercase text-slate-500">Evaluation category</legend>{(['Courier','Supplier','Subcontractor'] as const).map((value) => <label key={value} className="flex gap-2 text-sm"><input type="checkbox" checked={categoryFilters.includes(value)} onChange={() => setCategoryFilters((items) => items.includes(value) ? items.filter((item) => item !== value) : [...items, value])}/>{value}</label>)}</fieldset>
+              <fieldset className="max-h-36 space-y-2 overflow-y-auto"><legend className="mb-1 text-xs font-bold uppercase text-slate-500">Form</legend>{surveys.map((survey) => <label key={survey.id} className="flex gap-2 text-sm"><input type="checkbox" checked={formFilters.includes(survey.id)} onChange={() => setFormFilters((items) => items.includes(survey.id) ? items.filter((item) => item !== survey.id) : [...items, survey.id])}/><span>{survey.title}</span></label>)}</fieldset>
+              <fieldset className="space-y-1"><legend className="mb-1 text-xs font-bold uppercase text-slate-500">Department</legend>{departmentOptions.map((value) => <label key={value} className="flex gap-2 text-sm"><input type="checkbox" checked={departments.includes(value)} onChange={() => setDepartments((items) => items.includes(value) ? items.filter((item) => item !== value) : [...items, value])}/>{value}</label>)}</fieldset>
+              <div><fieldset className="space-y-1"><legend className="mb-1 text-xs font-bold uppercase text-slate-500">Designation</legend>{designationOptions.map((value) => <label key={value} className="flex gap-2 text-sm"><input type="checkbox" checked={designations.includes(value)} onChange={() => setDesignations((items) => items.includes(value) ? items.filter((item) => item !== value) : [...items, value])}/>{value}</label>)}</fieldset><fieldset className="mt-3 grid grid-cols-2 gap-2"><legend className="mb-1 text-xs font-bold uppercase text-slate-500">Submission date</legend><label className="text-xs">From<input aria-label="Submission date from" type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} className="field !mt-1 w-full"/></label><label className="text-xs">To<input aria-label="Submission date to" type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} className="field !mt-1 w-full"/></label></fieldset></div>
+            </div>}
             {exportError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{exportError}</p>}
             {!submissions.length ? (
               <p className="py-8 text-center text-slate-500">No responses have been submitted for this survey.</p>
             ) : !filteredSubmissions.length ? (
-              <p className="py-8 text-center text-slate-500">No responses match this email search.</p>
+              <p className="py-8 text-center text-slate-500">No responses match the selected filters.</p>
             ) : (
               <>
                 <p className="text-sm text-slate-500 dark:text-slate-400">Showing {firstVisibleIndex + 1}-{firstVisibleIndex + visibleSubmissions.length} of {filteredSubmissions.length} submissions</p>
                 <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-                  <table className="min-w-[760px] w-full text-left text-sm">
+                  <table className="min-w-[760px] w-full text-left text-xs">
                     <thead className="bg-slate-50 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
                       <tr><th className="px-4 py-3">Respondent Email</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Company</th><th className="px-4 py-3">Submission Date</th><th className="px-4 py-3">Overall Score</th><th className="px-4 py-3"><span className="sr-only">Action</span></th></tr>
                     </thead>
@@ -217,6 +221,7 @@ export function SurveyExplorerPage({ responses, surveys = [] }: SurveyExplorerPa
           </>
         )}
       </section>
+      </>}
     </div>
   );
 }
