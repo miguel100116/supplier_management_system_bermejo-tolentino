@@ -16,6 +16,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   LabelList,
   Legend,
   Line,
@@ -54,6 +55,10 @@ const CATEGORIES: SurveyType[] = ['Courier', 'Supplier', 'Subcontractor'];
 const PRIMARY_COLOR = '#0063a9';
 const PEER_COLOR = '#b91c1c';
 const PEER_LABEL = 'Peer average';
+const EXTERNAL_BAR_COLORS = ['#0063a9', '#b91c1c', '#15803d', '#7e22ce', '#c2410c'];
+
+type ReportAudience = 'internal' | 'external';
+type SectionChartRow = { section: string; [series: string]: string | number | undefined };
 
 function formatMonthLabel(month: string): string {
   const [year, m] = month.split('-');
@@ -64,6 +69,7 @@ function formatMonthLabel(month: string): string {
 }
 
 export function CompanyReportBuilderPage({ responses, partnerCompanies, canExport, onBack }: CompanyReportBuilderPageProps) {
+  const [reportAudience, setReportAudience] = useState<ReportAudience>('internal');
   const [category, setCategory] = useState<SurveyType>('Courier');
   const [selectedCompany, setSelectedCompany] = useState<string>('');
   const [graphs, setGraphs] = useState({ bar: true, radar: true, trend: true, perQuestion: true });
@@ -164,18 +170,24 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
     [selectedCompany, responses],
   );
 
-  const sectionChartData = useMemo(() => {
+  const sectionChartData = useMemo<SectionChartRow[]>(() => {
     if (!composite) return [];
     return composite.sections.map((section) => ({
       section: section.section,
       [composite.company]: section.percent,
-      [PEER_LABEL]: peerAverages.find((p) => p.section === section.section)?.average ?? 0,
+      ...(reportAudience === 'internal'
+        ? { [PEER_LABEL]: peerAverages.find((p) => p.section === section.section)?.average ?? 0 }
+        : {}),
     }));
-  }, [composite, peerAverages]);
+  }, [composite, peerAverages, reportAudience]);
 
   const sectionAxisDomain = useMemo(
-    () => getScoreAxisDomain(sectionChartData.flatMap((row) => [row[composite?.company ?? ''] as number, row[PEER_LABEL] as number])),
-    [sectionChartData, composite],
+    () => getScoreAxisDomain(sectionChartData.flatMap((row) => {
+      const scores = [row[composite?.company ?? ''] as number];
+      if (reportAudience === 'internal') scores.push(row[PEER_LABEL] as number);
+      return scores;
+    })),
+    [sectionChartData, composite, reportAudience],
   );
 
   const trendChartData = useMemo(
@@ -243,8 +255,9 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
     const row = sectionChartData.find((r) => r.section === value);
     if (!row) return value;
     const companyVal = row[composite.company];
-    const peerVal = row[PEER_LABEL];
     const companyStr = typeof companyVal === 'number' ? companyVal.toFixed(1) : '0.0';
+    if (reportAudience === 'external') return `${value} (${companyStr})`;
+    const peerVal = row[PEER_LABEL];
     const peerStr = typeof peerVal === 'number' ? peerVal.toFixed(1) : '0.0';
     return `${value} (${companyStr} / ${peerStr})`;
   };
@@ -266,6 +279,24 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
       <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
         {/* Left: options */}
         <aside className="panel h-fit space-y-6 lg:sticky lg:top-4">
+          <div className="flex w-fit items-center rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+            {(['internal', 'external'] as const).map((audience) => (
+              <button
+                key={audience}
+                type="button"
+                aria-pressed={reportAudience === audience}
+                onClick={() => setReportAudience(audience)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+                  reportAudience === audience
+                    ? 'bg-[#0063a9] text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
+                }`}
+              >
+                {audience}
+              </button>
+            ))}
+          </div>
+
           <div>
             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">1. Category</h3>
             <select
@@ -420,16 +451,26 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                     <div className="mt-4">
                       <h4 className="mb-1 text-xs font-bold text-slate-700 dark:text-slate-200">Section Scores — Bar Graph</h4>
                       <div ref={barRef} className="bg-white p-5 rounded-lg block dark:bg-slate-900">
-                        {/* HTML legend placed vertically on the left, above the chart */}
-                        <div className="mb-4 block text-left text-[11px] pl-2">
-                          <div className="mb-1.5 flex items-center gap-2">
-                            <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: PRIMARY_COLOR }} />
-                            <span className="font-semibold text-slate-700 dark:text-slate-200">{composite.company}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: PEER_COLOR }} />
-                            <span className="font-semibold text-slate-500 dark:text-slate-400">{PEER_LABEL}</span>
-                          </div>
+                        <ReportRatingScale category={category} />
+                        {/* Centered horizontal legend above the chart */}
+                        <div className="mb-4 flex w-full flex-wrap justify-center gap-x-4 gap-y-1 text-[11px]">
+                          {reportAudience === 'external' ? sectionChartData.map((row, index) => (
+                            <div key={row.section} className="flex items-center gap-2">
+                              <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: EXTERNAL_BAR_COLORS[index % EXTERNAL_BAR_COLORS.length] }} />
+                              <span className="font-semibold text-slate-700 dark:text-slate-200">{row.section}</span>
+                            </div>
+                          )) : (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: PRIMARY_COLOR }} />
+                                <span className="font-semibold text-slate-700 dark:text-slate-200">{composite.company}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: PEER_COLOR }} />
+                                <span className="font-semibold text-slate-500 dark:text-slate-400">{PEER_LABEL}</span>
+                              </div>
+                            </>
+                          )}
                         </div>
                         {/* Centered Bar Chart */}
                         <div className="h-[210px] w-full block">
@@ -440,11 +481,16 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                               <YAxis domain={sectionAxisDomain} tick={{ fontSize: 10 }} />
                               <Tooltip />
                               <Bar dataKey={composite.company} fill={PRIMARY_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                                {reportAudience === 'external' && sectionChartData.map((row, index) => (
+                                  <Cell key={row.section} fill={EXTERNAL_BAR_COLORS[index % EXTERNAL_BAR_COLORS.length]} />
+                                ))}
                                 <LabelList dataKey={composite.company} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PRIMARY_COLOR, fontWeight: 'bold' }} />
                               </Bar>
-                              <Bar dataKey={PEER_LABEL} fill={PEER_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                                <LabelList dataKey={PEER_LABEL} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
-                              </Bar>
+                              {reportAudience === 'internal' && (
+                                <Bar dataKey={PEER_LABEL} fill={PEER_COLOR} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                                  <LabelList dataKey={PEER_LABEL} position="top" formatter={(val) => typeof val === 'number' ? val.toFixed(1) : String(val ?? '')} style={{ fontSize: 13, fill: PEER_COLOR, fontWeight: 'bold' }} />
+                                </Bar>
+                              )}
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -474,19 +520,21 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                                 content={radarPointLabel({ categoryCount: sectionChartData.length, fill: PRIMARY_COLOR, fontSize: 11, lane: -7 })}
                               />
                             </Radar>
-                            <Radar
-                              name={PEER_LABEL}
-                              dataKey={PEER_LABEL}
-                              stroke={PEER_COLOR}
-                              fill={PEER_COLOR}
-                              fillOpacity={0.3}
-                              isAnimationActive={false}
-                            >
-                              <LabelList
+                            {reportAudience === 'internal' && (
+                              <Radar
+                                name={PEER_LABEL}
                                 dataKey={PEER_LABEL}
-                                content={radarPointLabel({ categoryCount: sectionChartData.length, fill: PEER_COLOR, fontSize: 11, lane: 7 })}
-                              />
-                            </Radar>
+                                stroke={PEER_COLOR}
+                                fill={PEER_COLOR}
+                                fillOpacity={0.3}
+                                isAnimationActive={false}
+                              >
+                                <LabelList
+                                  dataKey={PEER_LABEL}
+                                  content={radarPointLabel({ categoryCount: sectionChartData.length, fill: PEER_COLOR, fontSize: 11, lane: 7 })}
+                                />
+                              </Radar>
+                            )}
                             <Legend verticalAlign="top" align="left" layout="vertical" iconSize={10} wrapperStyle={{ fontSize: 10, paddingBottom: 12, left: 0 }} />
                             <Tooltip />
                           </RadarChart>
@@ -754,6 +802,38 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
         </div>
       )}
     </div>
+  );
+}
+
+function ReportRatingScale({ category }: { category: SurveyType }) {
+  const scales = category === 'Subcontractor'
+    ? [
+        { color: 'bg-emerald-400', range: '2.0 - 1.5', label: 'Top Performer' },
+        { color: 'bg-blue-500', range: '1.4 - 1.0', label: 'Good Performer' },
+        { color: 'bg-amber-400', range: '0.5 - 0.9', label: 'Good' },
+        { color: 'bg-rose-500', range: '0.4 and below', label: 'Poor Performer' },
+      ]
+    : [
+        { color: 'bg-emerald-400', range: '95-100', label: 'Excellent' },
+        { color: 'bg-blue-500', range: '89-94', label: 'Satisfactory' },
+        { color: 'bg-amber-400', range: '80-88', label: 'Good' },
+        { color: 'bg-rose-500', range: 'Below 80', label: 'Unsatisfactory' },
+      ];
+
+  return (
+    <>
+      <h5 className="mb-1.5 text-[10px] font-bold uppercase tracking-wide">Rating Scale</h5>
+      <div className="mb-4 grid grid-cols-1 gap-x-5 gap-y-1 text-slate-700 dark:text-slate-200 sm:grid-cols-2">
+        {scales.map((scale) => (
+          <div key={scale.range} className="flex items-center gap-1.5 text-[10px] leading-tight">
+            <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${scale.color}`} />
+            <span className="font-semibold">{scale.range}</span>
+            <span aria-hidden="true">→</span>
+            <span>{scale.label}</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
