@@ -1,11 +1,11 @@
 import { ArchiveSeries, SurveyResponse, SurveyType } from '../types/survey';
-import { numericRating, submissionScores, submissionCount, computeRankScore } from './analytics';
+import { hasAnsweredItem, numericRating, submissionScores, submissionCount, computeRankScore } from './analytics';
 import { ScoreBand, getBand, questionWeights, getCanonicalQuestionId, formatCompositeScore } from '../data/questionWeights';
 import { getLiveCategoryLabel } from '../data/questionCategories';
 
-// Returned instead of a real band when a company has zero submissions with
-// at least one non-N/A answer - e.g. a single respondent who marked every
-// question N/A. Without this, compositeScore's 0-fallback (see
+// Returned instead of a real band when a company has no numeric ratings -
+// e.g. every response is N/A or contains only free-text answers. Without
+// this, compositeScore's 0-fallback (see
 // computeCompanyComposite) would otherwise get classified "Critical" by
 // getBand, and flagged "below peer average" by getOutliers, as if it were a
 // real measured score instead of an absence of data.
@@ -27,8 +27,8 @@ export interface CompanyComposite {
   band: ScoreBand;
   sections: SectionScore[];
   ratedQuestionCount: number; // individual question ratings counted (excludes N/A)
-  evaluationCount: number; // total submissions received, regardless of whether they had any scoreable (non-N/A) answer
-  hasScore: boolean; // false when every submission was all-N/A - compositeScore/band carry no real signal in that case
+  evaluationCount: number; // submissions with at least one nonblank answer other than N/A
+  hasScore: boolean; // false when submissions have no numeric ratings, even if they contain free-text answers
   stdDev: number; // population std dev of per-question percent scores - consistency signal
   naRate: number; // % of applicable questions marked N/A
   // Volume-weighted variant of compositeScore, pulled toward the peer mean
@@ -168,9 +168,8 @@ function computeCompanyCompositeFromResponses(
     band: hasScore ? getBand(surveyType, compositeScore) : NO_SCORE_BAND,
     sections,
     ratedQuestionCount: percentScores.length,
-    // Total submissions received (one per respondent), independent of
-    // whether any of their answers were scoreable - a respondent who
-    // answered every question N/A still submitted an evaluation.
+    // Count forms with any real answer, including free-text answers on
+    // unscored questions. All-N/A and blank-only forms are excluded.
     evaluationCount: submissionCount(companyResponses),
     hasScore,
     stdDev: Number(Math.sqrt(variance).toFixed(1)),
@@ -376,17 +375,20 @@ export function getSectionPeerAverages(responses: SurveyResponse[], surveyType: 
 
 /** One company's composite score by month, so a partner's trajectory can be read over time. */
 export function getCompanyTrend(responses: SurveyResponse[], company: string, surveyType: SurveyType) {
-  const filtered = responses.filter((r) => r.company === company && r.surveyType === surveyType);
+  const filtered = responses.filter((r) => r.company === company && r.surveyType === surveyType && hasAnsweredItem(r));
   const months = [...new Set(filtered.map((r) => r.submissionDate.slice(0, 7)))].sort();
 
   return months
     .map((month) => {
       const monthResponses = filtered.filter((r) => r.submissionDate.slice(0, 7) === month);
       const composite = computeCompanyComposite(company, surveyType, monthResponses);
-      if (!composite?.hasScore) return null; // no real score this month - skip rather than fake a 0 dip
-      return { month, score: composite.compositeScore, responses: submissionScores(monthResponses).length };
+      return {
+        month,
+        score: composite?.hasScore ? composite.compositeScore : null,
+        responses: submissionCount(monthResponses),
+      };
     })
-    .filter((point): point is NonNullable<typeof point> => point !== null);
+    .filter((point) => point.responses > 0);
 }
 
 /**
@@ -395,7 +397,7 @@ export function getCompanyTrend(responses: SurveyResponse[], company: string, su
  * against a peer baseline over the same timeline.
  */
 export function getPeerAverageTrend(responses: SurveyResponse[], surveyType: SurveyType, excludeCompany?: string) {
-  const filtered = responses.filter((r) => r.surveyType === surveyType && r.company !== excludeCompany);
+  const filtered = responses.filter((r) => r.surveyType === surveyType && r.company !== excludeCompany && hasAnsweredItem(r));
   const months = [...new Set(filtered.map((r) => r.submissionDate.slice(0, 7)))].sort();
 
   return months.map((month) => {
@@ -405,7 +407,7 @@ export function getPeerAverageTrend(responses: SurveyResponse[], surveyType: Sur
       .map((company) => computeCompanyComposite(company, surveyType, monthResponses))
       .filter((c): c is CompanyComposite => c !== null && c.hasScore)
       .map((c) => c.compositeScore);
-    const average = scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : 0;
+    const average = scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : null;
     return { month, score: average };
   });
 }
@@ -413,7 +415,7 @@ export function getPeerAverageTrend(responses: SurveyResponse[], surveyType: Sur
 /** One company's composite score by named archive period, ordered chronologically by the series' createdAt. */
 export function getCompanyTrendBySeries(responses: SurveyResponse[], company: string, surveyType: SurveyType, seriesList: ArchiveSeries[]) {
   const seriesById = new Map(seriesList.map((s) => [s.id, s]));
-  const filtered = responses.filter((r) => r.company === company && r.surveyType === surveyType && r.seriesId && seriesById.has(r.seriesId));
+  const filtered = responses.filter((r) => r.company === company && r.surveyType === surveyType && hasAnsweredItem(r) && r.seriesId && seriesById.has(r.seriesId));
   const seriesIds = [...new Set(filtered.map((r) => r.seriesId as string))]
     .sort((a, b) => (seriesById.get(a)?.createdAt ?? '').localeCompare(seriesById.get(b)?.createdAt ?? ''));
 
@@ -421,16 +423,20 @@ export function getCompanyTrendBySeries(responses: SurveyResponse[], company: st
     .map((seriesId) => {
       const seriesResponses = filtered.filter((r) => r.seriesId === seriesId);
       const composite = computeCompanyComposite(company, surveyType, seriesResponses);
-      if (!composite?.hasScore) return null; // no real score this period - skip rather than fake a 0
-      return { seriesId, label: seriesById.get(seriesId)?.label ?? 'Unknown', score: composite.compositeScore, responses: submissionScores(seriesResponses).length };
+      return {
+        seriesId,
+        label: seriesById.get(seriesId)?.label ?? 'Unknown',
+        score: composite?.hasScore ? composite.compositeScore : null,
+        responses: submissionCount(seriesResponses),
+      };
     })
-    .filter((point): point is NonNullable<typeof point> => point !== null);
+    .filter((point) => point.responses > 0);
 }
 
 /** Average composite score by named archive period across every company of a survey type (optionally excluding one). */
 export function getPeerAverageTrendBySeries(responses: SurveyResponse[], surveyType: SurveyType, seriesList: ArchiveSeries[], excludeCompany?: string) {
   const seriesById = new Map(seriesList.map((s) => [s.id, s]));
-  const filtered = responses.filter((r) => r.surveyType === surveyType && r.company !== excludeCompany && r.seriesId && seriesById.has(r.seriesId));
+  const filtered = responses.filter((r) => r.surveyType === surveyType && r.company !== excludeCompany && hasAnsweredItem(r) && r.seriesId && seriesById.has(r.seriesId));
   const seriesIds = [...new Set(filtered.map((r) => r.seriesId as string))]
     .sort((a, b) => (seriesById.get(a)?.createdAt ?? '').localeCompare(seriesById.get(b)?.createdAt ?? ''));
 
@@ -441,7 +447,7 @@ export function getPeerAverageTrendBySeries(responses: SurveyResponse[], surveyT
       .map((company) => computeCompanyComposite(company, surveyType, seriesResponses))
       .filter((c): c is CompanyComposite => c !== null && c.hasScore)
       .map((c) => c.compositeScore);
-    const average = scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : 0;
+    const average = scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : null;
     return { seriesId, label: seriesById.get(seriesId)?.label ?? 'Unknown', score: average };
   });
 }

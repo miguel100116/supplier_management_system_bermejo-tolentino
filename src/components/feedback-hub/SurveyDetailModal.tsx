@@ -2,7 +2,7 @@ import React from 'react';
 import { X, CheckCircle2, Download, Send, BarChart3, Users, FileText, Award, Calendar } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse } from '../../types/survey';
 import { exportTablesAsPDF, ExportTable } from '../../utils/exporters';
-import { submissionScores } from '../../utils/analytics';
+import { submissionCount, submissionScores } from '../../utils/analytics';
 import { getQuestionMaxPoints, formatCompositeScore } from '../../data/questionWeights';
 import { useModalEscape } from '../../hooks/useModalEscape';
 
@@ -30,9 +30,9 @@ export function SurveyDetailModal({
 
   // Ratings calculation
   const subScores = submissionScores(surveyResponses);
-  const totalResponsesCount = subScores.length;
-  const satisfactionScore = totalResponsesCount > 0
-    ? Number((subScores.reduce((sum, s) => sum + s.score, 0) / totalResponsesCount).toFixed(1))
+  const totalResponsesCount = submissionCount(surveyResponses);
+  const satisfactionScore = subScores.length > 0
+    ? Number((subScores.reduce((sum, s) => sum + s.score, 0) / subScores.length).toFixed(1))
     : 0;
   const avgRatingFormatted = formatCompositeScore(survey.surveyType, satisfactionScore).text;
 

@@ -269,8 +269,8 @@ function renderSlide(doc: jsPDF, slide: Slide, pdfMaxRating: number) {
         doc.setFontSize(9);
         doc.text(row.month, MARGIN, y);
         setText(doc, '#64748b');
-        doc.text(`${row.average.toFixed(2)} avg · ${row.responses} resp.`, MARGIN + 90, y);
-        bar(doc, barX, y - 7, PAGE_W - MARGIN - barX, 8, row.average / maxAvg, '#10b981');
+        doc.text(`${row.average === null ? 'N/A avg' : `${row.average.toFixed(2)} avg`} · ${row.responses} resp.`, MARGIN + 90, y);
+        if (row.average !== null) bar(doc, barX, y - 7, PAGE_W - MARGIN - barX, 8, row.average / maxAvg, '#10b981');
       });
       break;
     }

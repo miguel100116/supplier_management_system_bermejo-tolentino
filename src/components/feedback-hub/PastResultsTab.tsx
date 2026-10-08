@@ -4,7 +4,7 @@ import { QueuedReportEmail } from '../../types/feedbackHub';
 import { Search, Filter, Download, Send, BarChart3, CheckCircle2, Clock, AlertTriangle, FileText } from 'lucide-react';
 import { exportTablesAsPDF, ExportTable } from '../../utils/exporters';
 import { SurveyDetailModal } from './SurveyDetailModal';
-import { submissionScores } from '../../utils/analytics';
+import { submissionCount, submissionScores } from '../../utils/analytics';
 import { formatCompositeScore } from '../../data/questionWeights';
 import { TableFilterBar } from '../TableFilterBar';
 import { compareDate, compareText, isWithinDateRange } from '../../utils/tableFilters';
@@ -52,9 +52,9 @@ export function PastResultsTab({
       (r) => r.surveyType === survey.surveyType && !r.archived
     );
     const subScores = submissionScores(surveyResponses);
-    const count = subScores.length;
-    const satisfactionScore = count > 0
-      ? Number((subScores.reduce((sum, s) => sum + s.score, 0) / count).toFixed(1))
+    const count = submissionCount(surveyResponses);
+    const satisfactionScore = subScores.length > 0
+      ? Number((subScores.reduce((sum, s) => sum + s.score, 0) / subScores.length).toFixed(1))
       : 0;
 
     const tables: ExportTable[] = [
@@ -152,7 +152,7 @@ export function PastResultsTab({
                 const surveyResponses = responses.filter(
                   (r) => r.surveyType === survey.surveyType && !r.archived
                 );
-                const count = submissionScores(surveyResponses).length;
+                const count = submissionCount(surveyResponses);
                 const targetQuota = 10;
                 const completionPct = Math.min(100, Math.round((count / targetQuota) * 100));
 

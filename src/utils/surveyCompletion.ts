@@ -1,6 +1,6 @@
 import { CustomForm, PartnerCompany, SurveyResponse } from '../types/survey';
 import { SurveyAccount } from '../hooks/useSurveyData';
-import { getSurveyEvaluationCompanies } from './analytics';
+import { getSurveyEvaluationCompanies, hasAnsweredItem } from './analytics';
 import { parseDDMMYYYY } from './time';
 import { getSurveyStatus } from './surveyStatus';
 
@@ -73,6 +73,7 @@ export function getSurveyCompletionSummary(
         .filter(
           (r) =>
             !r.archived &&
+            hasAnsweredItem(r) &&
             r.surveyType === survey.surveyType &&
             r.respondentEmail &&
             r.respondentEmail.trim().toLowerCase() === acct.email.trim().toLowerCase() &&

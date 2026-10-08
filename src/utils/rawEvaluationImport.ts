@@ -34,6 +34,10 @@ type TextColumn = {
   originalHeader: string;
 };
 
+type MetadataColumn = Omit<TextColumn, 'kind'> & {
+  kind: 'metadata';
+};
+
 // Subcontractor-only: a shared remarks column that attaches its text as the
 // `comment` on the matrix sub-question rows already built for this row,
 // instead of producing its own response row (mirrors SurveyFillerPage, where
@@ -45,7 +49,7 @@ type MatrixRemarkColumn = {
   originalHeader: string;
 };
 
-export type ColumnDef = RatingColumn | TextColumn | MatrixRemarkColumn;
+export type ColumnDef = RatingColumn | TextColumn | MetadataColumn | MatrixRemarkColumn;
 
 // Ordered slot kinds behind each of FormSpec's `metaHeaders` entries - lets
 // the Raw Data Export fill every metadata column generically (see
@@ -90,7 +94,7 @@ export const FORM_SPECS: Record<SurveyType, FormSpec> = {
     metaHeaders: ['ID', 'Start time', 'Completion time', 'Email', 'Name', 'Last modified time', 'Designation:', 'Department:', 'Supplier Name:'],
     metaFields: ['id', 'start', 'completion', 'email', 'name', 'lastModified', 'designation', 'department', 'company'],
     columns: [
-      { kind: 'text', col: 9, questionId: 'Q-SUP-03', questionNumber: 1, question: 'Period Covered', questionCategory: 'General', originalHeader: 'Period Covered:' },
+      { kind: 'metadata', col: 9, questionId: 'Q-SUP-03', questionNumber: 1, question: 'Period Covered', questionCategory: 'General', originalHeader: 'Period Covered:' },
       { kind: 'rating', col: 10, questionId: 'Q-SUP-05', questionNumber: 2, question: 'Does the supplier use the correct documents to facilitate the delivery of sale transaction? (BIR Registered, DR, SI/BS, OR/CR)', questionCategory: 'Documentation', originalHeader: 'Does the supplier use the correct documents to facilitate the delivery of sale transaction? (BIR Registered, DR, SI/BS, OR/CR)' },
       { kind: 'rating', col: 11, questionId: 'Q-SUP-06', questionNumber: 3, question: 'Are the required documents complete for every transaction?', questionCategory: 'Documentation', originalHeader: 'Are the required documents complete for every transaction?' },
       { kind: 'rating', col: 12, questionId: 'Q-SUP-07', questionNumber: 4, question: 'Are documents clean, neat and readable?', questionCategory: 'Documentation', originalHeader: 'Are documents clean, neat and readable ?' },
@@ -127,7 +131,7 @@ export const FORM_SPECS: Record<SurveyType, FormSpec> = {
     metaHeaders: ['ID', 'Start time', 'Completion time', 'Email', 'Name', 'Last modified time', 'Courier Name:', 'Courier Address:'],
     metaFields: ['id', 'start', 'completion', 'email', 'name', 'lastModified', 'company', 'address'],
     columns: [
-      { kind: 'text', col: 8, questionId: 'Q-CON-03', questionNumber: 1, question: 'Period Covered', questionCategory: 'General', originalHeader: 'Period Covered:' },
+      { kind: 'metadata', col: 8, questionId: 'Q-CON-03', questionNumber: 1, question: 'Period Covered', questionCategory: 'General', originalHeader: 'Period Covered:' },
       { kind: 'rating', col: 9, questionId: 'Q-CON-04', questionNumber: 2, question: 'Does the courier consistently deliver our goods to our customers on the agreed date or period?', questionCategory: 'Delivery', originalHeader: 'Does the courier consistently deliver our goods to our customers on the agreed date or period?' },
       { kind: 'rating', col: 10, questionId: 'Q-CON-05', questionNumber: 5, question: 'Does the courier service maintain a consistent level of acceptable service over time?', questionCategory: 'Delivery', originalHeader: 'Does the courier service maintain a consistent level of acceptable (define) service over time?' },
       { kind: 'text', col: 11, questionId: 'Q-CON-06', questionNumber: 6, question: 'Please provide any additional comments on Reliability and Delivery performance.', questionCategory: 'Delivery', originalHeader: 'Reliablity/Delivery Remarks' },
@@ -160,9 +164,9 @@ export const FORM_SPECS: Record<SurveyType, FormSpec> = {
     metaHeaders: ['ID', 'Start time', 'Completion time', 'Email', 'Name', 'Last modified time', 'Designation:', 'Department:', 'Subcontractor Name:'],
     metaFields: ['id', 'start', 'completion', 'email', 'name', 'lastModified', 'designation', 'department', 'company'],
     columns: [
-      { kind: 'text', col: 9, questionId: 'Q-SUB-01', questionNumber: 1, question: 'Project Name', questionCategory: 'General', originalHeader: 'Project Name:' },
-      { kind: 'text', col: 10, questionId: 'Q-SUB-02', questionNumber: 2, question: 'Products or Services', questionCategory: 'General', originalHeader: 'Products or Services:' },
-      { kind: 'text', col: 11, questionId: 'Q-SUB-03', questionNumber: 3, question: 'Project Duration', questionCategory: 'General', originalHeader: 'Project Duration (From To)' },
+      { kind: 'metadata', col: 9, questionId: 'Q-SUB-01', questionNumber: 1, question: 'Project Name', questionCategory: 'General', originalHeader: 'Project Name:' },
+      { kind: 'metadata', col: 10, questionId: 'Q-SUB-02', questionNumber: 2, question: 'Products or Services', questionCategory: 'General', originalHeader: 'Products or Services:' },
+      { kind: 'metadata', col: 11, questionId: 'Q-SUB-03', questionNumber: 3, question: 'Project Duration', questionCategory: 'General', originalHeader: 'Project Duration (From To)' },
 
       { kind: 'rating', col: 12, questionId: 'Q-SUB-04-a', questionNumber: 4, question: "Delivery / Project Timeliness - Except for circumstances beyond the subcontractor's control, tasks and deliverables were completed on time or ahead of the schedule in the contact.", questionCategory: 'Delivery', originalHeader: "a. Except for circumstances beyond the contractor's control, tasks and deliverables were completed on time or ahead of the schedule in the contact. ..." },
       { kind: 'rating', col: 13, questionId: 'Q-SUB-04-b', questionNumber: 4.1, question: 'Delivery / Project Timeliness - Delivers and use all resources required to the project and turnover all excess materials to MBS Project Manager.', questionCategory: 'Delivery', originalHeader: 'b. Delivers and use all resources required to the project and turnover all excess materials to MBS Project Manager Consist...' },
@@ -249,7 +253,7 @@ function buildRowResponses(cells: unknown[], spec: FormSpec, base: ResponseBase)
       question: col.question,
       questionCategory: col.questionCategory,
       rating: col.kind === 'rating' ? parseRatingCell(cells[col.col]) : 'N/A',
-      comment: col.kind === 'text' ? textCell(cells[col.col]) : '',
+      comment: col.kind === 'rating' ? '' : textCell(cells[col.col]),
     };
     byId.set(col.questionId, response);
     order.push(col.questionId);

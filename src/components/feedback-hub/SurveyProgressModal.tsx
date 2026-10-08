@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Clock, AlertTriangle, Users, BarChart3, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse } from '../../types/survey';
-import { submissionScores } from '../../utils/analytics';
+import { submissionCount, submissionScores } from '../../utils/analytics';
 import { formatCompositeScore } from '../../data/questionWeights';
 import { getSurveyCompletionSummary } from '../../utils/surveyCompletion';
 import { useModalEscape } from '../../hooks/useModalEscape';
@@ -47,7 +47,7 @@ export function SurveyProgressModal({
 
   const respondentsList = Array.from(uniqueRespondentsMap.values());
   const subScores = submissionScores(surveyResponses);
-  const totalCount = subScores.length;
+  const totalCount = submissionCount(surveyResponses);
 
   // Real target: the companies this survey is currently scoped to evaluate
   // (its "Modify Companies to Evaluate" selection, live against the Partner
@@ -60,8 +60,8 @@ export function SurveyProgressModal({
   const numericRatings = surveyResponses
     .map((r) => (typeof r.rating === 'number' ? r.rating : null))
     .filter((r): r is number => r !== null);
-  const partialScore = totalCount > 0
-    ? subScores.reduce((sum, s) => sum + s.score, 0) / totalCount
+  const partialScore = subScores.length > 0
+    ? subScores.reduce((sum, s) => sum + s.score, 0) / subScores.length
     : 0;
 
   return (
@@ -126,7 +126,7 @@ export function SurveyProgressModal({
                 <BarChart3 size={14} className="text-slate-400" />
               </div>
               <div className="mt-2 text-2xl font-bold text-amber-600 dark:text-amber-400">
-                {totalCount > 0 ? formatCompositeScore(survey.surveyType, partialScore).text : 'N/A'}
+                {subScores.length > 0 ? formatCompositeScore(survey.surveyType, partialScore).text : 'N/A'}
               </div>
               <p className="mt-1 text-[11px] text-slate-500">Based on {numericRatings.length} answer ratings</p>
             </div>

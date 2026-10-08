@@ -29,6 +29,7 @@ import {
   submissionScores,
   questionPerformance,
   getSurveyEvaluationCompanies,
+  hasAnsweredItem,
   computeRankScore,
 } from '../utils/analytics';
 import { computeCategoryRankSummary } from '../utils/categorySummary';
@@ -324,7 +325,7 @@ export function DashboardPage({
         r.respondentEmail === userEmail && 
         r.surveyType === cat
       );
-      const evaluatedCompanies = new Set(userResponses.map(r => r.company));
+      const evaluatedCompanies = new Set(userResponses.filter(hasAnsweredItem).map(r => r.company));
       const answered = evaluatedCompanies.size;
       
       const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
@@ -347,7 +348,7 @@ export function DashboardPage({
   const companyAverages = useMemo(() => {
     if (!effectiveHistoryResponses.length || !partnerCompanies.length) return [];
 
-    const companyMap: Record<string, { name: string; sum: number; count: number; type: string }> = {};
+    const companyMap: Record<string, { name: string; sum: number; scoreCount: number; type: string }> = {};
 
     const typeMap = new Map<string, string>();
     partnerCompanies.forEach((c) => typeMap.set(c.name, c.type));
@@ -355,30 +356,30 @@ export function DashboardPage({
     submissionScores(effectiveHistoryResponses).forEach((submission) => {
       if (!companyMap[submission.company]) {
         const type = typeMap.get(submission.company) || submission.surveyType;
-        companyMap[submission.company] = { name: submission.company, sum: 0, count: 0, type };
+        companyMap[submission.company] = { name: submission.company, sum: 0, scoreCount: 0, type };
       }
       companyMap[submission.company].sum += submission.score;
-      companyMap[submission.company].count += 1;
+      companyMap[submission.company].scoreCount += 1;
     });
 
     partnerCompanies.forEach((c) => {
       if (!companyMap[c.name]) {
-        companyMap[c.name] = { name: c.name, sum: 0, count: 0, type: c.type };
+        companyMap[c.name] = { name: c.name, sum: 0, scoreCount: 0, type: c.type };
       }
     });
 
     const evaluated = Object.values(companyMap)
+      .filter((c) => c.scoreCount > 0)
       .map((c) => {
-        const average = c.count > 0 ? c.sum / c.count : 0;
+        const average = c.sum / c.scoreCount;
         return {
           name: c.name,
           average: (average / 20), // out of 5
           scorePercentage: average, // out of 100
-          count: c.count,
+          count: submissionCount(effectiveHistoryResponses.filter((response) => response.company === c.name && response.surveyType === c.type)),
           type: c.type,
         };
       })
-      .filter((c) => c.count > 0);
 
     // Rank by a volume-weighted score, not the raw average, so a company
     // with a single (possibly lucky) evaluation can't outrank one with many
@@ -437,8 +438,15 @@ export function DashboardPage({
 
   // 4. Submissions Feed
   const recentSubmissions = useMemo(() => {
-    const submissions = submissionScores(allResponses);
-    return [...submissions]
+    const scoresByResponseId = new Map(submissionScores(allResponses).map((submission) => [submission.responseId, submission.score]));
+    const submissionsByResponseId = new Map<string, SurveyResponse>();
+    allResponses.forEach((response) => {
+      if (hasAnsweredItem(response) && !submissionsByResponseId.has(response.responseId)) {
+        submissionsByResponseId.set(response.responseId, response);
+      }
+    });
+    return [...submissionsByResponseId.values()]
+      .map((response) => ({ ...response, score: scoresByResponseId.get(response.responseId) ?? null }))
       .sort((a, b) => new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime())
       .slice(0, 5);
   }, [allResponses]);
@@ -919,7 +927,7 @@ export function DashboardPage({
                                   </p>
                                 </div>
                                 <span className="shrink-0 font-bold text-slate-900 dark:text-white">
-                                  {formatCompositeScore(resp.surveyType, resp.score).text}
+                                  {typeof resp.score === 'number' ? formatCompositeScore(resp.surveyType, resp.score).text : 'N/A'}
                                 </span>
                               </div>
                             );

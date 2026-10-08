@@ -92,6 +92,8 @@ Each survey type's questions are grouped into **5 scored categories** plus a fix
 - **Ranking:** Analytics offers Pure Average (the supplier's raw average) and Bayesian volume-weighted scoring: `(R × v + C × m) / (v + m)`, where `C` is the unweighted mean of peer company averages and `m` is the median peer response count (minimum 3) for the same partner type and reporting scope.
 - **Renaming vs. rubric:** Admins can **rename** a category's display label via the **Categories Manager** without ever touching the underlying point values — display names are translated by slot position, keeping the validated rubric intact.
 
+- **Counted forms:** A unique submission counts when at least one evaluation rating or designated remark has a real answer. Numeric zero counts; blank, N/A, none, dash, and nil markers do not. Metadata such as Period Covered never counts. Blank/N/A-only forms are excluded from totals and completion counts; score averages still use numeric ratings.
+
 ### 3.3 Roles, Designations & Departments (RBAC)
 
 Access is **computed**, not hand-assigned per user. Every account has three attributes, and its default access falls out of their combination (`src/utils/rbac.ts`):

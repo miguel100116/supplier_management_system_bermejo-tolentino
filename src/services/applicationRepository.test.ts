@@ -3,10 +3,13 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { SurveyResponse } from '../types/survey';
 import {
+  advanceRealtimeSyncState,
   APPLICATION_RECORD_TYPES,
   batchApplicationRecordPageRanges,
   applicationRecordPageRanges,
   incompleteApplicationRecordPageRange,
+  mergeApplicationRecordsById,
+  nextApplicationRecordPageBatch,
   parsePersistedProfile,
   surveyResponseRecordId,
 } from './applicationRepository';
@@ -66,6 +69,37 @@ test('fetches the documented response dataset in one bounded follow-up page batc
   assert.deepEqual(batches.flat(), remainingPages);
   assert.deepEqual(batchApplicationRecordPageRanges(remainingPages, 5).map((batch) => batch.length), [5, 1]);
   assert.deepEqual(batchApplicationRecordPageRanges(remainingPages, 0), []);
+});
+
+test('discovers later application-record pages in bounded parallel batches', () => {
+  assert.deepEqual(nextApplicationRecordPageBatch(0), Array.from({ length: 6 }, (_, index) => [index * 1_000, index * 1_000 + 999]));
+  assert.deepEqual(nextApplicationRecordPageBatch(1_000, 500, 3), [[1_000, 1_499], [1_500, 1_999], [2_000, 2_499]]);
+  assert.deepEqual(nextApplicationRecordPageBatch(-1), []);
+});
+
+test('merges changed application records and removes changed IDs absent from the RLS result', () => {
+  const oldResponse = { ...validApplicationRecords.survey_response.payload as SurveyResponse };
+  const keepResponse = { ...oldResponse, responseId: 'response-2' };
+  const updatedResponse = { ...oldResponse, rating: 5 };
+  const merged = mergeApplicationRecordsById(
+    [oldResponse, keepResponse],
+    [updatedResponse],
+    ['response-1:q1', 'deleted-response:q1'],
+    surveyResponseRecordId,
+  );
+
+  assert.deepEqual(merged, [updatedResponse, keepResponse]);
+});
+
+test('shows the realtime warning only after three consecutive failures and clears it on reconnect', () => {
+  let state = { consecutiveFailures: 0, warningVisible: false };
+  state = advanceRealtimeSyncState(state, 'CHANNEL_ERROR');
+  assert.deepEqual(state, { consecutiveFailures: 1, warningVisible: false });
+  state = advanceRealtimeSyncState(state, 'TIMED_OUT');
+  assert.deepEqual(state, { consecutiveFailures: 2, warningVisible: false });
+  state = advanceRealtimeSyncState(state, 'CHANNEL_ERROR');
+  assert.deepEqual(state, { consecutiveFailures: 3, warningVisible: true });
+  assert.deepEqual(advanceRealtimeSyncState(state, 'SUBSCRIBED'), { consecutiveFailures: 0, warningVisible: false });
 });
 
 test('keeps application-record page requests within the configured Supabase API row limit', () => {

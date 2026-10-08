@@ -14,6 +14,7 @@ import {
 import { SlideDeck } from '../components/SlideDeck';
 import { StateMessage } from '../components/StateMessage';
 import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
+import { submissionCount } from '../utils/analytics';
 import {
   buildSlides,
   DATE_RANGE_OPTIONS,
@@ -257,7 +258,7 @@ export function PresentPage({ responses, partnerCompanies }: PresentPageProps) {
             {isCustomInvalid
               ? 'Fix the custom date range above to continue.'
               : dateFiltered.length > 0
-              ? `Ready to generate — ${dateFiltered.length} responses in this window.`
+              ? `Ready to generate — ${submissionCount(dateFiltered)} answered forms in this window.`
               : 'No responses match this selection yet.'}
           </p>
           <p className="text-xs text-slate-400">

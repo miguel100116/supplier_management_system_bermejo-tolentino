@@ -311,8 +311,8 @@ function renderSlide(pres: PptxGenJS, slide: Slide, pdfMaxRating: number) {
         [
           {
             name: 'Average rating',
-            labels: slide.data.map((d) => d.month),
-            values: slide.data.map((d) => Number(d.average.toFixed(2))),
+            labels: slide.data.filter((d) => d.average !== null).map((d) => d.month),
+            values: slide.data.filter((d) => d.average !== null).map((d) => Number(d.average!.toFixed(2))),
           },
         ],
         {

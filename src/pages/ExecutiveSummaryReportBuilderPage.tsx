@@ -42,6 +42,7 @@ import { getQuestionMaxPoints, surveyTypeDisplayLabel, formatCompositeScore, get
 import { isOverallCategory } from '../data/questionCategories';
 import {
   formatNumber,
+  hasAnsweredItem,
   getKpiSummary,
   getCompanyPerformance,
   averageBySurveyType,
@@ -237,7 +238,7 @@ export function ExecutiveSummaryReportBuilderPage({
         .filter((c) => c.type === type && !c.isArchived)
         .map((c) => c.name);
       const evaluatedFromResponses = Array.from(
-        new Set(responses.filter((r) => r.surveyType === type).map((r) => r.company))
+        new Set(responses.filter((r) => r.surveyType === type && hasAnsweredItem(r)).map((r) => r.company))
       );
       map[type] = Array.from(new Set([...companiesForType, ...evaluatedFromResponses])).sort();
     });

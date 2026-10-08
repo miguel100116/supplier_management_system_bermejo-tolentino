@@ -6,7 +6,7 @@ import { PageDescription } from '../components/PageDescription';
 import { StateMessage } from '../components/StateMessage';
 import { formatCompositeScore, getBand } from '../data/questionWeights';
 import { ArchiveSeries, FilterState, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
-import { formatNumber, monthlyTrend, questionPerformance, responseVolume, seriesTrend, submissionCount, submissionScores, yearlyTrend } from '../utils/analytics';
+import { formatNumber, hasAnsweredItem, monthlyTrend, questionPerformance, responseVolume, seriesTrend, submissionCount, submissionScores, yearlyTrend } from '../utils/analytics';
 import { computeCompanyComposite, RankingMode } from '../utils/scoring';
 import { getAnalyticsCompanyRankings, paginateAnalyticsItems, paginateCompanyRankings } from '../features/analytics/domain/rankings';
 import { QuestionPerformanceRow } from '../features/analytics/components/QuestionPerformanceRow';
@@ -99,7 +99,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
       startIndex: paginatedCompanies.startIndex + leaderboardSplitIndex,
     },
   ].filter((column) => column.items.length > 0);
-  const evaluatedNames = useMemo(() => new Set(responses.map((response) => response.companyId || `${response.surveyType}:${response.company}`)), [responses]);
+  const evaluatedNames = useMemo(() => new Set(responses.filter(hasAnsweredItem).map((response) => response.companyId || `${response.surveyType}:${response.company}`)), [responses]);
   const eligiblePartners = useMemo(() => partnerCompanies.filter((company) => !company.isArchived && company.type !== 'Uncategorized' && activeSurveyTypes.includes(company.type)), [partnerCompanies, activeSurveyTypes]);
   const evaluatedPartnerCount = eligiblePartners.length ? eligiblePartners.filter((company) => evaluatedNames.has(company.id) || evaluatedNames.has(`${company.type}:${company.name}`)).length : visibleCompanies.length;
   const partnerDenominator = eligiblePartners.length || visibleCompanies.length;
@@ -109,7 +109,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
     () => paginateAnalyticsItems(questionData, questionPerformancePage),
     [questionData, questionPerformancePage],
   );
-  const trendData = useMemo<Array<{ key: string; average: number; responses: number }>>(() => {
+  const trendData = useMemo<Array<{ key: string; average: number | null; responses: number }>>(() => {
     if (trendGranularity === 'yearly') return yearlyTrend(responses).map((item) => ({ key: item.year, ...item }));
     if (trendGranularity === 'series') return seriesTrend(responses, archiveSeries).map((item) => ({ key: item.label, ...item }));
     return monthlyTrend(responses).map((item) => ({ key: item.month, ...item }));
@@ -161,7 +161,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
 
       <section aria-label="Analytics summary" className="grid gap-4 md:grid-cols-3">
         <KpiCard label="Overall average score" value={`${formatNumber(averageScore, 0)}/100`} detail={`${scoredSubmissions.length} scored submissions in this view`} tooltip="The simple average of normalized submission scores in the selected reporting scope." />
-        <KpiCard label="Evaluations" value={String(totalSubmissions)} detail="Distinct submitted evaluation forms" tooltip="Counted by unique response ID, not by individual question answers." />
+        <KpiCard label="Evaluations" value={String(totalSubmissions)} detail="Distinct answered evaluation forms" tooltip="A unique response ID counts when at least one item has a nonblank answer other than N/A." />
         <KpiCard label="Partners evaluated" value={`${evaluatedPartnerCount}/${partnerDenominator}`} detail={partnerDenominator ? `${Math.round((evaluatedPartnerCount / partnerDenominator) * 100)}% coverage` : 'No eligible partners'} tooltip="Active eligible partners with at least one visible evaluation, compared with the active eligible partner registry." />
       </section>
 
@@ -233,7 +233,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
         <div className="grid gap-4 xl:grid-cols-2">
           <article className={`${panelClass} p-4 sm:p-5`}>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-bold">Rating trend</h3><p className="mt-1 text-xs text-slate-500">Average score and evaluation volume over time</p></div><select value={trendGranularity} onChange={(event) => setTrendGranularity(event.target.value as typeof trendGranularity)} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="series">Survey period</option></select></div>
-            <div className="h-72"><ResponsiveContainer width="100%" height="100%"><LineChart data={trendData} margin={{ top: 8, right: 12, left: -20, bottom: 8 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="key" tick={{ fontSize: 10 }} /><YAxis domain={[0, 100]} tick={{ fontSize: 10 }} /><Tooltip /><Line type="monotone" dataKey="average" stroke="#0078a8" strokeWidth={3} dot={{ r: 3 }} /></LineChart></ResponsiveContainer></div>
+            <div className="h-72"><ResponsiveContainer width="100%" height="100%"><LineChart data={trendData} margin={{ top: 8, right: 12, left: -20, bottom: 8 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="key" tick={{ fontSize: 10 }} /><YAxis yAxisId="score" domain={[0, 100]} tick={{ fontSize: 10 }} /><YAxis yAxisId="forms" orientation="right" allowDecimals={false} tick={{ fontSize: 10 }} /><Tooltip /><Line yAxisId="score" type="monotone" dataKey="average" name="Average Score" stroke="#0078a8" strokeWidth={3} dot={{ r: 3 }} /><Line yAxisId="forms" type="monotone" dataKey="responses" name="Counted Forms" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} /></LineChart></ResponsiveContainer></div>
           </article>
           <article className={`${panelClass} p-4 sm:p-5`}>
             <div className="mb-4"><h3 className="text-sm font-bold">Response volume</h3><p className="mt-1 text-xs text-slate-500">Submitted evaluations by stakeholder category</p></div>

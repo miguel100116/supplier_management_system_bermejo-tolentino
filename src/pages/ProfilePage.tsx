@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Award, CalendarClock, ClipboardCheck, LogOut, Mail, MapPin, Moon, Sun, User } from 'lucide-react';
 import { SurveyResponse } from '../types/survey';
+import { hasAnsweredItem, submissionCount } from '../utils/analytics';
 
 interface ProfilePageProps {
   email: string;
@@ -49,7 +50,8 @@ export function ProfilePage({
     return Object.values(groups).sort((a, b) => b[0].submissionDate.localeCompare(a[0].submissionDate));
   }, [responses, email]);
 
-  const companiesCovered = useMemo(() => new Set(mySubmissions.map((s) => s[0].company)).size, [mySubmissions]);
+  const countableSubmissions = useMemo(() => mySubmissions.filter((group) => group.some(hasAnsweredItem)), [mySubmissions]);
+  const companiesCovered = useMemo(() => new Set(countableSubmissions.map((s) => s[0].company)).size, [countableSubmissions]);
   const lastSubmission = mySubmissions[0]?.[0]?.submissionDate;
   const recentSubmissions = mySubmissions.slice(0, 4);
 
@@ -110,7 +112,7 @@ export function ProfilePage({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 px-4 py-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Evaluations</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{mySubmissions.length}</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{submissionCount(mySubmissions.flat())}</p>
           </div>
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 px-4 py-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Companies Covered</p>

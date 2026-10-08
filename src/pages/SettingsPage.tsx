@@ -121,7 +121,7 @@ export function SettingsPage({
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 px-4 py-3">
             <div className="flex items-center gap-1.5 text-slate-400">
               <ClipboardList size={13} />
-              <p className="text-[10px] font-bold uppercase tracking-wider">Responses Logged</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider">Counted Forms</p>
             </div>
             <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{totalResponsesCount}</p>
           </div>
