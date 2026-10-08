@@ -21,10 +21,13 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 import { getSupabaseSessionEmail } from '../services/supabasePasswordAuth';
 import {
   APPLICATION_RECORD_CHANGED_EVENT,
+  APPLICATION_PROFILES_CHANGED_EVENT,
   type ApplicationRecordType,
   deleteApplicationRecords,
   loadApplicationRecords,
+  loadApplicationRecordsByIds,
   loadNotificationReadState,
+  mergeApplicationRecordsById,
   replaceApplicationRecords,
   renewPartnerDocument,
   saveNotificationReadState,
@@ -380,6 +383,8 @@ function decompressResponses(compressed: any[]): SurveyResponse[] {
 
 export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?: string | null, isAdmin?: boolean) {
   const [responses, setResponses] = useState<SurveyResponse[]>([]);
+  const responsesRef = useRef(responses);
+  responsesRef.current = responses;
   const [surveys, setSurveys] = useState<CustomForm[]>([]);
   const [partnerCompanies, setPartnerCompanies] = useState<PartnerCompany[]>([]);
   const [categoryLabels, setCategoryLabels] = useState<Record<SurveyType, string[]>>(() => getStoredCategoryLabels());
@@ -1362,6 +1367,9 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     let cancelled = false;
     const refreshTimers = new Map<ApplicationRecordType, ReturnType<typeof setTimeout>>();
     let activeBackgroundRefreshes = 0;
+    let pendingSurveyResponseIds = new Set<string>();
+    let refreshAllSurveyResponses = false;
+    let hasHydratedResponses = false;
 
     const applyNotificationReadState = (remoteNotificationState: NotificationReadState | null) => {
       const cachedNotificationState = loadCachedNotificationReadState(currentUserEmail);
@@ -1397,6 +1405,8 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       const normalizedResponses = storedResponses.map(normalizeSurveyResponse);
       setPartnerCompanies(normalizedCompanies);
       setSurveys(normalizedSurveys);
+      responsesRef.current = normalizedResponses;
+      hasHydratedResponses = true;
       setResponses(normalizedResponses);
       safeSetItem(PARTNER_COMPANIES_STORAGE_KEY, JSON.stringify(normalizedCompanies));
       safeSetItem('survey_analytics_surveys_v6', JSON.stringify(normalizedSurveys));
@@ -1486,12 +1496,28 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
           return;
         }
         case 'survey_response': {
-          const storedResponses = await loadApplicationRecords<SurveyResponse>('survey_response');
+          const recordIds = [...pendingSurveyResponseIds];
+          const shouldRefreshAll = refreshAllSurveyResponses || recordIds.length === 0 || !hasHydratedResponses;
+          pendingSurveyResponseIds = new Set();
+          refreshAllSurveyResponses = false;
+          const storedResponses = shouldRefreshAll
+            ? await loadApplicationRecords<SurveyResponse>('survey_response')
+            : await loadApplicationRecordsByIds<SurveyResponse>('survey_response', recordIds);
           if (cancelled) return;
           const normalizedResponses = storedResponses.map(normalizeSurveyResponse);
-          setResponses(normalizedResponses);
-          setNotifications(groupResponsesToNotifications(normalizedResponses).slice(0, INITIAL_NOTIFICATION_SEED));
-          safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(normalizedResponses)));
+          const nextResponses = shouldRefreshAll
+            ? normalizedResponses
+            : mergeApplicationRecordsById(
+              responsesRef.current,
+              normalizedResponses,
+              recordIds,
+              surveyResponseRecordId,
+            );
+          responsesRef.current = nextResponses;
+          hasHydratedResponses = true;
+          setResponses(nextResponses);
+          setNotifications(groupResponsesToNotifications(nextResponses).slice(0, INITIAL_NOTIFICATION_SEED));
+          safeSetItem('survey_analytics_responses_v6', JSON.stringify(compressResponses(nextResponses)));
           return;
         }
         case 'archive_series': {
@@ -1555,11 +1581,24 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
     };
 
     const refreshChangedRecord = (event: Event) => {
-      const recordType = (event as CustomEvent<{ recordType?: ApplicationRecordType }>).detail?.recordType;
+      const detail = (event as CustomEvent<{ recordType?: ApplicationRecordType; recordId?: string }>).detail;
+      const recordType = detail?.recordType;
       if (!recordType || ![
         'partner_company', 'survey', 'survey_response', 'archive_series',
         'category_labels', 'notification_read_state',
       ].includes(recordType)) return;
+      if (recordType === 'survey_response') {
+        if (detail.recordId && !refreshAllSurveyResponses) {
+          pendingSurveyResponseIds.add(detail.recordId);
+          if (pendingSurveyResponseIds.size > 100) {
+            pendingSurveyResponseIds = new Set();
+            refreshAllSurveyResponses = true;
+          }
+        } else {
+          pendingSurveyResponseIds = new Set();
+          refreshAllSurveyResponses = true;
+        }
+      }
       const existingTimer = refreshTimers.get(recordType);
       if (existingTimer) clearTimeout(existingTimer);
       refreshTimers.set(recordType, setTimeout(() => {
@@ -1568,15 +1607,25 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       }, 100));
     };
 
+    const refreshResponsesAfterProfileChange = (event: Event) => {
+      const changedEmail = (event as CustomEvent<{ email?: string }>).detail?.email?.trim().toLowerCase();
+      if (changedEmail && changedEmail !== currentUserEmail.trim().toLowerCase()) return;
+      pendingSurveyResponseIds = new Set();
+      refreshAllSurveyResponses = true;
+      runHydration(true, 'survey_response');
+    };
+
     setIsRefreshing(false);
     runHydration();
     window.addEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
+    window.addEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshResponsesAfterProfileChange);
 
     return () => {
       cancelled = true;
       refreshTimers.forEach((timer) => clearTimeout(timer));
       refreshTimers.clear();
       window.removeEventListener(APPLICATION_RECORD_CHANGED_EVENT, refreshChangedRecord);
+      window.removeEventListener(APPLICATION_PROFILES_CHANGED_EVENT, refreshResponsesAfterProfileChange);
     };
   }, [currentUserEmail, isAdmin]);
 

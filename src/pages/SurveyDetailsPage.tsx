@@ -4,7 +4,7 @@ import { ArrowLeft, Trash, Calendar, CalendarClock, Users, ClipboardCheck, Alert
 import { CustomForm, SurveyResponse, PartnerCompany } from '../types/survey';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
 import { SurveyPreviewModal } from '../components/SurveyPreviewModal';
-import { formatNumber, getSurveyEvaluationCompanies, scoredResponses, submissionScores } from '../utils/analytics';
+import { formatNumber, getSurveyEvaluationCompanies, hasAnsweredItem, scoredResponses, submissionCount, submissionScores } from '../utils/analytics';
 import { isScoredQuestion, getQuestionMaxPoints, formatCompositeScore } from '../data/questionWeights';
 import { TableFilterBar } from '../components/TableFilterBar';
 import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
@@ -43,7 +43,7 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
     const normalizedUserEmail = userEmail.trim().toLowerCase();
     const evaluatedNames = new Set<string>();
     responses.forEach((resp: any) => {
-      if (resp.respondentEmail && resp.respondentEmail.trim().toLowerCase() === normalizedUserEmail) {
+      if (hasAnsweredItem(resp) && resp.surveyType === survey.surveyType && resp.respondentEmail && resp.respondentEmail.trim().toLowerCase() === normalizedUserEmail) {
         evaluatedNames.add(resp.company.trim().toLowerCase());
       }
     });
@@ -126,7 +126,7 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
     const avg = scores.length ? scores.reduce((sum, item) => sum + item.score, 0) / scores.length : 0;
 
     return {
-      total: submissions.length,
+      total: submissionCount(surveyResponses),
       avg: Number(avg.toFixed(2)),
       percentage: Math.round(avg),
     };
@@ -281,7 +281,7 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
             
             <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2">
               <div className="rounded-lg bg-slate-50 p-4 text-center dark:bg-slate-900/50">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Submissions</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Counted Submissions</p>
                 <p className="mt-1 break-words text-2xl font-bold tabular-nums text-slate-800 dark:text-white min-[420px]:text-3xl">{stats.total}</p>
               </div>
 
@@ -312,7 +312,7 @@ export function SurveyDetailsPage({ survey, responses, partnerCompanies = [], us
       {/* Submissions Section */}
       <div className="panel space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
-          <h3 className="text-base font-bold text-slate-800 dark:text-white">Recent Form Submissions ({submissions.length})</h3>
+          <h3 className="text-base font-bold text-slate-800 dark:text-white">Recent Form Submissions ({stats.total} counted; {submissions.length} submitted)</h3>
           <span className="text-xs text-slate-400">Source: Interactive Submissions</span>
         </div>
 

@@ -16,6 +16,7 @@ import { createAccount } from './features/account-management/services/createAcco
 import {
   APPLICATION_PROFILES_CHANGED_EVENT,
   APPLICATION_RECORD_CHANGED_EVENT,
+  APPLICATION_REALTIME_STATUS_EVENT,
   type ApplicationRecordType,
   loadApplicationRecords,
   loadProfiles,
@@ -31,7 +32,7 @@ import { getVisibleSurveyForms } from './features/evaluations/domain/surveySelec
 import type { SurveyFillerHandle } from './pages/SurveyFillerPage';
 import { logAdminActivity } from './utils/adminActivityLog';
 import { useSurveyData } from './hooks/useSurveyData';
-import { applyFilters, initialFilters } from './utils/analytics';
+import { applyFilters, initialFilters, submissionCount } from './utils/analytics';
 import { FilterState, SurveyType, CustomForm, SurveyResponse } from './types/survey';
 import { PageModuleKey, getDefaultPermissions, getEffectiveSurveyTypes, hasPageAccess, getDepartmentDefaultPermissions } from './utils/rbac';
 import { clearSessionActivity, recordSessionActivity, useIdleSessionTimeout } from './hooks/useIdleSessionTimeout';
@@ -176,6 +177,7 @@ const allSurveyTypes: SurveyType[] = ['Courier', 'Supplier', 'Subcontractor'];
 
 export default function App() {
   const [accountPersistenceError, setAccountPersistenceError] = useState<string | null>(null);
+  const [realtimeSyncUnavailable, setRealtimeSyncUnavailable] = useState(false);
   const [account, setAccount] = useState<string | null>(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -910,6 +912,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const handleRealtimeStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{ status?: string; warningVisible?: boolean }>).detail;
+      if (detail?.status === 'SUBSCRIBED') {
+        setRealtimeSyncUnavailable(false);
+      } else if (detail?.warningVisible) {
+        setRealtimeSyncUnavailable(true);
+      }
+    };
+    window.addEventListener(APPLICATION_REALTIME_STATUS_EVENT, handleRealtimeStatus);
+    return () => window.removeEventListener(APPLICATION_REALTIME_STATUS_EVENT, handleRealtimeStatus);
+  }, []);
+
+  useEffect(() => {
     if (!isSupabaseConfigured || !account || !profile) return;
     const canUseFeedbackHub = profile.role === 'Admin' || profile.designation !== 'Rank & File';
     const access = { userEmail: account, isAdmin, canUseFeedbackHub };
@@ -1162,7 +1177,7 @@ export default function App() {
         onLogout={handleLogout}
         accountsCount={accounts.length}
         activePartnerCompaniesCount={partnerCompanies.filter((c) => !c.isArchived).length}
-        totalResponsesCount={responses.length}
+        totalResponsesCount={submissionCount(responses)}
       />
     ),
     notifications: isAdmin ? (
@@ -1375,6 +1390,11 @@ export default function App() {
         }
       >
         <div className="space-y-5">
+          {realtimeSyncUnavailable && (
+            <div role="status" aria-live="polite" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Live Supabase synchronization is unavailable after repeated connection failures. It will retry automatically.
+            </div>
+          )}
           {accountPersistenceError && (
             <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {accountPersistenceError.includes('quarantined during refresh')
@@ -1614,7 +1634,7 @@ export default function App() {
                     onLogout={handleLogout}
                     accountsCount={accounts.length}
                     activePartnerCompaniesCount={partnerCompanies.filter((company) => !company.isArchived).length}
-                    totalResponsesCount={responses.length}
+                    totalResponsesCount={submissionCount(responses)}
                   />
                 ) : (
                   <ProfilePage

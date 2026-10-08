@@ -16,7 +16,7 @@ import Papa from 'papaparse';
 import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import { getQuestionMaxPoints, surveyTypeDisplayLabel } from '../data/questionWeights';
 import { isOverallCategory } from '../data/questionCategories';
-import { formatNumber, numericRating, averageRating } from '../utils/analytics';
+import { formatNumber, hasAnsweredItem, numericRating, averageRating } from '../utils/analytics';
 
 interface QuestionReportBuilderPageProps {
   responses: SurveyResponse[];
@@ -91,7 +91,7 @@ export function QuestionReportBuilderPage({ responses, partnerCompanies, canExpo
         .filter((c) => c.type === type && !c.isArchived)
         .map((c) => c.name);
       const evaluatedFromResponses = Array.from(
-        new Set(responses.filter((r) => r.surveyType === type).map((r) => r.company))
+        new Set(responses.filter((r) => r.surveyType === type && hasAnsweredItem(r)).map((r) => r.company))
       );
       map[type] = Array.from(new Set([...companiesForType, ...evaluatedFromResponses])).sort();
     });

@@ -5,6 +5,7 @@ import { formatCompositeScore } from '../../../data/questionWeights';
 import { useModalEscape } from '../../../hooks/useModalEscape';
 import { getAnalyticsCompanyRankings } from '../domain/rankings';
 import { RankingMode } from '../../../utils/scoring';
+import { hasAnsweredItem } from '../../../utils/analytics';
 
 interface ArchivedCompanyRankingsProps {
   responses: SurveyResponse[];
@@ -69,7 +70,7 @@ export function ArchivedCompanyRankings({ responses, archiveSeries, rankingMode 
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {periods.map((period) => {
-            const companyCount = new Set(period.responses.map((response) => response.companyId || response.company)).size;
+            const companyCount = new Set(period.responses.filter(hasAnsweredItem).map((response) => response.companyId || response.company)).size;
             return (
               <button
                 key={period.id}

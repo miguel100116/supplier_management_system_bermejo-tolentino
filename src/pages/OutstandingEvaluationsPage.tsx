@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
-import { getSurveyEvaluationCompanies } from '../utils/analytics';
+import { getSurveyEvaluationCompanies, hasAnsweredItem } from '../utils/analytics';
 import { StateMessage } from '../components/StateMessage';
 
 interface OutstandingEvaluationsPageProps {
@@ -30,7 +30,7 @@ export function OutstandingEvaluationsPage({ surveys, partnerCompanies, response
       });
       const allCompanies = Array.from(companyMap.values());
 
-      const evaluatedNames = new Set(responses.filter((r) => r.surveyType === type).map((r) => r.company));
+      const evaluatedNames = new Set(responses.filter((r) => r.surveyType === type && hasAnsweredItem(r)).map((r) => r.company));
       const outstanding = allCompanies.filter((c) => !evaluatedNames.has(c.name));
 
       const total = allCompanies.length;

@@ -64,7 +64,73 @@ export const initialFilters: FilterState = {
 };
 
 export function numericRating(rating: Rating): number | null {
-  return rating === 'N/A' ? null : rating;
+  return typeof rating === 'number' && Number.isFinite(rating) ? rating : null;
+}
+
+const METADATA_QUESTION_IDS: Record<SurveyType, ReadonlySet<string>> = {
+  Supplier: new Set(['Q-SUP-03']),
+  Courier: new Set(['Q-CON-03']),
+  Subcontractor: new Set(['Q-SUB-01', 'Q-SUB-02', 'Q-SUB-03']),
+};
+
+// Imported Subcontractor section remarks are attached to their matrix rating
+// rows, so these scored question IDs can also carry a real remark answer.
+const MATRIX_REMARK_QUESTION_IDS = new Set([
+  'Q-SUB-04-a', 'Q-SUB-04-b',
+  'Q-SUB-06-a', 'Q-SUB-06-b', 'Q-SUB-06-c',
+  'Q-SUB-08-a', 'Q-SUB-08-b', 'Q-SUB-08-c',
+  'Q-SUB-10-a', 'Q-SUB-10-b', 'Q-SUB-10-c', 'Q-SUB-10-d', 'Q-SUB-10-e',
+  'Q-SUB-12-a', 'Q-SUB-12-b', 'Q-SUB-12-c',
+]);
+
+function isMetadataQuestion(response: SurveyResponse): boolean {
+  return METADATA_QUESTION_IDS[response.surveyType].has(response.questionId);
+}
+
+function normalizeAnswerMarker(value: string): string {
+  return value.trim().toLowerCase().replace(/[.\s]/g, '');
+}
+
+const NO_ANSWER_MARKERS = new Set([
+  '',
+  'n/a',
+  'na',
+  'n/a(notapplicable)',
+  'notapplicable',
+  'none',
+  '-',
+  'nil',
+]);
+
+function isNoAnswerMarker(value: string): boolean {
+  return NO_ANSWER_MARKERS.has(normalizeAnswerMarker(value));
+}
+
+function isRealRating(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'string' || isNoAnswerMarker(value)) return false;
+  return Number.isFinite(Number(value.trim()));
+}
+
+function isMeaningfulRemark(value: string): boolean {
+  return !isNoAnswerMarker(value);
+}
+
+/**
+ * A response row represents an item in a submitted form. Count real ratings
+ * and meaningful remarks; metadata items and common no-answer markers never
+ * make a submission countable.
+ */
+export function hasAnsweredItem(response: SurveyResponse): boolean {
+  if (isMetadataQuestion(response)) return false;
+  if (isRealRating(response.rating)) return true;
+  if (
+    isScoredQuestion(response.surveyType, response.questionId) &&
+    !(response.surveyType === 'Subcontractor' && MATRIX_REMARK_QUESTION_IDS.has(response.questionId))
+  ) return false;
+  const comment = typeof response.comment === 'string' ? response.comment.trim() : '';
+  const primaryAnswer = comment.split(/\s*\|\s*Comment detail:/i, 1)[0].trim();
+  return isMeaningfulRemark(primaryAnswer);
 }
 
 export type CompletionStatus = 'not-started' | 'in-progress' | 'completed' | 'no-companies';
@@ -216,8 +282,9 @@ export function submissionScores(responses: SurveyResponse[]) {
     groups.set(key, current);
   });
 
-  return [...groups.values()].map((item) => ({
+  return [...groups.entries()].map(([responseId, item]) => ({
     ...item,
+    responseId,
     score: item.possible > 0 ? Math.min(100, Math.max(0, (item.earned / item.possible) * 100)) : 0,
   }));
 }
@@ -246,7 +313,21 @@ export function computeRankScore(score: number, count: number, peers: { score: n
 }
 
 export function submissionCount(responses: SurveyResponse[]) {
-  return new Set(responses.map(getSubmissionKey)).size;
+  return new Set(responses.filter(hasAnsweredItem).map(getSubmissionKey)).size;
+}
+
+function groupAnsweredResponses(
+  responses: SurveyResponse[],
+  getGroupKey: (response: SurveyResponse) => string | undefined,
+): Map<string, SurveyResponse[]> {
+  const groups = new Map<string, SurveyResponse[]>();
+  responses.forEach((response) => {
+    if (!hasAnsweredItem(response)) return;
+    const key = getGroupKey(response);
+    if (key === undefined) return;
+    groups.set(key, [...(groups.get(key) ?? []), response]);
+  });
+  return groups;
 }
 
 export function scoredResponses(responses: SurveyResponse[]) {
@@ -313,19 +394,19 @@ export function getKpiSummary(responses: SurveyResponse[]): KpiSummary {
 
 export function getCompanyPerformance(responses: SurveyResponse[]) {
   const scores = submissionScores(responses);
-  const companyMap = new Map<string, { totalScore: number; count: number; surveyType: SurveyType }>();
+  const companyMap = new Map<string, { totalScore: number; scoreCount: number; surveyType: SurveyType }>();
 
   scores.forEach(item => {
-    const current = companyMap.get(item.company) || { totalScore: 0, count: 0, surveyType: item.surveyType };
+    const current = companyMap.get(item.company) || { totalScore: 0, scoreCount: 0, surveyType: item.surveyType };
     current.totalScore += item.score;
-    current.count += 1;
+    current.scoreCount += 1;
     companyMap.set(item.company, current);
   });
 
   const companyAverages = Array.from(companyMap.entries()).map(([company, data]) => ({
     company,
-    average: data.totalScore / data.count,
-    evaluations: data.count,
+    average: data.totalScore / data.scoreCount,
+    evaluations: submissionCount(responses.filter((response) => response.company === company && response.surveyType === data.surveyType)),
     surveyType: data.surveyType,
   }));
 
@@ -368,35 +449,37 @@ export function averageBySurveyType(responses: SurveyResponse[], types: SurveyTy
 }
 
 export function monthlyTrend(responses: SurveyResponse[]) {
-  const groups = new Map<string, ReturnType<typeof submissionScores>>();
-  submissionScores(responses).forEach((submission) => {
-    const month = submission.submissionDate.slice(0, 7);
-    groups.set(month, [...(groups.get(month) ?? []), submission]);
-  });
+  const groups = groupAnsweredResponses(responses, (response) => response.submissionDate.slice(0, 7));
 
   return [...groups.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([month, monthSubmissions]) => ({
-      month,
-      average: Number(formatNumber(monthSubmissions.reduce((sum, item) => sum + item.score, 0) / monthSubmissions.length)),
-      responses: monthSubmissions.length,
-    }));
+    .map(([month, monthResponses]) => {
+      const scoredSubmissions = submissionScores(monthResponses);
+      return {
+        month,
+        average: scoredSubmissions.length
+          ? Number(formatNumber(scoredSubmissions.reduce((sum, item) => sum + item.score, 0) / scoredSubmissions.length))
+          : null,
+        responses: submissionCount(monthResponses),
+      };
+    });
 }
 
 export function yearlyTrend(responses: SurveyResponse[]) {
-  const groups = new Map<string, ReturnType<typeof submissionScores>>();
-  submissionScores(responses).forEach((submission) => {
-    const year = submission.submissionDate.slice(0, 4);
-    groups.set(year, [...(groups.get(year) ?? []), submission]);
-  });
+  const groups = groupAnsweredResponses(responses, (response) => response.submissionDate.slice(0, 4));
 
   return [...groups.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([year, yearSubmissions]) => ({
-      year,
-      average: Number(formatNumber(yearSubmissions.reduce((sum, item) => sum + item.score, 0) / yearSubmissions.length)),
-      responses: yearSubmissions.length,
-    }));
+    .map(([year, yearResponses]) => {
+      const scoredSubmissions = submissionScores(yearResponses);
+      return {
+        year,
+        average: scoredSubmissions.length
+          ? Number(formatNumber(scoredSubmissions.reduce((sum, item) => sum + item.score, 0) / scoredSubmissions.length))
+          : null,
+        responses: submissionCount(yearResponses),
+      };
+    });
 }
 
 /**
@@ -408,27 +491,23 @@ export function yearlyTrend(responses: SurveyResponse[]) {
 export function seriesTrend(responses: SurveyResponse[], seriesList: ArchiveSeries[]) {
   const seriesById = new Map(seriesList.map((s) => [s.id, s]));
 
-  // submissionScores() drops seriesId, so bucket raw responses by seriesId
-  // first, then compute scores per bucket - mirrors monthlyTrend's shape.
-  const responsesBySeries = new Map<string, SurveyResponse[]>();
-  responses.forEach((r) => {
-    if (!r.seriesId || !seriesById.has(r.seriesId)) return;
-    responsesBySeries.set(r.seriesId, [...(responsesBySeries.get(r.seriesId) ?? []), r]);
-  });
+  // submissionScores() drops seriesId, so bucket countable raw responses by
+  // series first, then compute each period's score separately.
+  const responsesBySeries = groupAnsweredResponses(responses, (response) =>
+    response.seriesId && seriesById.has(response.seriesId) ? response.seriesId : undefined,
+  );
 
-  const groups = new Map<string, ReturnType<typeof submissionScores>>();
-  responsesBySeries.forEach((seriesResponses, seriesId) => {
-    groups.set(seriesId, submissionScores(seriesResponses));
-  });
-
-  return [...groups.entries()]
-    .map(([seriesId, scores]) => ({
-      seriesId,
-      label: seriesById.get(seriesId)?.label ?? 'Unknown',
-      createdAt: seriesById.get(seriesId)?.createdAt ?? '',
-      average: scores.length ? Number(formatNumber(scores.reduce((sum, item) => sum + item.score, 0) / scores.length)) : 0,
-      responses: scores.length,
-    }))
+  return [...responsesBySeries.entries()]
+    .map(([seriesId, seriesResponses]) => {
+      const scores = submissionScores(seriesResponses);
+      return {
+        seriesId,
+        label: seriesById.get(seriesId)?.label ?? 'Unknown',
+        createdAt: seriesById.get(seriesId)?.createdAt ?? '',
+        average: scores.length ? Number(formatNumber(scores.reduce((sum, item) => sum + item.score, 0) / scores.length)) : null,
+        responses: submissionCount(seriesResponses),
+      };
+    })
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 

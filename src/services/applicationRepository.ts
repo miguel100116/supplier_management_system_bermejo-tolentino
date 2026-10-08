@@ -38,6 +38,21 @@ export type ApplicationRecordType = typeof APPLICATION_RECORD_TYPES[number];
 
 export const APPLICATION_RECORD_CHANGED_EVENT = 'supabase-application-record-changed';
 export const APPLICATION_PROFILES_CHANGED_EVENT = 'supabase-application-profiles-changed';
+export const APPLICATION_REALTIME_STATUS_EVENT = 'supabase-realtime-status';
+const REALTIME_WARNING_FAILURE_THRESHOLD = 3;
+
+export interface RealtimeSyncState {
+  consecutiveFailures: number;
+  warningVisible: boolean;
+}
+
+export function advanceRealtimeSyncState(current: RealtimeSyncState, status: string): RealtimeSyncState {
+  if (status === 'SUBSCRIBED') return { consecutiveFailures: 0, warningVisible: false };
+  if (status !== 'CHANNEL_ERROR' && status !== 'TIMED_OUT') return current;
+
+  const consecutiveFailures = current.consecutiveFailures + 1;
+  return { consecutiveFailures, warningVisible: consecutiveFailures >= REALTIME_WARNING_FAILURE_THRESHOLD };
+}
 
 export function persistApplicationRecordsInBackground(operation: Promise<void>): void {
   void operation.catch((error) => {
@@ -57,7 +72,7 @@ interface ApplicationRecordRow<T> {
 const WRITE_CHUNK_SIZE = 300;
 const WRITE_CHUNK_CONCURRENCY = 4;
 const READ_PAGE_SIZE = 1_000;
-const READ_PAGE_CONCURRENCY = 12;
+const READ_PAGE_CONCURRENCY = 6;
 
 export function applicationRecordPageRanges(totalCount: number, pageSize = READ_PAGE_SIZE): Array<[number, number]> {
   if (!Number.isInteger(totalCount) || totalCount <= 0 || !Number.isInteger(pageSize) || pageSize <= 0) return [];
@@ -78,6 +93,33 @@ export function batchApplicationRecordPageRanges(
     batches.push(ranges.slice(index, index + batchSize));
   }
   return batches;
+}
+
+export function nextApplicationRecordPageBatch(
+  from: number,
+  pageSize = READ_PAGE_SIZE,
+  batchSize = READ_PAGE_CONCURRENCY,
+): Array<[number, number]> {
+  if (!Number.isInteger(from) || from < 0 || !Number.isInteger(pageSize) || pageSize <= 0 || !Number.isInteger(batchSize) || batchSize <= 0) {
+    return [];
+  }
+  return Array.from({ length: batchSize }, (_, index) => {
+    const pageFrom = from + index * pageSize;
+    return [pageFrom, pageFrom + pageSize - 1];
+  });
+}
+
+export function mergeApplicationRecordsById<T>(
+  current: readonly T[],
+  refreshed: readonly T[],
+  requestedIds: readonly string[],
+  getId: (record: T) => string,
+): T[] {
+  const changedIds = new Set(requestedIds);
+  return [
+    ...current.filter((record) => !changedIds.has(getId(record))),
+    ...refreshed,
+  ].sort((left, right) => getId(left).localeCompare(getId(right)));
 }
 
 export function incompleteApplicationRecordPageRange(
@@ -162,11 +204,7 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
       .range(from, to);
     if (error) throw new Error(`Unable to load ${recordType} records: ${error.message}`);
     const rows = (data ?? []) as unknown as ApplicationRecordRow<T>[];
-    if (rows.length === 0) {
-      throw new Error(
-        `Supabase returned an incomplete ${recordType} page at row ${from}. Check the hosted Data API row limit and retry.`,
-      );
-    }
+    if (rows.length === 0) return [];
     const remainingRange = incompleteApplicationRecordPageRange(from, to, rows.length);
     if (!remainingRange) return rows;
     const remainingRows = await loadCompleteRange(
@@ -177,61 +215,26 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
     return [...rows, ...remainingRows];
   };
 
-  const firstPage = await supabase
-    .from('application_records')
-    // Avoid an exact count here: under response RLS it makes Postgres scan
-    // every visible response before returning the first page, which can time
-    // out for employee sessions even when the requested page is small.
-    .select('record_id,payload,created_at')
-    .eq('record_type', recordType)
-    .order('record_id')
-    .range(0, READ_PAGE_SIZE - 1);
-  if (firstPage.error) throw new Error(`Unable to load ${recordType} records: ${firstPage.error.message}`);
-  const firstRows = (firstPage.data ?? []) as unknown as ApplicationRecordRow<T>[];
+  // Avoid an exact count here: under response RLS it makes Postgres scan every
+  // visible response before returning the first page. Discover later pages in
+  // bounded parallel batches instead of waiting on one request per page.
+  const firstRows = await loadCompleteRange(0, READ_PAGE_SIZE - 1, READ_PAGE_SIZE);
   appendRows(firstRows);
 
-  if (typeof firstPage.count === 'number') {
-    const expectedFirstPageCount = Math.min(firstPage.count, READ_PAGE_SIZE);
-    if (expectedFirstPageCount > 0 && firstRows.length === 0) {
-      throw new Error(`Supabase returned an empty first ${recordType} page despite reporting available rows.`);
+  let from = firstRows.length;
+  let hasMore = firstRows.length === READ_PAGE_SIZE;
+  while (hasMore) {
+    const ranges = nextApplicationRecordPageBatch(from);
+    const pages = await Promise.all(ranges.map(([pageFrom, pageTo]) =>
+      loadCompleteRange(pageFrom, pageTo, pageTo - pageFrom + 1)));
+    for (let index = 0; index < pages.length; index += 1) {
+      appendRows(pages[index]);
+      if (pages[index].length < READ_PAGE_SIZE) {
+        hasMore = false;
+        break;
+      }
     }
-    const firstPageRemainder = incompleteApplicationRecordPageRange(
-      0,
-      expectedFirstPageCount - 1,
-      firstRows.length,
-    );
-    if (firstPageRemainder) {
-      appendRows(await loadCompleteRange(
-        firstPageRemainder[0],
-        firstPageRemainder[1],
-        expectedFirstPageCount - firstRows.length,
-      ));
-    }
-
-    const remainingRanges = applicationRecordPageRanges(firstPage.count).slice(1);
-    for (const batch of batchApplicationRecordPageRanges(remainingRanges)) {
-      const pages = await Promise.all(batch.map(([from, to]) =>
-        loadCompleteRange(from, to, to - from + 1)));
-      for (const page of pages) appendRows(page);
-    }
-  } else {
-    // Without an exact count, advance by rows actually received. If the API
-    // caps a requested page, this continues at the first missing offset.
-    let from = firstRows.length;
-    let previousRows = firstRows;
-    while (previousRows.length > 0) {
-      const { data, error } = await supabase
-        .from('application_records')
-        .select('record_id,payload,created_at')
-        .eq('record_type', recordType)
-        .order('record_id')
-        .range(from, from + READ_PAGE_SIZE - 1);
-      if (error) throw new Error(`Unable to load ${recordType} records: ${error.message}`);
-      const rows = (data ?? []) as unknown as ApplicationRecordRow<T>[];
-      appendRows(rows);
-      from += rows.length;
-      previousRows = rows;
-    }
+    if (hasMore) from += ranges.length * READ_PAGE_SIZE;
   }
   if (invalidCount > 0 && typeof window !== 'undefined') {
     const reasonSummary = [...invalidReasons.entries()]
@@ -241,6 +244,48 @@ export async function loadApplicationRecords<T>(recordType: ApplicationRecordTyp
       .join('; ');
     window.dispatchEvent(new CustomEvent('supabase-persistence-error', {
       detail: `${invalidCount} invalid ${recordType} record${invalidCount === 1 ? '' : 's'} were quarantined during refresh.${reasonSummary ? ` ${reasonSummary}` : ''}`,
+    }));
+  }
+  return values;
+}
+
+export async function loadApplicationRecordsByIds<T>(
+  recordType: ApplicationRecordType,
+  recordIds: readonly string[],
+): Promise<T[]> {
+  requireConfigured();
+  const ids = [...new Set(recordIds.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (ids.length === 0) return [];
+
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += WRITE_CHUNK_SIZE) {
+    chunks.push(ids.slice(index, index + WRITE_CHUNK_SIZE));
+  }
+  const pages = await Promise.all(chunks.map(async (chunk) => {
+    const { data, error } = await supabase
+      .from('application_records')
+      .select('record_id,payload,created_at')
+      .eq('record_type', recordType)
+      .in('record_id', chunk)
+      .order('record_id');
+    if (error) throw new Error(`Unable to load changed ${recordType} records: ${error.message}`);
+    return (data ?? []) as unknown as ApplicationRecordRow<T>[];
+  }));
+
+  const values: T[] = [];
+  let invalidCount = 0;
+  for (const row of pages.flat()) {
+    try {
+      values.push(parseApplicationRecordPayload(recordType, row.payload, row.record_id, {
+        recordCreatedAt: row.created_at,
+      }) as T);
+    } catch {
+      invalidCount += 1;
+    }
+  }
+  if (invalidCount > 0 && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('supabase-persistence-error', {
+      detail: `${invalidCount} invalid changed ${recordType} record${invalidCount === 1 ? '' : 's'} were quarantined during refresh.`,
     }));
   }
   return values;
@@ -370,30 +415,83 @@ export async function replaceApplicationRecords<T>(
 export function subscribeToApplicationChanges(): () => void {
   if (!isSupabaseConfigured || typeof window === 'undefined') return () => undefined;
 
+  const realtimeRecordTypes: ApplicationRecordType[] = [
+    'partner_company',
+    'survey',
+    'survey_response',
+    'archive_series',
+    'department_permission',
+    'category_labels',
+    'feedback_contact',
+    'feedback_report',
+    'feedback_settings',
+    'document_notification_rule',
+    'notification_read_state',
+    'admin_activity',
+    'document_modification',
+    'export_history',
+    'supplier_ranking_history',
+    'employee_notification_state',
+    'reminder_settings',
+    'compliance_snapshot',
+    'active_company_snapshot',
+  ];
+  let realtimeSyncState: RealtimeSyncState = { consecutiveFailures: 0, warningVisible: false };
   const channel = supabase
     .channel(`application-data-${crypto.randomUUID()}`)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'application_records' },
+      {
+        event: '*',
+        schema: 'public',
+        table: 'application_records',
+        filter: `record_type=in.(${realtimeRecordTypes.join(',')})`,
+      },
       (payload) => {
         const row = (payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old) as {
           record_type?: ApplicationRecordType;
+          record_id?: string;
         };
         if (!row.record_type) return;
         window.dispatchEvent(new CustomEvent(APPLICATION_RECORD_CHANGED_EVENT, {
-          detail: { recordType: row.record_type },
+          detail: { recordType: row.record_type, recordId: row.record_id },
         }));
       },
     )
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'app_profiles' },
-      () => window.dispatchEvent(new Event(APPLICATION_PROFILES_CHANGED_EVENT)),
+      (payload) => {
+        const row = (payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old) as {
+          email?: string;
+        };
+        window.dispatchEvent(new CustomEvent(APPLICATION_PROFILES_CHANGED_EVENT, {
+          detail: { email: row.email },
+        }));
+      },
     )
-    .subscribe((status) => {
+    .subscribe((status, error) => {
+      const syncState = (realtimeSyncState = advanceRealtimeSyncState(realtimeSyncState, status));
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        window.dispatchEvent(new CustomEvent('supabase-persistence-error', {
-          detail: 'Live Supabase synchronization is temporarily unavailable. Saved data will refresh after reconnecting.',
+        const diagnosticError = error as (Error & { code?: unknown; status?: unknown }) | undefined;
+        const code = typeof diagnosticError?.code === 'string' || typeof diagnosticError?.code === 'number'
+          ? diagnosticError.code
+          : null;
+        const errorStatus = typeof diagnosticError?.status === 'string' || typeof diagnosticError?.status === 'number'
+          ? diagnosticError.status
+          : null;
+        console.error('[Supabase Realtime] subscription failed', {
+          message: error?.message ?? `Realtime channel reported ${status}.`,
+          code,
+          status,
+          errorStatus,
+        });
+        window.dispatchEvent(new CustomEvent(APPLICATION_REALTIME_STATUS_EVENT, {
+          detail: { status, consecutiveFailures: syncState.consecutiveFailures, warningVisible: syncState.warningVisible },
+        }));
+      } else if (status === 'SUBSCRIBED') {
+        window.dispatchEvent(new CustomEvent(APPLICATION_REALTIME_STATUS_EVENT, {
+          detail: { status, consecutiveFailures: 0, warningVisible: false },
         }));
       }
     });

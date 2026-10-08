@@ -4,7 +4,7 @@ import { ClipboardList, Search, Eye, FormInput, X, Check, Award, Building2, Cale
 import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../types/survey';
 import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
-import { getAllCompaniesOfType, getSurveyEvaluationCompanies } from '../utils/analytics';
+import { getAllCompaniesOfType, getSurveyEvaluationCompanies, hasAnsweredItem } from '../utils/analytics';
 import { getReminderFrequency, saveReminderFrequency } from '../utils/reminderSettings';
 import { TableFilterBar } from '../components/TableFilterBar';
 import { SurveyFormsToolbar } from '../features/evaluations/components/SurveyFormsToolbar';
@@ -168,8 +168,8 @@ export function SurveyFormsPage({
     const set = new Set<string>();
     const normalizedUserEmail = userEmail.trim().toLowerCase();
     responses.forEach((resp) => {
-      if (resp.respondentEmail && resp.respondentEmail.trim().toLowerCase() === normalizedUserEmail) {
-        set.add(resp.company.trim().toLowerCase());
+      if (hasAnsweredItem(resp) && resp.respondentEmail && resp.respondentEmail.trim().toLowerCase() === normalizedUserEmail) {
+        set.add(`${resp.surveyType}:${resp.company.trim().toLowerCase()}`);
       }
     });
     return set;
@@ -212,7 +212,7 @@ export function SurveyFormsPage({
     };
 
     evaluableCompanies.forEach((company) => {
-      const isEvaluated = userEvaluations.has(company.name.trim().toLowerCase());
+      const isEvaluated = userEvaluations.has(`${company.type}:${company.name.trim().toLowerCase()}`);
       if (!isEvaluated && company.type !== 'Uncategorized') {
         if (pending[company.type]) {
           pending[company.type].push(company);
@@ -248,7 +248,7 @@ export function SurveyFormsPage({
     const completed: Record<string, number> = {};
     surveys.forEach((survey) => {
       const companies = getSurveyEvaluationCompanies(survey, partnerCompanies);
-      completed[survey.id] = companies.filter((c) => userEvaluations.has(c.name.trim().toLowerCase())).length;
+      completed[survey.id] = companies.filter((c) => userEvaluations.has(`${survey.surveyType}:${c.name.trim().toLowerCase()}`)).length;
     });
     return completed;
   }, [surveys, partnerCompanies, userEvaluations]);

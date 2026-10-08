@@ -148,7 +148,7 @@ export function BulkHiddenChartCapturer({
   })), [trend]);
 
   const trendAxisDomain = useMemo(() => {
-    return getScoreAxisDomain(trendChartData.map((d) => d.score));
+    return getScoreAxisDomain(trendChartData.map((d) => d.score).filter((score): score is number => typeof score === 'number'));
   }, [trendChartData]);
 
   useEffect(() => {

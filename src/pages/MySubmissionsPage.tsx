@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ClipboardList, FilePlus, Search } from 'lucide-react';
 import { SurveyResponse } from '../types/survey';
 import { isScoredQuestion } from '../data/questionWeights';
+import { submissionCount } from '../utils/analytics';
 
 interface MySubmissionsPageProps {
   responses: SurveyResponse[];
@@ -58,7 +59,7 @@ export function MySubmissionsPage({ responses, userEmail, onFillForm }: MySubmis
             My Submission History
           </h3>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Every evaluation you've submitted, newest first. {mySubmissions.length} total.
+            Every evaluation you've submitted, newest first. {submissionCount(mySubmissions.flat())} counted.
           </p>
         </div>
         {onFillForm && (

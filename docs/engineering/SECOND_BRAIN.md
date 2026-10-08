@@ -1,6 +1,6 @@
 # Supplier Management System — Engineering Second Brain
 
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 This document preserves durable engineering context for maintainers and coding agents. It is a map, not a substitute for reading the relevant code. Verify details before making consequential changes.
 
@@ -41,7 +41,7 @@ Canonical product documentation:
 - Analytics provenance is explicit as of 2026-09-22: client CSV rows use `dataSource=client_csv`, approved live form submissions use `production_submission`, and staging form submissions use `test_submission`. Official Analytics includes only the first two. Legacy normalized/default-form and UI-import IDs are recognized as client data; legacy pre-production `RESP-*` rows remain stored but are classified as test data. `VITE_DEPLOYMENT_ENV` defaults to staging and must be set to production only for the approved live deployment.
 - Browser `localStorage` remains an authenticated startup cache and stores intentionally device-specific drafts/preferences. Eligible historical browser records are uploaded once when the remote set is empty; remote empty sets are authoritative after migration.
 - Supabase Realtime events invalidate the relevant client store and cause an RLS-protected refetch; event payloads are not trusted as application data.
-- Response reads are paged from `application_records`. Realtime-triggered refreshes for the same record type are coalesced in the client. Migration `202610070001_optimize_application_response_reads.sql` adds partial indexes for response visibility branches and evaluates stable RLS helpers per statement; it must be applied to each target environment before those database optimizations take effect.
+- Application-record reads select explicit columns and use ordered 1,000-row ranges. Later pages are discovered in bounded batches of six to avoid exact-count scans under response RLS. Realtime listens only to UI-consumed record types; a changed response row is re-read by ID and merged through the same RLS boundary, while bulk/local invalidations and profile changes trigger full refreshes. Migration `202610070001_optimize_application_response_reads.sql` adds partial indexes for response visibility branches and evaluates stable RLS helpers per statement; it must be applied to each target environment before those database optimizations take effect.
 
 ### Authorization
 
@@ -285,6 +285,8 @@ Correction (2026-10-06): Analytics' Company Leaderboard had drifted back to grou
 Correction (2026-10-07, superseding the prior benchmark-5 note): Analytics volume-weighted scores use Bayesian confidence weighting. For each scored peer group, `C` is the unweighted mean of peer company averages and `m` is the median peer response count, with a minimum of 3; the score is `(R × v + C × m) / (v + m)`. Pure Average continues to rank by raw company average. Analytics current, archived, and performance rankings use the canonical `computeRankScore` path. Evidence: `src/utils/analytics.ts`, `src/utils/scoring.ts`, and `src/features/analytics/domain/rankings.ts`.
 
 Correction (2026-10-06): Survey Forms → Modify → Ended now remains Completed even when its deadline is in the future, saves the status, and archives the active response rows for each ended partner type under a dated archive series. The Analytics Company Leaderboard Archives tab lists each category-period; selecting one opens a modal with its canonical company ranking. The same response rows are visible in Archive Center and remain restorable there. On remote persistence failure, the modal stays open with a retry message; the category archive is idempotent for that dated series. No partner registry records or database schema are changed. Evidence: `getSurveyStatus`, `SurveyFormsPage`, `archiveResponsesForSurveyTypes`, and `ArchivedCompanyRankings`.
+
+Correction (2026-10-08): Count a unique submission only when at least one evaluation rating or designated remark has a real answer. Numeric zero counts; blank, N/A, none, dash, and nil markers do not. Metadata such as Period Covered never counts. Meaningful text in unscored answer fields qualifies; explanatory comment details on a scored N/A do not. Imported Subcontractor matrix remarks qualify even though the importer stores them on matrix rating rows. Blank/N/A-only submissions are excluded from totals and completion progress, while numeric score averages continue to use numeric ratings. Period response counts and report/dashboard evaluation counts use the same rule. Evidence: `hasAnsweredItem` and `submissionCount` in `src/utils/analytics.ts`, plus `src/utils/scoring.ts`, `src/utils/surveyCompletion.ts`, and their UI consumers.
 
 ### 2026-09-22 - Analytics presentation hierarchy
 

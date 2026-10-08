@@ -11,6 +11,7 @@ import {
   questionPerformance,
   responseVolume,
   getMaxRatingForResponses,
+  submissionCount,
   submissionScores,
 } from './analytics';
 
@@ -193,7 +194,7 @@ export type Slide =
       kind: 'leaderboard';
       groups: { surveyType: SurveyType; rows: { rank: number; company: string; score: number; band: string; hex: string }[] }[];
     }
-  | { kind: 'trends'; data: { month: string; average: number; responses: number }[] }
+  | { kind: 'trends'; data: { month: string; average: number | null; responses: number }[] }
   | { kind: 'questions'; top: { question: string; average: number }[]; bottom: { question: string; average: number }[]; maxRating?: number }
   | {
       kind: 'spotlight';
@@ -240,23 +241,28 @@ function computeTopPerformers(responses: SurveyResponse[], partnerCompanies: Par
     if (c.type !== 'Uncategorized') typeMap.set(c.name, c.type);
   });
 
-  const companyMap = new Map<string, { name: string; sum: number; count: number; type: SurveyType }>();
+  const companyMap = new Map<string, { name: string; sum: number; scoreCount: number; type: SurveyType }>();
   submissionScores(responses).forEach((submission) => {
     if (!companyMap.has(submission.company)) {
       companyMap.set(submission.company, {
         name: submission.company,
         sum: 0,
-        count: 0,
+        scoreCount: 0,
         type: typeMap.get(submission.company) ?? submission.surveyType,
       });
     }
     const bucket = companyMap.get(submission.company)!;
     bucket.sum += submission.score;
-    bucket.count += 1;
+    bucket.scoreCount += 1;
   });
 
   const companyAverages = [...companyMap.values()]
-    .map((c) => ({ name: c.name, type: c.type, average: c.count ? c.sum / c.count : 0, count: c.count }))
+    .map((c) => ({
+      name: c.name,
+      type: c.type,
+      average: c.scoreCount ? c.sum / c.scoreCount : 0,
+      count: submissionCount(responses.filter((response) => response.company === c.name && response.surveyType === c.type)),
+    }))
     .sort((a, b) => b.average - a.average);
 
   const byType = (type: SurveyType) => companyAverages.find((c) => c.type === type);
@@ -290,7 +296,7 @@ function generateTakeaways(
     }
   }
 
-  const trend = monthlyTrend(responses);
+  const trend = monthlyTrend(responses).filter((item): item is typeof item & { average: number } => item.average !== null);
   if (trend.length >= 2) {
     const delta = trend[trend.length - 1].average - trend[0].average;
     if (Math.abs(delta) >= 0.05) {

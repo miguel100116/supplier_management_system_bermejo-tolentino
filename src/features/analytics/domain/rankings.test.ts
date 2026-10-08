@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SurveyResponse } from '../../../types/survey';
+import { getPureAverageLeaderboard } from '../../../utils/scoring';
 import { getAnalyticsCompanyRankings, getCompanyPerformanceRanking, paginateAnalyticsItems, paginateCompanyRankings, rankCompanySummaries } from './rankings';
 
 function courierResponse(company: string, responseId: string, rating: number): SurveyResponse {
@@ -27,6 +28,47 @@ function supplierResponse(company: string, responseId: string, rating: number): 
     questionCategory: 'Documentation',
   };
 }
+
+function courierAnswerItem(
+  company: string,
+  responseId: string,
+  rating: SurveyResponse['rating'] | '',
+  questionId = 'Q01',
+  comment = '',
+): SurveyResponse {
+  return {
+    ...courierResponse(company, responseId, 0),
+    questionId,
+    rating: rating as unknown as SurveyResponse['rating'],
+    comment,
+  };
+}
+
+test('leaderboard evaluation counts include mixed and text-answer forms but exclude N/A-only or blank-only forms', () => {
+  const responses = [
+    courierAnswerItem('Mixed', 'mixed-form', 5),
+    courierAnswerItem('Mixed', 'mixed-form', 'N/A', 'Q02', 'N/A reason'),
+    courierAnswerItem('Mixed', 'mixed-form', '', 'Q03'),
+    courierAnswerItem('No Answers', 'empty-form', 'N/A'),
+    courierAnswerItem('No Answers', 'empty-form', '', 'Q02'),
+    courierAnswerItem('Fully Answered', 'full-form', 4),
+    courierAnswerItem('Fully Answered', 'full-form', 3, 'Q02'),
+    courierAnswerItem('Fully Answered', 'full-form', 5, 'Q03'),
+    courierAnswerItem('Text Answer', 'text-form', '', 'FREE_TEXT', 'A real text answer'),
+  ];
+
+  const allCompanies = new Map(
+    getPureAverageLeaderboard(responses, 'Courier').map((company) => [company.company, company]),
+  );
+  assert.equal(allCompanies.get('Mixed')?.evaluationCount, 1);
+  assert.equal(allCompanies.get('No Answers')?.evaluationCount, 0);
+  assert.equal(allCompanies.get('Fully Answered')?.evaluationCount, 1);
+  assert.equal(allCompanies.get('Text Answer')?.evaluationCount, 1);
+
+  const analyticsCompanies = getAnalyticsCompanyRankings(responses, ['Courier'], 'pure');
+  assert.deepEqual(new Set(analyticsCompanies.map((company) => company.name)), new Set(['Mixed', 'Fully Answered']));
+  assert.ok(analyticsCompanies.every((company) => company.count === 1));
+});
 
 test('pure and weighted company summaries use their respective ranking values', () => {
   const candidates = [
