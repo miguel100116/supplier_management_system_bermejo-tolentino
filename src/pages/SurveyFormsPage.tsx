@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useModalEscape } from '../hooks/useModalEscape';
-import { ClipboardList, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, ArrowRight } from 'lucide-react';
+import { ClipboardList, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, Archive, Send, Pencil, CircleCheck, Clock3, Info } from 'lucide-react';
 import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../types/survey';
 import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
@@ -11,6 +11,10 @@ import { SurveyFormsToolbar } from '../features/evaluations/components/SurveyFor
 import { compareDate, compareText, isWithinDateRange } from '../utils/tableFilters';
 import { getSurveyStatus } from '../utils/surveyStatus';
 import { parseDDMMYYYY } from '../utils/time';
+import { CreateSurveyPage } from './CreateSurveyPage';
+import type { PersistedProfile } from '../features/account-management/domain/accountProfile';
+import { getEligibleFormRecipients, type DepartmentSurveyPermissions } from '../features/evaluations/domain/formRecipients';
+import { getAdminActivity, logAdminActivity, type AdminActivityEntry } from '../utils/adminActivityLog';
 
 interface SurveyFormsPageProps {
   surveys: CustomForm[];
@@ -19,6 +23,8 @@ interface SurveyFormsPageProps {
   userEmail?: string;
   onSelectSurvey: (id: string) => void;
   onNavigateToCreate: () => void;
+  employeeProfiles?: PersistedProfile[];
+  departmentPermissions?: DepartmentSurveyPermissions;
   onFillForm: (id: string) => void;
   onUpdateSurvey?: (survey: CustomForm) => void | Promise<unknown>;
   onUpdateSurveysBulk?: (updatedSurveysList: CustomForm[]) => void | Promise<unknown>;
@@ -94,9 +100,10 @@ export function SurveyFormsPage({
   onFillForm,
   onUpdateSurvey,
   onUpdateSurveysBulk,
-  onArchiveResponses,
   onArchiveSurveyTypes,
   isAdmin,
+  employeeProfiles = [],
+  departmentPermissions = {},
 }: SurveyFormsPageProps) {
   const [surveyType, setSurveyType] = useState<'All' | SurveyType>('All');
   const [search, setSearch] = useState('');
@@ -104,6 +111,15 @@ export function SurveyFormsPage({
   const [deadlineFrom, setDeadlineFrom] = useState('');
   const [deadlineTo, setDeadlineTo] = useState('');
   const [statusRefresh, setStatusRefresh] = useState(0);
+  const [accessPickerOpen, setAccessPickerOpen] = useState(false);
+  const [previewSurveyId, setPreviewSurveyId] = useState<string | null>(null);
+  const [previewEditSurveyId, setPreviewEditSurveyId] = useState<string | null>(null);
+  const [sendConfirmationSurveyId, setSendConfirmationSurveyId] = useState<string | null>(null);
+  const [distributionFeedback, setDistributionFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [isSavingPreviewEdit, setIsSavingPreviewEdit] = useState(false);
+  const [isSendingForm, setIsSendingForm] = useState(false);
+  const [previewEditError, setPreviewEditError] = useState('');
+  const [activityEntries, setActivityEntries] = useState<AdminActivityEntry[]>(() => getAdminActivity());
 
   useEffect(() => {
     const now = Date.now();
@@ -143,18 +159,80 @@ export function SurveyFormsPage({
   // Destructive-action confirmation modals. Authorization is enforced by the
   // authenticated Admin route and Supabase RLS, not a browser-side passcode.
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
-  useModalEscape(isArchiveConfirmOpen || isResetConfirmOpen, () => {
-    if (isResetConfirmOpen) setIsResetConfirmOpen(false);
-    else setIsArchiveConfirmOpen(false);
-  }, 60);
+  useModalEscape(isArchiveConfirmOpen, () => setIsArchiveConfirmOpen(false), 60);
   useModalEscape(isCompanyPickerOpen, () => setIsCompanyPickerOpen(false), 55);
   useModalEscape(isModifyOpen, () => setIsModifyOpen(false), 50);
   useModalEscape(isModalOpen, () => setIsModalOpen(false), 50);
+  useModalEscape(accessPickerOpen, () => setAccessPickerOpen(false), 65);
+  useModalEscape(Boolean(previewEditSurveyId), () => setPreviewEditSurveyId(null), 75);
+  useModalEscape(Boolean(sendConfirmationSurveyId), () => setSendConfirmationSurveyId(null), 80);
+  useModalEscape(Boolean(previewSurveyId) && !previewEditSurveyId && !sendConfirmationSurveyId, () => setPreviewSurveyId(null), 70);
+
+  useEffect(() => {
+    const refresh = () => setActivityEntries(getAdminActivity());
+    window.addEventListener('admin-activity-updated', refresh);
+    refresh();
+    return () => window.removeEventListener('admin-activity-updated', refresh);
+  }, []);
+
+  const previewSurvey = surveys.find((survey) => survey.id === previewSurveyId) ?? null;
+  const previewEditSurvey = surveys.find((survey) => survey.id === previewEditSurveyId) ?? null;
+  const sendConfirmationSurvey = surveys.find((survey) => survey.id === sendConfirmationSurveyId) ?? null;
+  const eligibleRecipients = sendConfirmationSurvey
+    ? getEligibleFormRecipients(sendConfirmationSurvey, employeeProfiles, departmentPermissions)
+    : [];
+  const sendDeadline = sendConfirmationSurvey?.deadlineDate ? parseDDMMYYYY(sendConfirmationSurvey.deadlineDate) : null;
+  const sendDeadlineExpired = Boolean(sendDeadline && new Date(sendDeadline.getFullYear(), sendDeadline.getMonth(), sendDeadline.getDate()).getTime() < new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime());
+
+  const handleSavePreviewEdit = async (formData: Omit<CustomForm, 'id' | 'createdAt'>) => {
+    if (!previewEditSurvey || !onUpdateSurvey || isSavingPreviewEdit) return;
+    setPreviewEditError('');
+    setIsSavingPreviewEdit(true);
+    try {
+      await onUpdateSurvey({ ...previewEditSurvey, ...formData, id: previewEditSurvey.id, createdAt: previewEditSurvey.createdAt });
+      logAdminActivity('Updated evaluation form', `${previewEditSurvey.title} (${previewEditSurvey.surveyType}) · by ${userEmail || 'Admin'}`);
+      setPreviewEditSurveyId(null);
+      setDistributionFeedback({ kind: 'success', text: 'Form changes saved. The updated questions are shown in the preview.' });
+    } catch (error) {
+      setPreviewEditError(error instanceof Error ? error.message : 'Unable to save the form changes. Please try again.');
+    } finally {
+      setIsSavingPreviewEdit(false);
+    }
+  };
+
+  const handleConfirmSend = async () => {
+    if (!sendConfirmationSurvey || !onUpdateSurvey || isSendingForm || eligibleRecipients.length === 0) return;
+    if (getSurveyStatus(sendConfirmationSurvey) === 'Archived') {
+      setDistributionFeedback({ kind: 'error', text: 'Archived forms cannot be sent.' });
+      return;
+    }
+    if (sendDeadlineExpired) {
+      setDistributionFeedback({ kind: 'error', text: 'This evaluation deadline has passed. Update the deadline before sending this form.' });
+      return;
+    }
+    if (getSurveyStatus(sendConfirmationSurvey) === 'Running') {
+      setSendConfirmationSurveyId(null);
+      setDistributionFeedback({ kind: 'success', text: 'This form is already available to eligible employees. Existing survey reminders will direct them to it.' });
+      return;
+    }
+
+    setIsSendingForm(true);
+    try {
+      await onUpdateSurvey({ ...sendConfirmationSurvey, status: 'Running', manuallyEndedAt: undefined, archivedAt: undefined });
+      logAdminActivity(
+        'Made evaluation form available',
+        `${sendConfirmationSurvey.title} (${sendConfirmationSurvey.surveyType}) · ${eligibleRecipients.length} eligible employees · by ${userEmail || 'Admin'}`,
+      );
+      setSendConfirmationSurveyId(null);
+      setDistributionFeedback({ kind: 'success', text: `${sendConfirmationSurvey.title} is available to ${eligibleRecipients.length} eligible employees. Employee survey reminders are generated from active accessible forms.` });
+    } catch (error) {
+      setDistributionFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'The form could not be made available. No notification success is reported.' });
+    } finally {
+      setIsSendingForm(false);
+    }
+  };
   const [archiveError, setArchiveError] = useState('');
   const [isArchiving, setIsArchiving] = useState(false);
-  const [resetError, setResetError] = useState('');
-  const [resetSeriesLabel, setResetSeriesLabel] = useState('');
 
   // Notification configuration states
   const [modifyStep, setModifyStep] = useState<1 | 2>(1);
@@ -260,8 +338,7 @@ export function SurveyFormsPage({
 
   const filteredSurveys = useMemo(() => {
     const matching = surveys.filter((survey) => {
-      // If Archived, it must not be seen in the table
-      if (survey.status === 'Archived') return false;
+      if (survey.status === 'Archived' && !isAdmin) return false;
 
       if (surveyType !== 'All' && survey.surveyType !== surveyType) return false;
 
@@ -276,13 +353,14 @@ export function SurveyFormsPage({
       return true;
     });
     return matching.sort((a, b) => {
+      if (isAdmin && (a.status === 'Archived') !== (b.status === 'Archived')) return a.status === 'Archived' ? 1 : -1;
       if (tableSort === 'title-desc') return compareText(b.title, a.title);
       if (tableSort === 'deadline-asc') return compareDate(a.deadlineDate, b.deadlineDate);
       if (tableSort === 'deadline-desc') return compareDate(b.deadlineDate, a.deadlineDate);
       if (tableSort === 'created-desc') return compareDate(b.createdAt, a.createdAt);
       return compareText(a.title, b.title);
     });
-  }, [surveys, surveyType, search, tableSort, deadlineFrom, deadlineTo]);
+  }, [surveys, surveyType, search, tableSort, deadlineFrom, deadlineTo, isAdmin]);
 
   const handleToggleSelect = (id: string) => {
     setSelectedSurveyIds((prev) => {
@@ -457,6 +535,7 @@ export function SurveyFormsPage({
         const periodLabel = `${endedTypes.join(' & ')} · Ended ${period}`;
         await onArchiveSurveyTypes(endedTypes, periodLabel, endedSurveys.map((survey) => survey.id));
       }
+      logAdminActivity('Updated evaluation access', `${updatedSurveysList.map((survey) => survey.title).join(', ')} · by ${userEmail || 'Admin'}`);
     } catch (error) {
       setSaveChangesError(surveysSaved
         ? `Survey status was saved, but its category archive failed: ${error instanceof Error ? error.message : 'Unable to archive these responses.'} You can retry Save Changes.`
@@ -496,6 +575,8 @@ export function SurveyFormsPage({
         await Promise.all(updatedSurveysList.map((survey) => onUpdateSurvey(survey)));
       }
 
+      updatedSurveysList.forEach((survey) => logAdminActivity('Archived evaluation form', `${survey.title} (${survey.surveyType}) · by ${userEmail || 'Admin'}`));
+
       alert("Selected survey forms have been successfully archived!");
       setIsSelectMode(false);
       setSelectedSurveyIds(new Set());
@@ -505,21 +586,6 @@ export function SurveyFormsPage({
       setArchiveError(error instanceof Error ? error.message : 'Unable to archive the selected survey forms.');
     } finally {
       setIsArchiving(false);
-    }
-  };
-
-  const handleProceedReset = () => {
-    if (onArchiveResponses) {
-      onArchiveResponses([...selectedSurveyIds], resetSeriesLabel);
-      alert("Selected survey responses have been archived successfully, and the forms have been reset!");
-      setIsSelectMode(false);
-      setSelectedSurveyIds(new Set());
-      setIsModifyOpen(false);
-      setIsResetConfirmOpen(false);
-      setResetError('');
-      setResetSeriesLabel('');
-    } else {
-      setResetError('Response archiver callback is not configured.');
     }
   };
 
@@ -606,12 +672,7 @@ export function SurveyFormsPage({
                 setDeadlineTo('');
               }}
               onCreateForm={onNavigateToCreate}
-              isSelectMode={isSelectMode}
-              onToggleSelection={() => {
-                setIsSelectMode(!isSelectMode);
-                setSelectedSurveyIds(new Set());
-                setIsModifyOpen(false);
-              }}
+              onManageAccess={() => setAccessPickerOpen(true)}
             />
             <p className="mb-2 text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
               {filteredSurveys.length} {filteredSurveys.length === 1 ? 'form' : 'forms'}
@@ -697,19 +758,7 @@ export function SurveyFormsPage({
             <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
-                  <th className="px-4 py-3.5">
-                    <div className="flex items-center gap-3">
-                      {isSelectMode && (
-                        <input
-                          type="checkbox"
-                          checked={filteredSurveys.length > 0 && filteredSurveys.every(s => selectedSurveyIds.has(s.id))}
-                          onChange={handleToggleSelectAll}
-                          className="h-4.5 w-4.5 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9] transition cursor-pointer"
-                        />
-                      )}
-                      <span>Survey Title</span>
-                    </div>
-                  </th>
+                  <th className="px-4 py-3.5">Survey Title</th>
                   <th className="px-4 py-3.5">Category Type</th>
                   <th className="px-4 py-3.5">Status</th>
                   <th className="px-4 py-3.5">Completion</th>
@@ -725,21 +774,18 @@ export function SurveyFormsPage({
                   const completedForType = companyCompletedBySurveyId[survey.id] || 0;
  
                   return (
-                    <tr key={survey.id} className="align-middle hover:bg-slate-50/40 dark:hover:bg-slate-900/10">
+                    <tr key={survey.id} className={`align-middle hover:bg-slate-50/40 dark:hover:bg-slate-900/10 ${survey.status === 'Archived' ? 'bg-slate-50/80 text-slate-400 opacity-70 dark:bg-slate-950/50' : ''}`}>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-3">
-                          {isSelectMode && (
-                            <input
-                              type="checkbox"
-                              checked={selectedSurveyIds.has(survey.id)}
-                              onChange={() => handleToggleSelect(survey.id)}
-                              className="h-4.5 w-4.5 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9] transition cursor-pointer"
-                            />
-                          )}
                           <div className="space-y-0.5 max-w-sm">
-                            <span className="font-bold text-slate-800 dark:text-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => { setPreviewSurveyId(survey.id); setDistributionFeedback(null); }}
+                              className="text-left font-bold text-slate-800 hover:text-[#0063a9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0063a9] dark:text-slate-100 dark:hover:text-blue-300"
+                              aria-label={`Preview ${survey.title}`}
+                            >
                               {survey.title}
-                            </span>
+                            </button>
                             <p className="text-xs text-slate-400 dark:text-slate-500 line-clamp-1" title={survey.description}>
                               {survey.description || 'No description provided.'}
                             </p>
@@ -776,22 +822,24 @@ export function SurveyFormsPage({
                         {isAdmin ? (
                           <div className="flex items-center justify-end gap-2.5">
                             <button
-                              onClick={() => onSelectSurvey(survey.id)}
-                              className="inline-flex items-center justify-center gap-2 w-36 rounded-lg border border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300 px-4 py-2 text-sm font-semibold transition cursor-pointer"
+                              onClick={() => { setSelectedSurveyIds(new Set([survey.id])); setArchiveError(''); setIsArchiveConfirmOpen(true); }}
+                              disabled={survey.status === 'Archived'}
+                              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300 px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
                               type="button"
-                              title="Manage questions and details"
+                              title="Archive form"
                             >
-                              <Eye size={16} />
-                              <span>Manage</span>
+                              <Archive size={15} />
+                              <span>Archive</span>
                             </button>
                             <button
-                              onClick={() => openSingleModify(survey)}
-                              className="inline-flex items-center justify-center gap-2 w-36 rounded-lg bg-[#0063a9] text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700 px-4 py-2 text-sm font-bold transition cursor-pointer"
+                              onClick={() => { setPreviewSurveyId(survey.id); setDistributionFeedback(null); }}
+                              disabled={survey.status === 'Archived'}
+                              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#0063a9] text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700 px-3 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40"
                               type="button"
-                              title="Modify Survey"
+                              title="Preview and send form"
                             >
-                              <ClipboardList size={16} />
-                              <span>Modify</span>
+                              <Send size={15} />
+                              <span>Send</span>
                             </button>
                           </div>
                         ) : (
@@ -825,6 +873,42 @@ export function SurveyFormsPage({
           </div>
         )}
       </section>
+
+      {isAdmin && <section className="panel mt-4" aria-labelledby="evaluation-activity-heading"><div className="mb-3 flex items-center justify-between"><div><h2 id="evaluation-activity-heading" className="text-base font-bold">Recent Activity</h2><p className="text-xs text-slate-500">Evaluation form changes and distribution history</p></div><Clock3 size={18} className="text-slate-400"/></div>{activityEntries.filter((entry) => /evaluation form|evaluation access/i.test(entry.action)).slice(0, 8).length ? <ul className="divide-y divide-slate-100 dark:divide-slate-800">{activityEntries.filter((entry) => /evaluation form|evaluation access/i.test(entry.action)).slice(0, 8).map((entry) => <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"><span><b>{entry.action}</b><span className="ml-2 text-slate-500">{entry.details}</span></span><time className="text-xs text-slate-400">{new Date(entry.timestamp).toLocaleString()}</time></li>)}</ul> : <p className="py-4 text-sm text-slate-500">No evaluation activity recorded yet.</p>}</section>}
+
+      {isAdmin && accessPickerOpen && (
+        <div className="fixed inset-0 z-[65] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="access-picker-title">
+          <button className="absolute inset-0 bg-slate-950/55" aria-label="Close" onClick={() => setAccessPickerOpen(false)} />
+          <section className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <header className="mb-4 flex items-center justify-between"><div><h2 id="access-picker-title" className="text-lg font-bold">Manage Access</h2><p className="text-sm text-slate-500">Choose a form to update access and schedule.</p></div><button onClick={() => setAccessPickerOpen(false)} aria-label="Close"><X size={20}/></button></header>
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto">{surveys.filter((survey) => survey.status !== 'Archived').map((survey) => <button key={survey.id} onClick={() => { setAccessPickerOpen(false); openSingleModify(survey); }} className="flex w-full items-center justify-between rounded-xl border border-slate-200 p-3 text-left hover:border-[#0063a9] hover:bg-blue-50/40 dark:border-slate-700 dark:hover:bg-slate-800"><span><span className="block font-semibold">{survey.title}</span><span className="text-xs text-slate-500">{survey.surveyType} · {survey.status === 'Completed' ? 'Ended' : survey.status ?? 'Active'}</span></span><Pencil size={16} className="text-[#0063a9]"/></button>)}{surveys.filter((survey) => survey.status !== 'Archived').length === 0 && <p className="py-8 text-center text-sm text-slate-500">No active forms to manage.</p>}</div>
+          </section>
+        </div>
+      )}
+
+      {previewSurvey && !previewEditSurveyId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="survey-preview-title">
+          <button className="absolute inset-0 bg-slate-950/45" aria-label="Close preview" onClick={() => setPreviewSurveyId(null)} />
+          <section className="relative flex max-h-[88vh] w-full max-w-[780px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <header className="flex items-start justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800"><div><p className="text-xs font-bold uppercase tracking-wide text-[#0063a9]">Read-only preview · {previewSurvey.surveyType}</p><h2 id="survey-preview-title" className="mt-1 text-xl font-bold">{previewSurvey.title}</h2><p className="mt-1 text-sm text-slate-500">{previewSurvey.description}</p></div><button onClick={() => setPreviewSurveyId(null)} aria-label="Close preview"><X size={24}/></button></header>
+            <div className="flex-1 space-y-3 overflow-y-auto p-5 sm:p-7">{previewSurvey.questions.slice().sort((a,b) => a.questionNumber-b.questionNumber).map((question, index) => <article key={question.questionId} className="rounded-xl border border-slate-200 p-5 dark:border-slate-700"><p className="text-xs font-semibold text-slate-500">{question.section ? `${question.section} · ` : ''}{question.questionCategory} · Question {question.questionNumber || index + 1}</p><h3 className="mt-2 font-semibold text-slate-800 dark:text-slate-100">{question.question}</h3>{question.inputType === 'checkbox' || question.inputType === 'select' ? <div className="mt-3 space-y-2">{(question.options ?? []).map((option) => <div key={option} className="flex items-center gap-3 text-sm text-slate-600"><span className="h-4 w-4 rounded border border-slate-300"/>{option}</div>)}</div> : question.inputType === 'matrix' ? <div className="mt-3 space-y-2">{(question.subQuestions ?? []).map((item) => <div key={item.id} className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800"><b>{item.label}</b>{item.description && <p className="text-xs text-slate-500">{item.description}</p>}</div>)}</div> : <div className="mt-3 max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-400">{question.inputType === 'typed-rating' ? `Enter a number from ${question.validationRange?.min ?? 0} to ${question.validationRange?.max ?? previewSurvey.maxRating ?? 100}${question.validationRange?.allowNa ? ' or N/A' : ''}` : question.inputType === 'date-range' ? 'Select date range' : question.inputType === 'text' ? 'Enter your response' : `Rating scale: 0 to ${previewSurvey.maxRating ?? 100}`}</div>}</article>)}</div>
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 p-4 dark:border-slate-800">{distributionFeedback && <p className={`mr-auto text-sm ${distributionFeedback.kind === 'error' ? 'text-rose-600' : 'text-emerald-700'}`} role="status">{distributionFeedback.text}</p>}<div className="ml-auto flex gap-2"><button onClick={() => { setPreviewEditError(''); setPreviewEditSurveyId(previewSurvey.id); }} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold"><Pencil size={15}/> Edit Form</button><button onClick={() => setSendConfirmationSurveyId(previewSurvey.id)} className="inline-flex items-center gap-2 rounded-lg bg-[#0063a9] px-4 py-2 text-sm font-semibold text-white"><Send size={15}/> Send Form</button></div></footer>
+          </section>
+        </div>
+      )}
+
+      {previewEditSurvey && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/45 p-2 sm:p-5" role="dialog" aria-modal="true" aria-label="Edit survey form">
+          <section className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900 sm:p-6"><div className="mb-3 flex justify-end"><button onClick={() => setPreviewEditSurveyId(null)} aria-label="Close editor"><X size={20}/></button></div>{previewEditError && <p role="alert" className="mb-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{previewEditError}</p>}<CreateSurveyPage key={previewEditSurvey.id} surveyToEdit={previewEditSurvey} onBack={() => setPreviewEditSurveyId(null)} onSave={handleSavePreviewEdit}/>{isSavingPreviewEdit && <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-950/25"><p className="rounded-lg bg-white px-5 py-3 font-semibold shadow">Saving form…</p></div>}</section>
+        </div>
+      )}
+
+      {sendConfirmationSurvey && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="send-form-title">
+          <button className="absolute inset-0 bg-slate-950/50" aria-label="Cancel send" onClick={() => setSendConfirmationSurveyId(null)} />
+            <section className="relative w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900"><header className="mb-3"><h2 id="send-form-title" className="text-lg font-bold">Confirm form distribution</h2><p className="text-sm text-slate-500">{sendConfirmationSurvey.title} · {sendConfirmationSurvey.surveyType}</p><p className="mt-2 text-sm"><b>{eligibleRecipients.length}</b> eligible employee{eligibleRecipients.length === 1 ? '' : 's'} based on category permissions and this form’s access settings.</p></header><div className="max-h-[45vh] overflow-auto rounded-lg border border-slate-200 dark:border-slate-700"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="p-2">Employee</th><th className="p-2">Department</th><th className="p-2">Designation</th></tr></thead><tbody>{eligibleRecipients.map((recipient) => <tr key={recipient.email} className="border-t border-slate-100 dark:border-slate-800"><td className="p-2">{recipient.email}</td><td className="p-2">{recipient.department}</td><td className="p-2">{recipient.designation}</td></tr>)}</tbody></table>{eligibleRecipients.length === 0 && <p className="p-5 text-center text-sm text-slate-500">No eligible employees match the current access settings.</p>}</div>{sendDeadlineExpired && <p className="mt-3 text-sm text-rose-600">The deadline has passed. Update it in Manage Access before sending.</p>}<footer className="mt-4 flex justify-end gap-2"><button onClick={() => setSendConfirmationSurveyId(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Cancel</button><button onClick={handleConfirmSend} disabled={isSendingForm || !eligibleRecipients.length || sendDeadlineExpired} className="rounded-lg bg-[#0063a9] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSendingForm ? 'Sending…' : getSurveyStatus(sendConfirmationSurvey) === 'Running' ? 'Already Available' : 'Confirm & Make Available'}</button></footer></section>
+        </div>
+      )}
 
       {/* Pending Companies Modal */}
       {isModalOpen && (
@@ -974,7 +1058,7 @@ export function SurveyFormsPage({
 
 
       {/* Bulk Modify Footer Selection Bar & Modal Popup */}
-      {isAdmin && (isSelectMode || isModifyOpen) && (
+      {isAdmin && (isSelectMode || isModifyOpen || isArchiveConfirmOpen) && (
         <>
           {/* Bottom Sticky Selection Bar (only when modal is NOT open) */}
           {isSelectMode && !isModifyOpen && (
@@ -1025,21 +1109,21 @@ export function SurveyFormsPage({
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               {/* Darkened Backdrop */}
               <div 
-                className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity"
+                className="fixed inset-0 bg-slate-950/40 backdrop-blur-[1px] transition-opacity"
                 onClick={resetModifyState}
               />
 
               {/* Centered Modal Container */}
-              <div className="relative w-full max-w-2xl h-[85vh] max-h-[85vh] rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="relative w-full max-w-2xl h-[88vh] max-h-[88vh] min-h-[34rem] rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
                 
                 {/* Modal Title/Header (Static) */}
-                <div className="border-b border-slate-100 dark:border-slate-800 p-5 flex justify-between items-center shrink-0">
+                <div className="border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex justify-between items-center shrink-0">
                   <div>
-                    <h3 className="text-lg font-extrabold text-slate-950 dark:text-white">
-                      {isSelectMode ? 'Bulk Modify Settings' : 'Modify Settings'}
+                    <h3 className="text-lg font-bold text-slate-950 dark:text-white">
+                      Manage Access
                     </h3>
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                      Applying to {selectedSurveyIds.size} selected survey {selectedSurveyIds.size === 1 ? 'form' : 'forms'} (Step {modifyStep} of 2)
+                      Applying to {selectedSurveyIds.size} selected survey {selectedSurveyIds.size === 1 ? 'form' : 'forms'} {selectedSurveyIds.size === 1 && surveys.find((survey) => selectedSurveyIds.has(survey.id)) ? <> (<span className="font-semibold text-slate-600 dark:text-slate-300">{surveys.find((survey) => selectedSurveyIds.has(survey.id))?.title}</span>)</> : null} · Step 2 of 2
                     </p>
                   </div>
                   <button
@@ -1051,67 +1135,40 @@ export function SurveyFormsPage({
                   </button>
                 </div>
 
+                <div className="border-b border-slate-100 px-6 py-4 dark:border-slate-800">
+                  <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800" role="tablist" aria-label="Manage access steps">
+                    <button role="tab" aria-selected={modifyStep === 1} onClick={() => setModifyStep(1)} className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${modifyStep === 1 ? 'bg-[#0063a9] text-white shadow-sm' : 'text-slate-600 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-700'}`}>Access &amp; Status</button>
+                    <button role="tab" aria-selected={modifyStep === 2} onClick={() => setModifyStep(2)} className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${modifyStep === 2 ? 'bg-[#0063a9] text-white shadow-sm' : 'text-slate-600 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-700'}`}>Schedule &amp; Notifications</button>
+                  </div>
+                </div>
+
                 {/* Scrollable Content Area */}
-                <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-6">
+                <div className={`flex-1 overflow-y-auto overscroll-contain ${modifyStep === 1 ? 'px-6 pb-6 pt-12 sm:px-12' : 'px-6 py-6'} space-y-6`}>
                   
                   {modifyStep === 1 ? (
                     <>
                       {/* Section 1: Survey Status & Archive */}
-                      <div className="space-y-3">
-                        <span className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                          Survey Status
-                        </span>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100">SURVEY STATUS</span>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">Select workflow state</span>
+                        </div>
 
-                        {/* Radio Choice List */}
-                        <div className="space-y-2 bg-slate-50/50 dark:bg-slate-950/30 rounded-xl p-3 border border-slate-100 dark:border-slate-800/60">
-                          <label className="flex items-center gap-2.5 cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-300">
-                            <input
-                              type="radio"
-                              name="bulkStatus"
-                              checked={overrideStatus && newStatus === 'Running'}
-                              onChange={() => {
-                                setNewStatus('Running');
-                                setArchiveEndedCategory(false);
-                                setOverrideStatus(true);
-                              }}
-                              className="h-4.5 w-4.5 text-[#0063a9] focus:ring-[#0063a9] transition"
-                            />
-                            <span>Active</span>
-                          </label>
-                          <label className="flex items-center gap-2.5 cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-300">
-                            <input
-                              type="radio"
-                              name="bulkStatus"
-                              checked={overrideStatus && newStatus === 'Paused'}
-                              onChange={() => {
-                                setNewStatus('Paused');
-                                setArchiveEndedCategory(false);
-                                setOverrideStatus(true);
-                              }}
-                              className="h-4.5 w-4.5 text-[#0063a9] focus:ring-[#0063a9] transition"
-                            />
-                            <span>Paused</span>
-                          </label>
-                          <label className="flex items-center gap-2.5 cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-300">
-                            <input
-                              type="radio"
-                              name="bulkStatus"
-                              checked={overrideStatus && newStatus === 'Completed'}
-                              onChange={() => {
-                                setNewStatus('Completed');
-                                setArchiveEndedCategory(true);
-                                setOverrideStatus(true);
-                              }}
-                              onClick={() => setArchiveEndedCategory(true)}
-                              className="h-4.5 w-4.5 text-[#0063a9] focus:ring-[#0063a9] transition"
-                            />
-                            <span>Ended</span>
-                          </label>
-                          {overrideStatus && newStatus === 'Completed' && (
-                            <p className="ml-7 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                              Saving as Ended archives current results for this partner category. Open Company Leaderboard → Archives to view the ranked companies.
-                            </p>
-                          )}
+                        {/* Workflow state cards */}
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {([
+                            { value: 'Running' as const, label: 'Active', dot: 'bg-emerald-500', detail: 'Open for incoming supplier submissions' },
+                            { value: 'Paused' as const, label: 'Paused', dot: 'bg-amber-500', detail: 'Temporarily halt new incoming evaluations' },
+                            { value: 'Completed' as const, label: 'Ended', dot: 'bg-rose-500', detail: 'Evaluation period ended and submissions closed' },
+                          ]).map((option) => (
+                            <label key={option.value} className={`relative min-h-[91px] cursor-pointer rounded-xl border p-3 text-xs transition ${overrideStatus && newStatus === option.value ? 'border-sky-500 bg-slate-100/80 dark:bg-slate-800/80' : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'}`}>
+                              <input type="radio" name="bulkStatus" checked={overrideStatus && newStatus === option.value} onChange={() => { setNewStatus(option.value); setArchiveEndedCategory(option.value === 'Completed'); setOverrideStatus(true); }} className="peer sr-only" />
+                              <span className="absolute right-3 top-3 grid h-4 w-4 place-items-center rounded-full border border-slate-300 bg-white text-white peer-focus-visible:ring-2 peer-focus-visible:ring-[#0063a9] peer-checked:border-[#0063a9] peer-checked:bg-[#0063a9] dark:border-slate-600 dark:bg-slate-900 dark:peer-checked:bg-[#0063a9]">{overrideStatus && newStatus === option.value && <Check size={11} strokeWidth={3} />}</span>
+                              <span className="flex items-center gap-2 pr-6 font-semibold text-slate-800 dark:text-slate-100"><i className={`h-2 w-2 rounded-full ${option.dot}`} />{option.label}</span>
+                              <span className="mt-2 block pr-2 text-[11px] font-normal leading-4 text-slate-500 dark:text-slate-400">{option.detail}</span>
+                            </label>
+                          ))}
+                          {overrideStatus && newStatus === 'Completed' && <p className="col-span-full flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"><Info size={14} className="mt-0.5 shrink-0"/><span><b>Important:</b> Saving as Ended archives current results for this partner category. You can view archived final rankings anytime in <span className="font-semibold underline">Company Leaderboard → Archives</span>.</span></p>}
                         </div>
                       </div>
 
@@ -1119,7 +1176,7 @@ export function SurveyFormsPage({
                       <div className="space-y-3">
                         <div className="flex items-center justify-between gap-3">
                           <label className="text-sm font-bold text-slate-800 dark:text-slate-200 block uppercase tracking-wider">
-                            Survey Access
+                            Survey Access Restrictions
                           </label>
                           {isSelectMode && (
                             <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 cursor-pointer">
@@ -1133,11 +1190,12 @@ export function SurveyFormsPage({
                             </label>
                           )}
                         </div>
+                        <p className="-mt-2 text-[11px] text-slate-500 dark:text-slate-400">Specify departments and corporate tiers permitted to complete this evaluation.</p>
 
                         <div className={`grid gap-4 md:grid-cols-2 ${!overrideAccess ? 'opacity-60' : ''}`}>
-                          <div className="rounded-xl border border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300">Departments</span>
+                          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/70">
+                              <span className="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-200">Departments</span>
                               <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#0063a9] dark:text-blue-300 cursor-pointer">
                                 <input
                                   type="checkbox"
@@ -1147,20 +1205,20 @@ export function SurveyFormsPage({
                                     setOverrideAccess(true);
                                     setAccessDepartments(event.target.checked ? departmentOptions : []);
                                   }}
-                                  className="h-3.5 w-3.5 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9]"
+                                  className="h-3.5 w-3.5 rounded border-slate-300 accent-[#0063a9] focus:ring-[#0063a9]"
                                 />
-                                <span>All</span>
+                                <span>Select All</span>
                               </label>
                             </div>
-                            <div className="space-y-1.5">
+                            <div className="px-3 py-1">
                               {departmentOptions.map((department) => (
-                                <label key={department} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                                <label key={department} className="flex min-h-[31px] items-center gap-2 border-b border-slate-100 text-xs font-normal text-slate-700 last:border-0 dark:border-slate-800 dark:text-slate-300 cursor-pointer">
                                   <input
                                     type="checkbox"
                                     disabled={!overrideAccess}
                                     checked={accessDepartments.includes(department)}
                                     onChange={() => toggleDepartmentAccess(department)}
-                                    className="h-3.5 w-3.5 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9]"
+                                    className="h-3.5 w-3.5 rounded border-slate-300 accent-[#0063a9] focus:ring-[#0063a9]"
                                   />
                                   <span>{department}</span>
                                 </label>
@@ -1168,9 +1226,9 @@ export function SurveyFormsPage({
                             </div>
                           </div>
 
-                          <div className="rounded-xl border border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300">Roles</span>
+                          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/70">
+                              <span className="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-200">Roles</span>
                               <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#0063a9] dark:text-blue-300 cursor-pointer">
                                 <input
                                   type="checkbox"
@@ -1180,20 +1238,20 @@ export function SurveyFormsPage({
                                     setOverrideAccess(true);
                                     setAccessRoles(event.target.checked ? roleOptions : []);
                                   }}
-                                  className="h-3.5 w-3.5 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9]"
+                                  className="h-3.5 w-3.5 rounded border-slate-300 accent-[#0063a9] focus:ring-[#0063a9]"
                                 />
-                                <span>All</span>
+                                <span>Select All</span>
                               </label>
                             </div>
-                            <div className="space-y-1.5">
+                            <div className="px-3 py-1">
                               {roleOptions.map((role) => (
-                                <label key={role} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                                <label key={role} className="flex min-h-[31px] items-center gap-2 border-b border-slate-100 text-xs font-normal text-slate-700 last:border-0 dark:border-slate-800 dark:text-slate-300 cursor-pointer">
                                   <input
                                     type="checkbox"
                                     disabled={!overrideAccess}
                                     checked={accessRoles.includes(role)}
                                     onChange={() => toggleRoleAccess(role)}
-                                    className="h-3.5 w-3.5 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9]"
+                                    className="h-3.5 w-3.5 rounded border-slate-300 accent-[#0063a9] focus:ring-[#0063a9]"
                                   />
                                   <span>{role}</span>
                                 </label>
@@ -1205,57 +1263,47 @@ export function SurveyFormsPage({
                     </>
                   ) : (
                     <>
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => {
-                            setArchiveError('');
-                            setIsArchiveConfirmOpen(true);
-                          }}
-                          className="inline-flex items-center justify-center rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30 px-3 py-1.5 text-xs font-bold transition cursor-pointer"
-                          type="button"
-                        >
-                          Archive Form
-                        </button>
-                      </div>
-
                       {/* Section 3: Set Deadline */}
-                      <div className="space-y-1.5">
-                        <label className="text-sm font-bold text-slate-800 dark:text-slate-200 block uppercase tracking-wider">
-                          Set Deadline
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="date"
-                            className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0063a9] pl-10 cursor-pointer"
-                            value={newDeadlineDate}
-                            onChange={(e) => {
-                              setNewDeadlineDate(e.target.value);
-                              setOverrideDeadline(true);
-                            }}
-                          />
-                          <CalendarClock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold uppercase text-slate-900 dark:text-slate-100">SET DEADLINE</label>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                          <label htmlFor="manage-access-deadline" className="mb-2 block text-[11px] font-medium text-slate-600 dark:text-slate-300">Submission Cutoff Date</label>
+                          <div className="relative max-w-xs">
+                            <input
+                              id="manage-access-deadline"
+                              type="date"
+                              className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 pl-9 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0063a9] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 cursor-pointer"
+                              value={newDeadlineDate}
+                              onChange={(e) => {
+                                setNewDeadlineDate(e.target.value);
+                                setOverrideDeadline(true);
+                              }}
+                            />
+                            <CalendarClock className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          </div>
                         </div>
                       </div>
 
                       {/* Section 4: Set Notification */}
-                      <div className="space-y-3 pt-2">
-                        <label className="text-sm font-bold text-slate-800 dark:text-slate-200 block uppercase tracking-wider">
-                          Set Notification
-                        </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50/50 dark:bg-slate-950/30 rounded-xl p-3 border border-slate-100 dark:border-slate-800/60">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="block text-xs font-bold uppercase text-slate-900 dark:text-slate-100">SET NOTIFICATION</label>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">Choose automated reminder frequency for respondents</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {[
-                            { value: '4', label: 'Every 4 Hours (High Frequency)' },
+                            { value: '4', label: 'Every 4 Hours', detail: 'High Frequency' },
                             { value: '8', label: 'Every 8 Hours' },
                             { value: '12', label: 'Every 12 Hours' },
-                            { value: '24', label: 'Every 24 Hours (Standard)' },
+                            { value: '24', label: 'Every 24 Hours', detail: 'STANDARD' },
                             { value: '48', label: 'Every 48 Hours' },
                           ].map((opt) => (
                             <label
                               key={opt.value}
-                              className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition ${
+                              className={`relative flex min-h-[46px] items-center gap-2 rounded-xl border px-3.5 py-2 pr-10 text-xs cursor-pointer transition last:sm:col-span-2 ${
                                 notificationFrequency === opt.value
-                                  ? 'border-[#0063a9] bg-blue-50/40 text-[#0063a9] dark:border-blue-500 dark:bg-blue-950/20 dark:text-blue-300'
-                                  : 'border-slate-200 hover:bg-slate-50 dark:border-slate-800/40 dark:hover:bg-slate-800/30 text-slate-700 dark:text-slate-300'
+                                  ? 'border-2 border-[#0063a9] bg-sky-50/70 font-semibold text-[#0063a9] dark:border-blue-500 dark:bg-blue-950/20 dark:text-blue-300'
+                                  : 'border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/30'
                               }`}
                             >
                               <input
@@ -1263,9 +1311,13 @@ export function SurveyFormsPage({
                                 name="popupReminderFreq"
                                 checked={notificationFrequency === opt.value}
                                 onChange={() => setNotificationFrequency(opt.value)}
-                                className="h-4 w-4 text-[#0063a9] focus:ring-[#0063a9] transition cursor-pointer"
+                                className="peer sr-only"
                               />
+                              <span className={`absolute right-3.5 grid h-4 w-4 place-items-center rounded-full ${notificationFrequency === opt.value ? 'bg-[#0063a9] text-white' : 'border border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900'}`}>
+                                {notificationFrequency === opt.value && <Check size={11} strokeWidth={3} />}
+                              </span>
                               <span>{opt.label}</span>
+                              {opt.detail && <span className={opt.value === '24' ? 'rounded-full bg-[#0063a9] px-2 py-0.5 text-[9px] font-bold text-white' : 'text-[10px] font-normal text-slate-400'}>{opt.value === '4' ? '(High Frequency)' : opt.detail}</span>}
                             </label>
                           ))}
                         </div>
@@ -1273,14 +1325,16 @@ export function SurveyFormsPage({
 
                       {/* Modify Companies to Evaluate - single-survey modify only */}
                       {!isSelectMode && (
-                        <div className="pt-2">
+                        <div className="space-y-2 pt-1">
+                          <h4 className="text-xs font-bold uppercase text-slate-900 dark:text-slate-100">MODIFY COMPANIES TO EVALUATE</h4>
                           <button
                             onClick={() => setIsCompanyPickerOpen(true)}
-                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 hover:bg-slate-100 dark:hover:bg-slate-800/60 px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 transition cursor-pointer"
+                            className="w-full inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-left transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-slate-800/60 cursor-pointer"
                             type="button"
                           >
-                            <Building2 size={14} />
-                            <span>Modify Companies to Evaluate</span>
+                            <span className="rounded-lg border border-sky-100 bg-sky-50 p-2 text-[#0063a9] dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300"><Building2 size={16} /></span>
+                            <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Modify Companies to Evaluate</span><span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{evaluationCompanyIds.length} partner companies currently assigned</span></span>
+                            <span className="shrink-0 text-xs font-semibold text-slate-400">Configure ›</span>
                           </button>
                         </div>
                       )}
@@ -1290,51 +1344,26 @@ export function SurveyFormsPage({
                 </div>
 
                 {/* Modal Footer (Static) */}
-                <div className="flex flex-wrap items-center justify-between gap-2 p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40 shrink-0">
-                  {modifyStep === 1 ? (
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+                  <button
+                    onClick={resetModifyState}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                    type="button"
+                  >
+                    <ArrowLeft size={14} />
+                    <span>Back</span>
+                  </button>
+                  <div className="ml-auto flex items-center gap-2">
                     <button
-                      onClick={() => setModifyStep(2)}
-                      className="ml-auto inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 dark:border-slate-750 dark:text-slate-300 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
+                      onClick={handleBulkSaveChanges}
+                      disabled={isSavingChanges}
+                      className="inline-flex h-9 items-center justify-center rounded-lg bg-[#0063a9] px-4 text-xs font-semibold text-white transition hover:bg-[#00528c] disabled:cursor-wait disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-700"
                       type="button"
                     >
-                      <span>Next</span>
-                      <ArrowRight size={14} />
+                      {isSavingChanges ? 'Saving...' : 'Save Changes'}
                     </button>
-                  ) : (
-                    <button
-                      onClick={() => setModifyStep(1)}
-                      className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 dark:border-slate-750 dark:text-slate-300 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
-                      type="button"
-                    >
-                      <ArrowLeft size={14} />
-                      <span>Back</span>
-                    </button>
-                  )}
-
-                  {modifyStep === 2 && (
-                    <div className="flex items-center gap-2.5">
-                      <button
-                        onClick={() => {
-                          setResetError('');
-                          setResetSeriesLabel(suggestSeriesLabel());
-                          setIsResetConfirmOpen(true);
-                        }}
-                        className="px-4 py-2.5 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 dark:border-rose-900/30 dark:hover:bg-rose-950/20 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
-                        type="button"
-                      >
-                        Reset Form/s
-                      </button>
-                      <button
-                        onClick={handleBulkSaveChanges}
-                        disabled={isSavingChanges}
-                        className="px-4 py-2.5 rounded-xl bg-[#0063a9] text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md disabled:cursor-wait disabled:opacity-60"
-                        type="button"
-                      >
-                        {isSavingChanges ? 'Saving...' : 'Save Changes'}
-                      </button>
-                    </div>
-                  )}
-                  {modifyStep === 2 && saveChangesError && <p className="w-full text-right text-xs font-semibold text-rose-600 dark:text-rose-400" role="alert">{saveChangesError}</p>}
+                  </div>
+                  {saveChangesError && <p className="w-full text-right text-xs font-semibold text-rose-600 dark:text-rose-400" role="alert">{saveChangesError}</p>}
                 </div>
 
               </div>
@@ -1463,50 +1492,60 @@ export function SurveyFormsPage({
 
           {/* Custom Archive Confirmation Modal */}
           {isArchiveConfirmOpen && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <div 
-                className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="archive-form-title">
+              <button
+                type="button"
+                aria-label="Close archive confirmation"
+                className="absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]"
                 onClick={() => {
                   if (!isArchiving) setIsArchiveConfirmOpen(false);
                 }}
               />
-              <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-rose-100 dark:border-rose-950/30 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
-                <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <span className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30">
-                    <X size={20} className="text-rose-600 dark:text-rose-400" />
-                  </span>
-                  <div>
-                    <h3 className="text-base font-extrabold text-slate-950 dark:text-white uppercase tracking-wider">
-                      Archive Selected Forms
-                    </h3>
-                    <p className="text-xs text-rose-500 font-semibold mt-0.5">
-                      Applying to {selectedSurveyIds.size} survey forms
-                    </p>
+              <section className="relative z-10 w-full max-w-[440px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+                <header className="flex items-start justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <span className="rounded-lg bg-rose-50 p-2 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400">
+                      <Archive size={17} />
+                    </span>
+                    <div>
+                      <h3 id="archive-form-title" className="text-base font-semibold text-slate-900 dark:text-white">
+                        Archive this form?
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        {surveys.filter((survey) => selectedSurveyIds.has(survey.id)).map((survey) => survey.title).join(', ') || `${selectedSurveyIds.size} selected forms`}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                  <button
+                    type="button"
+                    aria-label="Close"
+                    disabled={isArchiving}
+                    onClick={() => setIsArchiveConfirmOpen(false)}
+                    className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  >
+                    <X size={18} />
+                  </button>
+                </header>
 
-                <div className="space-y-2.5">
-                  <div className="bg-rose-50/75 dark:bg-rose-950/15 p-3.5 rounded-xl border border-rose-100 dark:border-rose-900/30 text-xs text-rose-700 dark:text-rose-300 leading-relaxed space-y-1.5">
-                    <p className="font-bold">⚠️ CRITICAL WARNING:</p>
-                    <p>Archiving these survey forms will completely hide them from both active administrator tables and employee evaluation dashboards.</p>
-                    <p>The forms will no longer accept responses, but their historic responses will be preserved in the Archive Center.</p>
-                  </div>
-
+                <div className="space-y-3 px-5 py-4">
+                  <p className="text-sm leading-5 text-slate-600 dark:text-slate-300">
+                    This form will move below active forms and stop accepting responses. Its questions, settings, and historical responses will be preserved.
+                  </p>
                   {archiveError && (
-                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400" role="alert">
+                    <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-300" role="alert">
                       {archiveError}
                     </p>
                   )}
                 </div>
 
-                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <footer className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 dark:border-slate-800 dark:bg-slate-950/30">
                   <button
                     onClick={() => {
                       setIsArchiveConfirmOpen(false);
                       setArchiveError('');
                     }}
                     disabled={isArchiving}
-                    className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition disabled:cursor-not-allowed disabled:opacity-50"
+                    className="h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                     type="button"
                   >
                     Cancel
@@ -1514,90 +1553,16 @@ export function SurveyFormsPage({
                   <button
                     onClick={handleProceedArchive}
                     disabled={isArchiving}
-                    className="px-4 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                    className="h-9 rounded-lg bg-rose-600 px-3.5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60"
                     type="button"
                   >
-                    {isArchiving ? 'Archiving...' : 'Proceed & Archive'}
+                    {isArchiving ? 'Archiving…' : 'Archive form'}
                   </button>
-                </div>
-              </div>
+                </footer>
+              </section>
             </div>
           )}
 
-          {/* Custom Reset Confirmation Modal */}
-          {isResetConfirmOpen && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <div 
-                className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
-                onClick={() => setIsResetConfirmOpen(false)}
-              />
-              <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-amber-100 dark:border-amber-950/30 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
-                <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400 border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <span className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30">
-                    <X size={20} className="text-amber-600 dark:text-amber-400" />
-                  </span>
-                  <div>
-                    <h3 className="text-base font-extrabold text-slate-950 dark:text-white uppercase tracking-wider">
-                      Reset Selected Forms
-                    </h3>
-                    <p className="text-xs text-amber-500 font-semibold mt-0.5">
-                      Applying to {selectedSurveyIds.size} survey forms
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2.5">
-                  <div className="bg-amber-50/75 dark:bg-amber-950/15 p-3.5 rounded-xl border border-amber-100 dark:border-amber-900/30 text-xs text-amber-700 dark:text-amber-300 leading-relaxed space-y-1.5">
-                    <p className="font-bold">⚠️ CRITICAL WARNING:</p>
-                    <p>Resetting these forms will archive all previous responses submitted by employees for these specific survey questions.</p>
-                    <p>This allows employees to answer the evaluation forms completely fresh, while previous answers are moved securely to historical archives.</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block uppercase tracking-wider">
-                      Period / Series Label:
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 1st Half 2026"
-                      className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      value={resetSeriesLabel}
-                      onChange={(e) => setResetSeriesLabel(e.target.value)}
-                    />
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                      Names this batch of archived responses so it shows up as its own period in Archive Center's history and trend charts. Reusing an existing label merges into that same period.
-                    </p>
-                  </div>
-
-                  {resetError && (
-                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400" role="alert">
-                      {resetError}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    onClick={() => {
-                      setIsResetConfirmOpen(false);
-                      setResetError('');
-                    }}
-                    className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition"
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleProceedReset}
-                    className="px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-800 text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-md"
-                    type="button"
-                  >
-                    Proceed & Reset
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
     </div>

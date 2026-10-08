@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Archive, BarChart3, ChevronLeft, ChevronRight, Info, Trophy, X } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Info, Trophy, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CompanyAnalysisPanel } from '../components/CompanyAnalysisPanel';
 import { PageDescription } from '../components/PageDescription';
@@ -11,7 +11,6 @@ import { computeCompanyComposite, RankingMode } from '../utils/scoring';
 import { getAnalyticsCompanyRankings, paginateAnalyticsItems, paginateCompanyRankings } from '../features/analytics/domain/rankings';
 import { QuestionPerformanceRow } from '../features/analytics/components/QuestionPerformanceRow';
 import { AnalyticsDateRangeControls } from '../features/analytics/components/AnalyticsDateRangeControls';
-import { ArchivedCompanyRankings } from '../features/analytics/components/ArchivedCompanyRankings';
 import type { AnalyticsDateRange } from '../features/analytics/domain/dateRange';
 import { useModalEscape } from '../hooks/useModalEscape';
 
@@ -67,7 +66,6 @@ function AnalyticsTooltip({ text }: { text: string }) {
 
 export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilters, dataScope = 'current', onChangeDataScope, archiveSeries = [], selectedSeriesIds = [], onChangeSelectedSeriesIds, dateRange = { from: '', to: '' }, onChangeDateRange, partnerCompanies = [], archivedResponses = [] }: AnalyticsPageProps) {
   const [rankingMode, setRankingMode] = useState<RankingMode>('weighted');
-  const [leaderboardTab, setLeaderboardTab] = useState<'current' | 'archives'>('current');
   const [selectedCompany, setSelectedCompany] = useState<CompanySummary | null>(null);
   const [trendGranularity, setTrendGranularity] = useState<'monthly' | 'yearly' | 'series'>('monthly');
   const [leaderboardPage, setLeaderboardPage] = useState(0);
@@ -173,22 +171,14 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Compare evaluated partners and select a company to review its category performance.</p>
             </div>
           </div>
-          <div className="mt-4 flex gap-2 border-b border-slate-100 dark:border-slate-800">
-            <button type="button" onClick={() => setLeaderboardTab('current')} aria-pressed={leaderboardTab === 'current'} className={`border-b-2 px-3 py-2 text-xs font-bold transition ${leaderboardTab === 'current' ? 'border-[#0078a8] text-[#0078a8]' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}>
-              Current rankings
-            </button>
-            <button type="button" onClick={() => setLeaderboardTab('archives')} aria-pressed={leaderboardTab === 'archives'} className={`inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-bold transition ${leaderboardTab === 'archives' ? 'border-[#0078a8] text-[#0078a8]' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-white'}`}>
-              <Archive size={13} aria-hidden="true" /> Archives
-            </button>
-          </div>
-          {leaderboardTab === 'current' && <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900 sm:grid-cols-4">
             {(['All', ...surveyTypes] as const).map((type) => (
               <button type="button" key={type} onClick={() => selectType(type)} aria-pressed={selectedType === type} className={`rounded-md px-3 py-2 text-xs font-semibold transition ${selectedType === type ? 'bg-[#0078a8] text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white'}`}>{type === 'All' ? 'All categories' : type}</button>
             ))}
-          </div>}
+          </div>
         </div>
 
-        {leaderboardTab === 'current' ? <div className="px-4 py-3 sm:px-6">
+        <div className="px-4 py-3 sm:px-6">
           <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_5rem] border-b border-slate-100 px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:border-slate-800 sm:grid-cols-[3rem_minmax(0,1fr)_7rem_4rem]"><span>Rank</span><span>Company</span><span className="text-right">{rankingMode === 'weighted' ? 'Rank score' : 'Average score'}</span><span className="hidden text-right sm:block">Forms</span></div>
           <div className="grid min-w-0 gap-x-5 xl:grid-cols-2">
             {leaderboardColumns.map((column, columnIndex) => (
@@ -225,7 +215,7 @@ export function AnalyticsPage({ responses, activeSurveyTypes, filters, setFilter
               )}
             </div>
           )}
-        </div> : <div className="px-4 py-4 sm:px-6"><ArchivedCompanyRankings responses={archivedResponses} archiveSeries={archiveSeries} rankingMode={rankingMode} /></div>}
+        </div>
       </section>
 
       <section aria-labelledby="analytics-detail-heading" className="space-y-4">

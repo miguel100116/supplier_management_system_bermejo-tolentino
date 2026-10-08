@@ -1094,6 +1094,8 @@ export default function App() {
         responses={userAccessibleResponses}
         partnerCompanies={userAccessiblePartnerCompanies}
         userEmail={account || ''}
+        employeeProfiles={accounts}
+        departmentPermissions={departmentPermissions}
         onUpdateSurvey={updateSurvey}
         onUpdateSurveysBulk={updateSurveysBulk}
         onArchiveResponses={archiveResponsesForSurveys}

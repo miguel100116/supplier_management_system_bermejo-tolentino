@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { Plus, Search, SlidersHorizontal, Settings2 } from 'lucide-react';
 import type { SurveyType } from '../../../types/survey';
 
 export type SurveyFormSort = 'title-asc' | 'title-desc' | 'deadline-asc' | 'deadline-desc' | 'created-desc';
@@ -17,8 +17,7 @@ interface SurveyFormsToolbarProps {
   onDeadlineToChange: (value: string) => void;
   onResetFilters: () => void;
   onCreateForm: () => void;
-  isSelectMode: boolean;
-  onToggleSelection: () => void;
+  onManageAccess: () => void;
 }
 
 const categoryOptions: Array<'All' | SurveyType> = ['All', 'Courier', 'Supplier', 'Subcontractor'];
@@ -40,8 +39,7 @@ export function SurveyFormsToolbar({
   onDeadlineToChange,
   onResetFilters,
   onCreateForm,
-  isSelectMode,
-  onToggleSelection,
+  onManageAccess,
 }: SurveyFormsToolbarProps) {
   const activeFilterCount = countActiveFormFilters(sort, deadlineFrom, deadlineTo);
 
@@ -77,21 +75,18 @@ export function SurveyFormsToolbar({
         <button
           type="button"
           onClick={onCreateForm}
-          className="inline-flex h-10 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-2 text-xs font-semibold sm:gap-1.5 sm:px-3 sm:text-sm text-white hover:bg-emerald-700"
+          className="inline-flex h-10 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-emerald-600 px-3 text-xs font-semibold sm:px-4 sm:text-sm text-white hover:bg-emerald-700"
         >
           <Plus size={16} aria-hidden="true" className="hidden sm:block" />
-          <span className="sm:hidden">Create</span><span className="hidden sm:inline">Create Form</span>
+          <span>Create Form</span>
         </button>
         <button
           type="button"
-          onClick={onToggleSelection}
-          aria-pressed={isSelectMode}
-          className={isSelectMode
-            ? 'inline-flex h-10 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2 text-xs font-semibold sm:px-3 sm:text-sm text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-400'
-            : 'inline-flex h-10 items-center justify-center rounded-lg bg-[#0063a9] px-2 text-xs font-semibold sm:px-3 sm:text-sm text-white hover:bg-[#00528c] dark:bg-blue-600 dark:hover:bg-blue-700'}
+          onClick={onManageAccess}
+          className="inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-[#0063a9] px-3 text-xs font-semibold text-white hover:bg-[#00528c] sm:px-4 sm:text-sm dark:bg-blue-600 dark:hover:bg-blue-700"
         >
-          <span className="sm:hidden">{isSelectMode ? 'Cancel' : 'Select'}</span>
-          <span className="hidden sm:inline">{isSelectMode ? 'Cancel Selection' : 'Select Forms'}</span>
+          <Settings2 size={15} aria-hidden="true" />
+          <span>Manage Access</span>
         </button>
       </div>
 
