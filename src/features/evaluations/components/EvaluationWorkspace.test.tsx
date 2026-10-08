@@ -21,7 +21,7 @@ test('each workspace view exposes three navigation choices, one current view, an
     assert.equal((html.match(/<button/g) ?? []).length, 3);
     assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
     assert.match(html, new RegExp(`aria-current="page"[^>]*>${tab.label}</button>`));
-    assert.ok(html.includes(tab.description));
+    assert.ok(html.includes('Create and manage evaluation forms, assigned companies, deadlines, and access.'));
     assert.ok(html.includes(`Content for ${tab.label}`));
   }
 });
