@@ -47,7 +47,7 @@ test('SMS-55 keeps the admin Forms controls while removing duplicate navigation 
   assert.match(html, /Search survey title or description/);
   assert.match(html, /Deadline range/);
   assert.match(html, /Reset/);
-  assert.match(html, /<span class="font-bold text-slate-800 dark:text-slate-100">Example Form<\/span>/);
+  assert.match(html, /<button\b(?=[^>]*aria-label="Preview Example Form")[^>]*>Example Form<\/button>/);
   assert.match(html, /Manage Access/);
   assert.match(html, /Archive/);
   assert.match(html, /Send/);
