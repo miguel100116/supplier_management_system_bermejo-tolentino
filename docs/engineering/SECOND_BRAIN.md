@@ -1,6 +1,6 @@
 # Supplier Management System — Engineering Second Brain
 
-Last verified: 2026-10-08
+Last verified: 2026-10-09
 
 This document preserves durable engineering context for maintainers and coding agents. It is a map, not a substitute for reading the relevant code. Verify details before making consequential changes.
 
@@ -21,7 +21,7 @@ Canonical product documentation:
 - React 18 and TypeScript frontend built with Vite 6.
 - Tailwind CSS for styling and Recharts for analytics visuals.
 - Thin Express host in `server.ts` for Vite development middleware, runtime public configuration, health checks, and production static serving.
-- Client navigation is mapped from `PageKey` values in `src/App.tsx` to `/<page-key>` paths. Direct paths and browser Back/Forward are handled with the History API; selected survey IDs are carried in query parameters. `server.ts` and Vite already provide the SPA fallback. Browser Back during an in-progress survey keeps the draft warning and restores the current history entry if the user cancels.
+- Client navigation maps `PageKey` values through `src/utils/pageRouting.ts` to canonical paths that match visible module names while accepting legacy route aliases. Direct paths and browser Back/Forward use the History API; selected survey IDs are carried in query parameters. `server.ts` and Vite already provide the SPA fallback. Browser Back and same-page survey switches during an in-progress evaluation keep the draft warning and restore the current state if the respondent cancels.
 - Vercel static SPA deployments use the root `vercel.json` rewrite to serve `index.html` for frontend paths on direct requests and refreshes; `/api/*` is excluded and requires its own configured API host.
 - `server/index.js` is a second, overlapping server implementation and should be treated as legacy until its consumers are verified.
 - Main commands are declared in `package.json`: `dev`, `build`, `start`, `preview`, and `lint`.

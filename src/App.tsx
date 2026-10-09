@@ -38,7 +38,7 @@ import { PageModuleKey, getDefaultPermissions, getEffectiveSurveyTypes, hasPageA
 import { clearSessionActivity, recordSessionActivity, useIdleSessionTimeout } from './hooks/useIdleSessionTimeout';
 import { formatSessionTimeRemaining } from './utils/sessionTimeout';
 import { useModalEscape } from './hooks/useModalEscape';
-import { getPageKeyFromPathname, getPagePathname, type PageKey } from './utils/pageRouting';
+import { getPageKeyFromPathname, getPageNavigationMode, getPagePathname, shouldConfirmSurveySwitch, type PageKey } from './utils/pageRouting';
 import { createBrowserPageHistory } from './utils/pageHistory';
 
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(({ AnalyticsPage }) => ({ default: AnalyticsPage })));
@@ -191,6 +191,9 @@ export default function App() {
 
   const handleLogout = useCallback(() => {
     if (account) clearSessionActivity(account);
+    pageHistoryRef.current = [];
+    updatePageUrl('login', 'replace');
+    setActivePage('login');
     setAccount(null);
     localStorage.removeItem('user_account');
     void signOutSupabase();
@@ -466,10 +469,27 @@ export default function App() {
   };
 
   const navigateTo = (targetPage: PageKey, routeContext?: { surveyId?: string | null; editSurveyId?: string | null }) => {
-    if (targetPage === activePage) return;
+    if (getPageNavigationMode(activePage, targetPage) === 'replace') {
+      const currentSurveyId = new URLSearchParams(window.location.search).get('surveyId');
+      const applyRouteContext = () => {
+        if (routeContext?.surveyId !== undefined) setSelectedSurveyId(routeContext.surveyId);
+        if (routeContext?.editSurveyId !== undefined) setEditingSurveyId(routeContext.editSurveyId);
+        updatePageUrl(targetPage, 'replace', routeContext);
+      };
+
+      const nextSurveyId = routeContext?.surveyId !== undefined ? routeContext.surveyId : currentSurveyId;
+      if (shouldConfirmSurveySwitch(activePage, targetPage, currentSurveyId, nextSurveyId) && surveyFillerRef.current) {
+        surveyFillerRef.current.attemptExit(applyRouteContext);
+      } else {
+        applyRouteContext();
+      }
+      return;
+    }
 
     navigateFrom(targetPage, () => {
       pageHistoryRef.current.push(activePage);
+      if (routeContext?.surveyId !== undefined) setSelectedSurveyId(routeContext.surveyId);
+      if (routeContext?.editSurveyId !== undefined) setEditingSurveyId(routeContext.editSurveyId);
       updatePageUrl(targetPage, 'push', routeContext);
       setActivePage(targetPage);
     });
@@ -761,6 +781,16 @@ export default function App() {
 
   // Safe routing guard redirecting users to permitted views
   useEffect(() => {
+    if (!authChecked || isPasswordRecovery) return;
+
+    if (!account && activePage !== 'login') {
+      resetNavigationTo('login');
+    } else if (account && activePage === 'login') {
+      resetNavigationTo('dashboard');
+    }
+  }, [activePage, account, authChecked, isPasswordRecovery]);
+
+  useEffect(() => {
     if (!account || isSupabaseHydrating) return;
     const currentIsAllowed = hasPageAccess(userPermissions.pages, activePage, isAdmin);
     if (!currentIsAllowed) {
@@ -953,7 +983,8 @@ export default function App() {
     recordSessionActivity(email);
     setAccount(email);
     localStorage.setItem('user_account', email);
-    resetNavigationTo(getPageKeyFromPathname(window.location.pathname, ROUTE_BASE_PATH));
+    const requestedPage = getPageKeyFromPathname(window.location.pathname, ROUTE_BASE_PATH);
+    resetNavigationTo(requestedPage === 'login' ? 'dashboard' : requestedPage);
   };
 
   const completePasswordRecovery = async () => {
@@ -985,6 +1016,10 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  if (activePage === 'login') {
+    return <div className="min-h-screen w-full bg-white" />;
+  }
+
   // Handler for custom survey submission
   const handleSurveySubmit = (
     surveyId: string,
@@ -1003,6 +1038,7 @@ export default function App() {
   // ADMIN EXPERIENCE (ALL ANALYTICS SECURED HERE)
   // ----------------------------------------------------
   const pageContent = {
+    login: null,
     dashboard: (
       <DashboardPage
         responses={filteredResponses}
@@ -1101,12 +1137,10 @@ export default function App() {
         onArchiveResponses={archiveResponsesForSurveys}
         onArchiveSurveyTypes={archiveResponsesForSurveyTypes}
         onSelectSurvey={(id) => {
-          setSelectedSurveyId(id);
           navigateTo('view-form', { surveyId: id });
         }}
         onNavigateToCreate={() => navigateTo('create-form')}
         onFillForm={(id) => {
-          setSelectedSurveyId(id);
           navigateTo('fill-form', { surveyId: id });
         }}
         isAdmin={isAdmin}
@@ -1200,7 +1234,6 @@ export default function App() {
           partnerCompanies={partnerCompanies}
           responses={responses}
           onFillForm={(id) => {
-            setSelectedSurveyId(id);
             navigateTo('fill-form', { surveyId: id });
           }}
         />
@@ -1227,7 +1260,6 @@ export default function App() {
           } else {
             const newSurvey = createSurvey(surveyData);
             if (newSurvey) {
-              setSelectedSurveyId(newSurvey.id);
               navigateTo('view-form', { surveyId: newSurvey.id });
             }
           }
@@ -1358,7 +1390,6 @@ export default function App() {
                   partnerCompanies={partnerCompanies}
                   responses={responses}
                   onFillForm={(id) => {
-                    setSelectedSurveyId(id);
                     navigateTo('fill-form', { surveyId: id });
                   }}
                   onViewAll={() => setIsNotificationModalOpen(true)}
@@ -1521,7 +1552,6 @@ export default function App() {
                       responses={responses}
                       onFillForm={(id) => {
                         setIsNotificationModalOpen(false);
-                        setSelectedSurveyId(id);
                         navigateTo('fill-form', { surveyId: id });
                       }}
                     />
