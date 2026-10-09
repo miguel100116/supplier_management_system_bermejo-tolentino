@@ -32,9 +32,9 @@ export interface CompanyComposite {
   stdDev: number; // population std dev of per-question percent scores - consistency signal
   naRate: number; // % of applicable questions marked N/A
   // Volume-weighted variant of compositeScore, pulled toward the peer mean
-  // when evaluationCount is low. Use this (not compositeScore) for ranking/
-  // sorting a leaderboard; keep showing compositeScore as the company's
-  // actual rating everywhere else - see computeRankScore in analytics.ts.
+  // when evaluationCount is low. Use this for ranking and report fields
+  // explicitly labeled Volume-Weighted Score; compositeScore remains the
+  // company's rubric-based rating - see computeRankScore in analytics.ts.
   rankScore: number;
   // Set by getPureAverageLeaderboard. Standard competition ranking with ties
   // (1, 1, 3…). Undefined in volume-weighted mode where array position = rank.
@@ -249,8 +249,9 @@ export function getCompanyComposites(responses: SurveyResponse[], surveyType: Su
 /**
  * Every company of a given survey type, ranked by volume-weighted rankScore
  * (highest first) so a company with one or two evaluations can't outrank one
- * with dozens purely on a small, possibly-lucky sample. compositeScore -
- * each company's actual rating - is left untouched for display.
+ * with dozens purely on a small, possibly-lucky sample. compositeScore stays
+ * the actual rubric rating; rankScore is used for leaderboard and report
+ * ranking displays.
  */
 export function getLeaderboard(responses: SurveyResponse[], surveyType: SurveyType): CompanyComposite[] {
   const composites = getCompanyComposites(responses, surveyType);

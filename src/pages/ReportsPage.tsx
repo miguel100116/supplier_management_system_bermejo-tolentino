@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Database, Download, FileBarChart, FileSpreadsheet, FileText, Table2, Handshake, Search } from 'lucide-react';
-import { PartnerCompany, SurveyResponse } from '../types/survey';
-import { formatNumber, getCompanyPerformance, getKpiSummary, questionPerformance, averageBySurveyType } from '../utils/analytics';
+import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
+import { formatNumber, getKpiSummary, questionPerformance, averageBySurveyType } from '../utils/analytics';
+import { formatCompositeScore } from '../data/questionWeights';
+import { getAnalyticsCompanyRankings } from '../features/analytics/domain/rankings';
 import { ExportTable, exportTablesAsCSV, exportTablesAsExcel, exportTablesAsPDF } from '../utils/exporters';
 import { CompanyReportBuilderPage } from './CompanyReportBuilderPage';
 import { QuestionReportBuilderPage } from './QuestionReportBuilderPage';
@@ -12,6 +14,7 @@ import { PageDescription } from '../components/PageDescription';
 
 interface ReportsPageProps {
   responses: SurveyResponse[];
+  rankingResponses?: SurveyResponse[];
   companyReportResponses?: SurveyResponse[];
   partnerCompanies?: PartnerCompany[];
   canExport?: boolean;
@@ -25,7 +28,7 @@ function runExport(format: ExportFormat, reportTitle: string, tables: ExportTabl
   else exportTablesAsPDF(reportTitle, tables, filenameBase);
 }
 
-export function ReportsPage({ responses, companyReportResponses, partnerCompanies = [], canExport = false }: ReportsPageProps) {
+export function ReportsPage({ responses, rankingResponses = responses, companyReportResponses, partnerCompanies = [], canExport = false }: ReportsPageProps) {
   const [showSummaryBuilder, setShowSummaryBuilder] = useState(false);
   const [showCompanyBuilder, setShowCompanyBuilder] = useState(false);
   const [showQuestionBuilder, setShowQuestionBuilder] = useState(false);
@@ -34,7 +37,15 @@ export function ReportsPage({ responses, companyReportResponses, partnerCompanie
   const summary = getKpiSummary(responses);
   const allQuestionRows = questionPerformance(responses);
   const questionRows = allQuestionRows.slice(0, 5);
-  const companyPerformance = getCompanyPerformance(responses);
+  const rankingTypes = (['Courier', 'Supplier', 'Subcontractor'] as SurveyType[]).filter((type) =>
+    rankingResponses.some((response) => response.surveyType === type),
+  );
+  const companyPerformance = getAnalyticsCompanyRankings(rankingResponses, rankingTypes, 'weighted').map((ranking) => ({
+    company: ranking.name,
+    surveyType: ranking.type,
+    score: ranking.rankScore,
+    evaluations: ranking.count,
+  }));
   
   const splitCount = Math.min(10, Math.floor(companyPerformance.length / 2));
   const topCompanies = companyPerformance.slice(0, splitCount);
@@ -63,14 +74,14 @@ export function ReportsPage({ responses, companyReportResponses, partnerCompanie
 
   const topCompaniesTable: ExportTable = {
     title: `Top Performing Companies (Top ${splitCount})`,
-    columns: ['Company', 'Average Score', 'Evaluations'],
-    rows: topCompanies.map((row) => [row.company, formatNumber(row.average), row.evaluations]),
+    columns: ['Company', 'Survey Type', 'Volume-Weighted Score', 'Evaluations'],
+    rows: topCompanies.map((row) => [row.company, row.surveyType, formatCompositeScore(row.surveyType, row.score).text, row.evaluations]),
   };
 
   const leastRatedCompaniesTable: ExportTable = {
     title: `Least Rated Companies (Bottom ${splitCount})`,
-    columns: ['Company', 'Average Score', 'Evaluations'],
-    rows: leastRatedCompanies.map((row) => [row.company, formatNumber(row.average), row.evaluations]),
+    columns: ['Company', 'Survey Type', 'Volume-Weighted Score', 'Evaluations'],
+    rows: leastRatedCompanies.map((row) => [row.company, row.surveyType, formatCompositeScore(row.surveyType, row.score).text, row.evaluations]),
   };
 
   const questionHighlightsTable: ExportTable = {
@@ -100,6 +111,7 @@ export function ReportsPage({ responses, companyReportResponses, partnerCompanie
     return (
       <SummaryReportBuilderPage
         responses={responses}
+        rankingResponses={rankingResponses}
         partnerCompanies={partnerCompanies}
         canExport={canExport}
         onBack={() => setShowSummaryBuilder(false)}
@@ -111,6 +123,7 @@ export function ReportsPage({ responses, companyReportResponses, partnerCompanie
     return (
       <ExecutiveSummaryReportBuilderPage
         responses={responses}
+        rankingResponses={rankingResponses}
         partnerCompanies={partnerCompanies}
         canExport={canExport}
         onBack={() => setShowExecutiveBuilder(false)}

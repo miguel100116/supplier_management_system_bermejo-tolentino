@@ -183,14 +183,12 @@ function drawCoverPage(
 function getRatingRangeLabel(data: CompanyReportData, index: number): string {
   const band = data.ratingScale[index];
   const previous = data.ratingScale[index - 1];
-  const maximum = data.surveyType === 'Subcontractor' ? 2 : 100;
   const upper = index === 0
-    ? maximum
-    : Math.max(band.displayMinimum, previous.displayMinimum - (data.surveyType === 'Subcontractor' ? 0.01 : 1));
-  const format = (value: number) => data.surveyType === 'Subcontractor' ? value.toFixed(2) : String(Math.round(value));
+    ? 100
+    : (previous?.displayMinimum ?? 1) - 1;
   return band.displayMinimum <= 0
-    ? `${format(0)}-${format(upper)}`
-    : `${format(band.displayMinimum)}-${format(upper)}`;
+    ? `${upper} and below`
+    : `${band.displayMinimum} - ${upper}`;
 }
 
 function drawRatingScale(doc: jsPDF, data: CompanyReportData, x: number, y: number, width: number) {
@@ -319,8 +317,8 @@ function drawExecutiveSummaryPage(
   doc.setLineWidth(0.7);
   doc.roundedRect(marginLeft, stripY, contentWidth, 54, 5, 5, 'S');
   const metrics = [
-    { label: 'AVERAGE SCORE', value: getReportAverageText(data), color: data.composite?.band.hex ?? '#94A3B8' },
-    { label: 'RATING', value: data.composite?.band.label ?? 'No Score Yet', color: data.composite?.band.hex ?? '#94A3B8' },
+    { label: 'VOLUME-WEIGHTED SCORE', value: getReportAverageText(data), color: data.volumeWeightedBand?.hex ?? '#94A3B8' },
+    { label: 'RATING', value: data.volumeWeightedBand?.label ?? 'No Score Yet', color: data.volumeWeightedBand?.hex ?? '#94A3B8' },
     { label: 'RESPONDENTS', value: String(data.composite?.evaluationCount ?? 0), color: '#1E293B' },
   ];
   metrics.forEach((metric, index) => {
@@ -672,7 +670,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
             children: [
               new Paragraph({
                 spacing: { after: 80 },
-                children: [new TextRun({ text: 'COMPOSITE SCORE', bold: true, size: 18, color: MUTED_HEX })],
+                children: [new TextRun({ text: 'VOLUME-WEIGHTED SCORE', bold: true, size: 18, color: MUTED_HEX })],
               }),
               new Paragraph({
                 children: [new TextRun({ text: getReportAverageText(data), bold: true, size: 56, color: BRAND_HEX })],
@@ -689,7 +687,7 @@ export async function exportCompanyReportAsDocx(data: CompanyReportData) {
                 children: [new TextRun({ text: 'RATING BAND', bold: true, size: 18, color: MUTED_HEX })],
               }),
               new Paragraph({
-                children: [new TextRun({ text: data.composite?.band.label ?? 'No Score Yet', bold: true, size: 36, color: INK_HEX })],
+                children: [new TextRun({ text: data.volumeWeightedBand?.label ?? 'No Score Yet', bold: true, size: 36, color: INK_HEX })],
               }),
             ],
           }),

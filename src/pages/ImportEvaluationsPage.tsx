@@ -1,9 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Building2,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileSpreadsheet,
   HardHat,
@@ -26,6 +28,14 @@ import { useModalEscape } from '../hooks/useModalEscape';
 import { PageDescription } from '../components/PageDescription';
 
 const SURVEY_TYPES: SurveyType[] = ['Supplier', 'Subcontractor', 'Courier'];
+const STORED_SOURCE_FILES_PAGE_SIZE = 10;
+type StoredArchiveFilter = 'all' | SurveyType;
+const STORED_SOURCE_FILE_FILTERS: Array<{ id: StoredArchiveFilter; label: string }> = [
+  { id: 'all', label: 'All categories' },
+  { id: 'Courier', label: 'Courier' },
+  { id: 'Supplier', label: 'Supplier' },
+  { id: 'Subcontractor', label: 'Subcontractor' },
+];
 const FORM_CARDS: Array<{ surveyType: SurveyType; title: string; formLabel: string; icon: typeof Package }> = [
   { surveyType: 'Supplier', title: 'Supplier', formLabel: 'Form 20-002, Form 2', icon: Package },
   { surveyType: 'Subcontractor', title: 'Subcontractor', formLabel: 'Form 20-002, Form 3', icon: HardHat },
@@ -43,8 +53,6 @@ interface SelectedEvaluationFile {
   file: File;
   importBatchId: string;
   previews: RawEvalPreview[];
-  completedArchive?: EvaluationImportArchive;
-  completedSummaries?: RawEvalImportSummary[];
 }
 
 function formatFileSize(bytes: number): string {
@@ -64,6 +72,9 @@ function emptyDecisions(): Record<SurveyType, Record<string, CompanyDecision>> {
 export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBatch }: ImportEvaluationsPageProps) {
   const { archives, isLoading: isLoadingArchives, loadError: archiveLoadError, archiveSourceFile, discardPendingArchive, downloadSourceFile, removeTestImport, removeOrdinaryImport } = useEvaluationImportArchives(currentUserEmail);
   const fileInput = useRef<HTMLInputElement>(null);
+  const selectAllArchiveRef = useRef<HTMLInputElement>(null);
+  const archiveRemovalInFlightRef = useRef(false);
+  const archiveDownloadInFlightRef = useRef(false);
   const [selectedFiles, setSelectedFiles] = useState<SelectedEvaluationFile[]>([]);
   const [decisions, setDecisions] = useState<Record<SurveyType, Record<string, CompanyDecision>>>(emptyDecisions);
   const [summaries, setSummaries] = useState<RawEvalImportSummary[] | null>(null);
@@ -76,14 +87,41 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
   const [archiveActionError, setArchiveActionError] = useState('');
   const [archiveActionSuccess, setArchiveActionSuccess] = useState('');
   const [removingArchiveId, setRemovingArchiveId] = useState<string | null>(null);
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState<Set<string>>(() => new Set());
+  const [archivesToRemove, setArchivesToRemove] = useState<EvaluationImportArchive[] | null>(null);
+  const [isRemovingArchives, setIsRemovingArchives] = useState(false);
+  const [archiveFilter, setArchiveFilter] = useState<StoredArchiveFilter>('all');
+  const [archivePage, setArchivePage] = useState(1);
   const [importMode, setImportMode] = useState<'normal' | 'test'>('normal');
 
   const readyPreviews = selectedFiles.flatMap((item) => item.previews);
+  const selectedArchives = archives.filter((archive) => selectedArchiveIds.has(archive.id));
+  const filteredArchives = archives.filter((archive) => {
+    if (archiveFilter === 'all') return true;
+    return archive.surveyType === archiveFilter || archive.surveyType === 'Combined';
+  });
+  const selectedFilteredArchiveCount = filteredArchives.filter((archive) => selectedArchiveIds.has(archive.id)).length;
+  const allFilteredArchivesSelected = filteredArchives.length > 0 && selectedFilteredArchiveCount === filteredArchives.length;
+  const archiveTotalPages = Math.max(1, Math.ceil(filteredArchives.length / STORED_SOURCE_FILES_PAGE_SIZE));
+  const currentArchivePage = Math.min(archivePage, archiveTotalPages);
+  const archiveStartIndex = (currentArchivePage - 1) * STORED_SOURCE_FILES_PAGE_SIZE;
+  const visibleArchives = filteredArchives.slice(archiveStartIndex, archiveStartIndex + STORED_SOURCE_FILES_PAGE_SIZE);
+  const activeArchiveFilterLabel = STORED_SOURCE_FILE_FILTERS.find((filter) => filter.id === archiveFilter)?.label ?? 'All categories';
   const testReady = readyPreviews.length > 0 && !isScanning;
   const normalReady = testReady;
   const unmatchedCompanies = [...new Map(readyPreviews.flatMap((preview) => preview.companyMatches
     .filter((match) => match.status === 'unmatched')
     .map((match) => [`${preview.surveyType}:${match.normalizedName}`, { surveyType: preview.surveyType, match }] as const))).values()];
+
+  useEffect(() => {
+    if (selectAllArchiveRef.current) {
+      selectAllArchiveRef.current.indeterminate = selectedFilteredArchiveCount > 1 && !allFilteredArchivesSelected;
+    }
+  }, [selectedFilteredArchiveCount, allFilteredArchivesSelected]);
+
+  useEffect(() => {
+    setArchivePage((page) => Math.min(page, archiveTotalPages));
+  }, [archiveTotalPages]);
 
   const patchDecision = (surveyType: SurveyType, normalizedName: string, decision: CompanyDecision) => {
     setDecisions((current) => ({
@@ -159,7 +197,7 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
         ...item,
         importBatchId: mode === 'test' ? createTestImportBatchId() : item.importBatchId,
       }));
-      const storedArchives = await archiveEvaluationBatch(
+      await archiveEvaluationBatch(
         stagedFiles,
         (item) => archiveSourceFile(item.file, item.previews.length === 1 ? item.previews[0].surveyType : 'Combined', item.importBatchId),
         discardPendingArchive,
@@ -174,17 +212,11 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
         const reason = commitError instanceof Error ? commitError.message : 'Unknown response write error.';
         throw new Error(`Source files were archived, but the response import failed and may be partial. Refresh before retrying. ${reason}`);
       }
-      let summaryIndex = 0;
-      setSelectedFiles(selectedFiles.map((item, index) => {
-        const completedSummaries = imported.slice(summaryIndex, summaryIndex + item.previews.length);
-        summaryIndex += item.previews.length;
-        return {
-          ...item,
-          completedArchive: storedArchives[index],
-          completedSummaries,
-        };
-      }));
+      setSelectedFiles([]);
+      setDecisions(emptyDecisions());
       setSummaries(imported);
+      setArchiveFilter('all');
+      setArchivePage(1);
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : 'Unable to archive or import these files.');
     } finally {
@@ -202,15 +234,6 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
     void runBatchImport(mode);
   };
 
-  const forgetCompletedFile = (archive: EvaluationImportArchive) => {
-    const remainingFiles = selectedFiles.filter((item) => item.completedArchive?.id !== archive.id);
-    if (remainingFiles.length === selectedFiles.length) return;
-    setSelectedFiles(remainingFiles);
-    const remainingSummaries = remainingFiles.flatMap((item) => item.completedSummaries ?? []);
-    setSummaries(remainingSummaries.length ? remainingSummaries : null);
-    if (remainingFiles.length === 0) setDecisions(emptyDecisions());
-  };
-
   const handleRemoveTestImport = async (archive: EvaluationImportArchive) => {
     setRemovingArchiveId(archive.id);
     setArchiveActionError('');
@@ -219,7 +242,12 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
     try {
       const removed = await removeTestImport(archive);
       setArchiveActionSuccess(`Test import removed: ${removed.responsesRemoved} submission${removed.responsesRemoved === 1 ? '' : 's'}, ${removed.companiesRemoved} temporary partner${removed.companiesRemoved === 1 ? '' : 's'}, and the stored source file.`);
-      forgetCompletedFile(archive);
+      setSummaries(null);
+      setSelectedArchiveIds((current) => {
+        const next = new Set(current);
+        next.delete(archive.id);
+        return next;
+      });
     } catch (removeError) {
       const message = removeError instanceof Error ? removeError.message : 'Unable to remove the test import. Retry from this list.';
       setArchiveActionError(message);
@@ -237,7 +265,12 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
     try {
       const removed = await removeOrdinaryImport(archive);
       setArchiveActionSuccess(`Removed ${removed.responsesRemoved} imported submission${removed.responsesRemoved === 1 ? '' : 's'} and stored file "${archive.sourceFileName}".`);
-      forgetCompletedFile(archive);
+      setSummaries(null);
+      setSelectedArchiveIds((current) => {
+        const next = new Set(current);
+        next.delete(archive.id);
+        return next;
+      });
     } catch (removeError) {
       const message = removeError instanceof Error ? removeError.message : 'Unable to remove the stored source file. Retry from this list.';
       setArchiveActionError(message);
@@ -247,25 +280,111 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
     }
   };
 
-  const handleDownloadArchive = async (archive: EvaluationImportArchive) => {
-    setDownloadingArchiveId(archive.id);
+  const requestArchiveRemoval = (removalTargets: EvaluationImportArchive[]) => {
+    if (archiveRemovalInFlightRef.current || archiveDownloadInFlightRef.current || isRemovingArchives || removingArchiveId !== null || downloadingArchiveId !== null) return;
+    const uniqueTargets = [...new Map(removalTargets.map((archive) => [archive.id, archive])).values()];
+    if (uniqueTargets.length > 0) setArchivesToRemove(uniqueTargets);
+  };
+
+  const requestArchiveRowRemoval = (archive: EvaluationImportArchive) => {
+    requestArchiveRemoval(selectedArchiveIds.has(archive.id) ? selectedArchives : [archive]);
+  };
+
+  const confirmArchiveRemoval = async () => {
+    const removalTargets = archivesToRemove;
+    if (!removalTargets?.length || archiveRemovalInFlightRef.current || archiveDownloadInFlightRef.current || isRemovingArchives || removingArchiveId !== null || downloadingArchiveId !== null) return;
+    archiveRemovalInFlightRef.current = true;
+
+    if (removalTargets.length === 1) {
+      const [archive] = removalTargets;
+      setArchivesToRemove(null);
+      try {
+        if (isTestImportArchive(archive)) await handleRemoveTestImport(archive);
+        else await handleRemoveOrdinaryImport(archive);
+      } finally {
+        archiveRemovalInFlightRef.current = false;
+      }
+      return;
+    }
+
+    setIsRemovingArchives(true);
     setArchiveActionError('');
+    setArchiveActionSuccess('');
+    setError('');
+
+    const removedIds: string[] = [];
+    const failures: string[] = [];
+    for (const archive of removalTargets) {
+      setRemovingArchiveId(archive.id);
+      try {
+        if (isTestImportArchive(archive)) await removeTestImport(archive);
+        else await removeOrdinaryImport(archive);
+        removedIds.push(archive.id);
+      } catch (removeError) {
+        const reason = removeError instanceof Error ? removeError.message : 'Unable to remove this stored file.';
+        failures.push(archive.sourceFileName + ': ' + reason);
+      }
+    }
+
+    setRemovingArchiveId(null);
+    setIsRemovingArchives(false);
+    setArchivesToRemove(null);
+    archiveRemovalInFlightRef.current = false;
+
+    if (removedIds.length > 0) {
+      const removedIdSet = new Set(removedIds);
+      setSummaries(null);
+      setSelectedArchiveIds((current) => new Set([...current].filter((id) => !removedIdSet.has(id))));
+      setArchiveActionSuccess('Removed ' + removedIds.length + ' stored source file' + (removedIds.length === 1 ? '' : 's') + '.');
+    }
+
+    if (failures.length > 0) {
+      setArchiveActionError('Could not remove ' + failures.join(' • '));
+    }
+  };
+
+  const handleDownloadArchive = async (archive: EvaluationImportArchive) => {
+    const downloadTargets = selectedArchiveIds.has(archive.id) ? selectedArchives : [archive];
+    if (!downloadTargets.length || archiveDownloadInFlightRef.current || archiveRemovalInFlightRef.current || isRemovingArchives || removingArchiveId !== null) return;
+
+    archiveDownloadInFlightRef.current = true;
+    setArchiveActionError('');
+    setArchiveActionSuccess('');
+    const failures: string[] = [];
+    let downloadedCount = 0;
+
     try {
-      const blob = await downloadSourceFile(archive);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = archive.sourceFileName;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (downloadError) {
-      setArchiveActionError(downloadError instanceof Error ? downloadError.message : 'Unable to download the archived file.');
+      for (const target of downloadTargets) {
+        setDownloadingArchiveId(target.id);
+        try {
+          const blob = await downloadSourceFile(target);
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = target.sourceFileName;
+          anchor.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          downloadedCount += 1;
+        } catch (downloadError) {
+          const reason = downloadError instanceof Error ? downloadError.message : 'Unable to download this file.';
+          failures.push(target.sourceFileName + ': ' + reason);
+        }
+      }
+
+      if (downloadedCount > 0) {
+        setArchiveActionSuccess(downloadTargets.length === 1
+          ? `Started download for "${downloadTargets[0].sourceFileName}".`
+          : `Started downloads for ${downloadedCount} of ${downloadTargets.length} selected files.`);
+      }
+      if (failures.length > 0) setArchiveActionError('Could not download ' + failures.join(' · '));
     } finally {
       setDownloadingArchiveId(null);
+      archiveDownloadInFlightRef.current = false;
     }
   };
 
   useModalEscape(isReviewingCompanies, () => setIsReviewingCompanies(false));
+  useModalEscape(Boolean(archivesToRemove) && !isRemovingArchives, () => setArchivesToRemove(null), 20);
 
   return (
     <div className="space-y-6">
@@ -327,29 +446,13 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
                     <p className="text-xs text-slate-500">{formatFileSize(item.file.size)} · {item.previews.map((preview) => `${preview.surveyType}: ${preview.rows.length} responses`).join(' · ')}</p>
                   </div>
                 </div>
-                {item.completedArchive ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!item.completedArchive) return;
-                      if (isTestImportArchive(item.completedArchive)) void handleRemoveTestImport(item.completedArchive);
-                      else void handleRemoveOrdinaryImport(item.completedArchive);
-                    }}
-                    disabled={removingArchiveId !== null || downloadingArchiveId !== null}
-                    aria-label={`Remove ${isTestImportArchive(item.completedArchive) ? 'test ' : ''}file ${item.file.name} and its imported responses`}
-                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-900 dark:text-rose-400"
-                  >
-                    {removingArchiveId === item.completedArchive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <X size={13} aria-hidden="true" />}{isTestImportArchive(item.completedArchive) ? 'Remove test file' : 'Remove file'}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedFiles((current) => summaries ? [] : current.filter((selected) => selected.id !== item.id)); setSummaries(null); setError(''); }}
-                    disabled={isScanning || isImporting || removingArchiveId !== null}
-                    aria-label={`Remove ${item.file.name} from selection`}
-                    className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40 dark:hover:bg-rose-950/30"
-                  ><X size={17} /></button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => { setSelectedFiles((current) => current.filter((selected) => selected.id !== item.id)); setError(''); }}
+                  disabled={isScanning || isImporting || isRemovingArchives || removingArchiveId !== null}
+                  aria-label={`Remove ${item.file.name} from selection`}
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40 dark:hover:bg-rose-950/30"
+                ><X size={17} /></button>
               </li>
             ))}
           </ul>
@@ -382,12 +485,14 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
                       <p className="mt-2 text-[11px] text-slate-500">{categoryPreviews.reduce((total, preview) => total + preview.rows.length, 0)} response rows detected</p>
                     </>
                   ) : (
-                    <p className="text-xs text-slate-400">{isScanning ? 'Looking for this evaluation form…' : selectedFiles.length ? 'Not found in selected files' : 'Form will be detected after selection'}</p>
+                    <p className="text-xs text-slate-400">{isScanning ? 'Looking for this evaluation form…' : summaries ? 'No files waiting to import' : selectedFiles.length ? 'Not found in selected files' : 'Form will be detected after selection'}</p>
                   )}
                   {categorySummaries.length > 0 && (
                     <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs dark:bg-emerald-950/20">
                       <p className="font-bold text-emerald-700 dark:text-emerald-400">Import complete · {categorySummaries.reduce((total, summary) => total + summary.imported, 0)} submissions</p>
                       {categorySummaries.some((summary) => summary.replaced > 0) && <p className="mt-1 text-amber-700 dark:text-amber-400">{categorySummaries.reduce((total, summary) => total + summary.replaced, 0)} existing submissions updated</p>}
+                      {categorySummaries.some((summary) => summary.accessReactivated) && <p className="mt-1 text-emerald-700 dark:text-emerald-400">Survey access is Active for employees.</p>}
+                      {categorySummaries.find((summary) => summary.accessReactivationError)?.accessReactivationError && <p role="alert" className="mt-1 text-amber-700 dark:text-amber-400">{categorySummaries.find((summary) => summary.accessReactivationError)?.accessReactivationError}</p>}
                     </div>
                   )}
                 </div>
@@ -403,9 +508,6 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
               <span>{selectedFiles.length} file{selectedFiles.length === 1 ? '' : 's'} ready across {[...new Set(readyPreviews.map((preview) => preview.surveyType))].join(', ')}.</span>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => handleImport('test')} disabled={isImporting} className="secondary-button min-h-11 px-4 text-xs disabled:opacity-60">
-                Test import
-              </button>
               {normalReady && <button
                 type="button"
                 onClick={() => handleImport('normal')}
@@ -419,7 +521,7 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
           </div>
         )}
 
-        {summaries && <p role="status" className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300">{importMode === 'test' ? 'Test responses are included in Analytics. Use Remove test file beside each uploaded file when finished.' : 'Each original file was archived. Re-uploads update matching responses using each row’s source ID.'}</p>}
+        {summaries && <p role="status" className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300">{importMode === 'test' ? 'Test responses are included in Analytics. Use Stored Source Files below to remove test files when finished.' : 'Each original file was archived. Re-uploads update matching responses using each row’s source ID.'}</p>}
         <p className="text-[11px] text-slate-500">Test import uses separate response IDs to preserve existing evaluations. Clear Analytics filters or choose the uploaded submission dates to see its results.</p>
         <p className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2.5 text-[11px] text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300">
           Company names are matched against the full Partner Registry, including companies with another classification or an archived status. Normal imports use each response row's source ID; test imports use isolated IDs.
@@ -428,7 +530,53 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-labelledby="evaluation-import-archive-title">
         <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-          <div className="flex items-center gap-2"><LockKeyhole size={16} className="text-[#0063a9] dark:text-blue-400" aria-hidden="true" /><h3 id="evaluation-import-archive-title" className="text-sm font-bold text-slate-800 dark:text-slate-100">Stored Source Files</h3></div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2"><LockKeyhole size={16} className="text-[#0063a9] dark:text-blue-400" aria-hidden="true" /><h3 id="evaluation-import-archive-title" className="text-sm font-bold text-slate-800 dark:text-slate-100">Stored Source Files</h3></div>
+            {archives.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    ref={selectAllArchiveRef}
+                    checked={allFilteredArchivesSelected && selectedFilteredArchiveCount > 1}
+                    onChange={() => {
+                      const shouldSelect = !allFilteredArchivesSelected;
+                      setSelectedArchiveIds((current) => {
+                        const next = new Set(current);
+                        filteredArchives.forEach((archive) => {
+                          if (shouldSelect) next.add(archive.id);
+                          else next.delete(archive.id);
+                        });
+                        return next;
+                      });
+                    }}
+                    disabled={filteredArchives.length === 0 || isRemovingArchives || removingArchiveId !== null || downloadingArchiveId !== null}
+                    aria-label={`${allFilteredArchivesSelected ? 'Unselect all' : 'Select all'} ${archiveFilter === 'all' ? 'stored source files' : `files in ${activeArchiveFilterLabel}`}`}
+                    className="h-4 w-4 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9] disabled:opacity-60"
+                  />
+                  {allFilteredArchivesSelected ? 'Unselect all' : 'Select all'}
+                </label>
+              </div>
+            )}
+          </div>
+          {archives.length > 0 && (
+            <div className="mt-3 grid w-full grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800" role="group" aria-label="Filter stored source files by category">
+              {STORED_SOURCE_FILE_FILTERS.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={archiveFilter === filter.id}
+                  onClick={() => {
+                    setArchiveFilter(filter.id);
+                    setArchivePage(1);
+                  }}
+                  className={`min-h-9 min-w-0 whitespace-nowrap rounded-lg px-1.5 text-[10px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0063a9] sm:px-3 sm:text-xs ${archiveFilter === filter.id ? 'bg-[#0063a9] text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          )}
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Only Admins can view or download these files. Removing a file also removes responses still linked to that import from Analytics. Test removal clears its temporary partners too.</p>
         </div>
         {archiveLoadError && <p role="alert" className="px-5 py-3 text-xs text-rose-600 dark:text-rose-400">{archiveLoadError}</p>}
@@ -438,25 +586,61 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
           <div className="flex items-center gap-2 px-5 py-5 text-xs text-slate-500" role="status"><Loader2 size={14} className="animate-spin" aria-hidden="true" />Loading stored files…</div>
         ) : archives.length === 0 ? (
           <p className="px-5 py-5 text-xs text-slate-500 dark:text-slate-400">No source files have been archived yet.</p>
+        ) : filteredArchives.length === 0 ? (
+          <p className="px-5 py-5 text-xs text-slate-500 dark:text-slate-400">No files match the selected filter.</p>
         ) : (
-          <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
-            {archives.map((archive) => (
-              <li key={archive.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-start gap-3"><FileSpreadsheet size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={archive.sourceFileName}>{archive.sourceFileName}</p><p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{isTestImportArchive(archive) ? 'Test import' : archive.surveyType === 'Combined' ? 'All evaluation categories' : archive.surveyType} · {formatFileSize(archive.fileSize)} · {new Date(archive.uploadedAt).toLocaleString()} · {archive.uploadedBy}</p></div></div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void handleDownloadArchive(archive)} disabled={downloadingArchiveId !== null || removingArchiveId !== null} className="secondary-button min-h-9 gap-1.5 px-3 text-xs disabled:opacity-60">
-                    {downloadingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}Download file
+          <>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {visibleArchives.map((archive) => (
+                <li key={archive.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3"><input type="checkbox" checked={selectedArchiveIds.has(archive.id)} onChange={(event) => { const selected = event.currentTarget.checked; setSelectedArchiveIds((current) => { const next = new Set(current); if (selected) next.add(archive.id); else next.delete(archive.id); return next; }); }} disabled={isRemovingArchives || removingArchiveId !== null || downloadingArchiveId !== null} aria-label={"Select " + archive.sourceFileName} className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[#0063a9] focus:ring-[#0063a9] disabled:opacity-60" /><FileSpreadsheet size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={archive.sourceFileName}>{archive.sourceFileName}</p><p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{isTestImportArchive(archive) ? 'Test import' : archive.surveyType === 'Combined' ? 'All evaluation categories' : archive.surveyType} · {formatFileSize(archive.fileSize)} · {new Date(archive.uploadedAt).toLocaleString()} · {archive.uploadedBy}</p></div></div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => void handleDownloadArchive(archive)} disabled={downloadingArchiveId !== null || removingArchiveId !== null || isRemovingArchives} className="secondary-button min-h-9 gap-1.5 px-3 text-xs disabled:opacity-60">
+                      {downloadingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}{selectedArchiveIds.has(archive.id) && selectedArchives.length > 1 ? 'Download selected (' + selectedArchives.length + ')' : 'Download file'}
+                    </button>
+                    {isTestImportArchive(archive) && <button type="button" onClick={() => requestArchiveRowRemoval(archive)} disabled={removingArchiveId !== null || downloadingArchiveId !== null || isRemovingArchives} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-900 dark:text-rose-400">
+                      {removingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <X size={13} aria-hidden="true" />}{selectedArchiveIds.has(archive.id) && selectedArchives.length > 1 ? 'Remove selected (' + selectedArchives.length + ')' : 'Remove test file'}
+                    </button>}
+                    {!isTestImportArchive(archive) && <button type="button" onClick={() => requestArchiveRowRemoval(archive)} disabled={removingArchiveId !== null || downloadingArchiveId !== null || isRemovingArchives} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-900 dark:text-rose-400">
+                      {removingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <X size={13} aria-hidden="true" />}{selectedArchiveIds.has(archive.id) && selectedArchives.length > 1 ? 'Remove selected (' + selectedArchives.length + ')' : 'Remove file'}
+                    </button>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <nav className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 dark:border-slate-800" aria-label="Stored source files pagination">
+              <p className="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
+                Showing {archiveStartIndex + 1}–{archiveStartIndex + visibleArchives.length} of {filteredArchives.length} files
+              </p>
+              {archiveTotalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setArchivePage(currentArchivePage - 1)}
+                    disabled={currentArchivePage === 1}
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                    aria-label="Previous stored source files page"
+                  >
+                    <ChevronLeft size={15} aria-hidden="true" />
+                    Previous
                   </button>
-                  {isTestImportArchive(archive) && <button type="button" onClick={() => void handleRemoveTestImport(archive)} disabled={removingArchiveId !== null || downloadingArchiveId !== null} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-900 dark:text-rose-400">
-                    {removingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <X size={13} aria-hidden="true" />}Remove test file
-                  </button>}
-                  {!isTestImportArchive(archive) && <button type="button" onClick={() => void handleRemoveOrdinaryImport(archive)} disabled={removingArchiveId !== null || downloadingArchiveId !== null} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-900 dark:text-rose-400">
-                    {removingArchiveId === archive.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <X size={13} aria-hidden="true" />}Remove file
-                  </button>}
+                  <span className="min-w-20 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    Page {currentArchivePage} of {archiveTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setArchivePage(currentArchivePage + 1)}
+                    disabled={currentArchivePage === archiveTotalPages}
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                    aria-label="Next stored source files page"
+                  >
+                    Next
+                    <ChevronRight size={15} aria-hidden="true" />
+                  </button>
                 </div>
-              </li>
-            ))}
-          </ul>
+              )}
+            </nav>
+          </>
         )}
       </section>
 
@@ -486,6 +670,74 @@ export function ImportEvaluationsPage({ currentUserEmail, onPreview, onCommitBat
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {archivesToRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs animate-fade-in">
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="remove-import-title"
+            aria-describedby="remove-import-description"
+            className="max-h-[85vh] w-full max-w-md space-y-4 overflow-y-auto rounded-2xl border border-rose-100 bg-white p-6 shadow-xl dark:border-rose-900/30 dark:bg-slate-950"
+          >
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 rounded-xl bg-rose-50 p-3 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
+                <AlertTriangle size={22} aria-hidden="true" />
+              </div>
+              <div className="space-y-1">
+                <h3 id="remove-import-title" className="text-base font-bold text-slate-900 dark:text-white">
+                  {archivesToRemove.length === 1
+                    ? isTestImportArchive(archivesToRemove[0]) ? 'Remove Test Import?' : 'Remove Archived File?'
+                    : 'Remove ' + archivesToRemove.length + ' Archived Files?'}
+                </h3>
+                <p id="remove-import-description" className="text-sm text-slate-500 dark:text-slate-400">
+                  Are you sure you want to remove{' '}
+                  {archivesToRemove.length === 1
+                    ? <strong className="break-all text-slate-700 dark:text-slate-200">{archivesToRemove[0].sourceFileName}</strong>
+                    : archivesToRemove.length + ' selected archived files'}? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            {archivesToRemove.length > 1 && (
+              <ul aria-label="Files selected for removal" className="max-h-32 space-y-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                {archivesToRemove.map((archive) => <li key={archive.id} className="break-all">{archive.sourceFileName}</li>)}
+              </ul>
+            )}
+            {archivesToRemove.some((archive) => !isTestImportArchive(archive)) && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Normal imports also remove submissions still linked to their source files.
+              </p>
+            )}
+            {archivesToRemove.some(isTestImportArchive) && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Test imports also remove their submissions and temporary partner records.
+              </p>
+            )}
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setArchivesToRemove(null)}
+                disabled={isRemovingArchives}
+                className="min-h-10 rounded-xl border border-slate-200 px-4 text-xs font-bold uppercase tracking-wider text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmArchiveRemoval()}
+                disabled={isRemovingArchives}
+                className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-rose-600 px-4 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isRemovingArchives ? (
+                  <><Loader2 size={14} className="animate-spin" aria-hidden="true" />Removing files…</>
+                ) : archivesToRemove.length > 1 ? (
+                  'Confirm Remove ' + archivesToRemove.length + ' Files'
+                ) : isTestImportArchive(archivesToRemove[0]) ? 'Confirm Remove Test Import' : 'Confirm Remove'}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </div>

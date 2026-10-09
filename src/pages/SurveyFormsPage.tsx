@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useModalEscape } from '../hooks/useModalEscape';
-import { ClipboardList, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, Archive, Send, Pencil, CircleCheck, Clock3, Info } from 'lucide-react';
+import { ClipboardList, Search, Eye, FormInput, X, Check, Award, Building2, CalendarClock, ArrowLeft, Archive, Send, Pencil, CircleCheck, Clock3, Info, ChevronLeft, ChevronRight } from 'lucide-react';
 import { CustomForm, SurveyType, PartnerCompany, SurveyAccessRole } from '../types/survey';
 import { StateMessage } from '../components/StateMessage';
 import { CompletionStatusBar } from '../components/CompletionStatusBar';
@@ -34,6 +34,7 @@ interface SurveyFormsPageProps {
 }
 
 const surveyTypeOptions: Array<'All' | SurveyType> = ['All', 'Courier', 'Supplier', 'Subcontractor'];
+const EVALUATION_ACTIVITY_PAGE_SIZE = 8;
 
 const surveyTypeColors: Record<SurveyType, string> = {
   Courier: '#2563eb',
@@ -120,6 +121,7 @@ export function SurveyFormsPage({
   const [isSendingForm, setIsSendingForm] = useState(false);
   const [previewEditError, setPreviewEditError] = useState('');
   const [activityEntries, setActivityEntries] = useState<AdminActivityEntry[]>(() => getAdminActivity());
+  const [activityPage, setActivityPage] = useState(1);
 
   useEffect(() => {
     const now = Date.now();
@@ -169,11 +171,20 @@ export function SurveyFormsPage({
   useModalEscape(Boolean(previewSurveyId) && !previewEditSurveyId && !sendConfirmationSurveyId, () => setPreviewSurveyId(null), 70);
 
   useEffect(() => {
-    const refresh = () => setActivityEntries(getAdminActivity());
+    const refresh = () => {
+      setActivityEntries(getAdminActivity());
+      setActivityPage(1);
+    };
     window.addEventListener('admin-activity-updated', refresh);
     refresh();
     return () => window.removeEventListener('admin-activity-updated', refresh);
   }, []);
+
+  const evaluationActivityEntries = activityEntries.filter((entry) => /evaluation form|evaluation access/i.test(entry.action));
+  const activityTotalPages = Math.max(1, Math.ceil(evaluationActivityEntries.length / EVALUATION_ACTIVITY_PAGE_SIZE));
+  const currentActivityPage = Math.min(activityPage, activityTotalPages);
+  const activityStartIndex = (currentActivityPage - 1) * EVALUATION_ACTIVITY_PAGE_SIZE;
+  const visibleActivityEntries = evaluationActivityEntries.slice(activityStartIndex, activityStartIndex + EVALUATION_ACTIVITY_PAGE_SIZE);
 
   const previewSurvey = surveys.find((survey) => survey.id === previewSurveyId) ?? null;
   const previewEditSurvey = surveys.find((survey) => survey.id === previewEditSurveyId) ?? null;
@@ -874,7 +885,63 @@ export function SurveyFormsPage({
         )}
       </section>
 
-      {isAdmin && <section className="panel mt-4" aria-labelledby="evaluation-activity-heading"><div className="mb-3 flex items-center justify-between"><div><h2 id="evaluation-activity-heading" className="text-base font-bold">Recent Activity</h2><p className="text-xs text-slate-500">Evaluation form changes and distribution history</p></div><Clock3 size={18} className="text-slate-400"/></div>{activityEntries.filter((entry) => /evaluation form|evaluation access/i.test(entry.action)).slice(0, 8).length ? <ul className="divide-y divide-slate-100 dark:divide-slate-800">{activityEntries.filter((entry) => /evaluation form|evaluation access/i.test(entry.action)).slice(0, 8).map((entry) => <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"><span><b>{entry.action}</b><span className="ml-2 text-slate-500">{entry.details}</span></span><time className="text-xs text-slate-400">{new Date(entry.timestamp).toLocaleString()}</time></li>)}</ul> : <p className="py-4 text-sm text-slate-500">No evaluation activity recorded yet.</p>}</section>}
+      {isAdmin && (
+        <section className="panel mt-4" aria-labelledby="evaluation-activity-heading">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h2 id="evaluation-activity-heading" className="text-base font-bold">Recent Activity</h2>
+              <p className="text-xs text-slate-500">Evaluation form changes and distribution history</p>
+            </div>
+            <Clock3 size={18} className="text-slate-400" aria-hidden="true" />
+          </div>
+          {evaluationActivityEntries.length > 0 ? (
+            <>
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {visibleActivityEntries.map((entry) => (
+                  <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                    <span><b>{entry.action}</b><span className="ml-2 text-slate-500">{entry.details}</span></span>
+                    <time className="text-xs text-slate-400">{new Date(entry.timestamp).toLocaleString()}</time>
+                  </li>
+                ))}
+              </ul>
+              <nav className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 dark:border-slate-800" aria-label="Recent Activity pagination">
+                <p className="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
+                  Showing {activityStartIndex + 1}–{activityStartIndex + visibleActivityEntries.length} of {evaluationActivityEntries.length} activities
+                </p>
+                {activityTotalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActivityPage(currentActivityPage - 1)}
+                      disabled={currentActivityPage === 1}
+                      className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                      aria-label="Previous activity page"
+                    >
+                      <ChevronLeft size={15} aria-hidden="true" />
+                      Previous
+                    </button>
+                    <span className="min-w-20 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      Page {currentActivityPage} of {activityTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActivityPage(currentActivityPage + 1)}
+                      disabled={currentActivityPage === activityTotalPages}
+                      className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                      aria-label="Next activity page"
+                    >
+                      Next
+                      <ChevronRight size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
+              </nav>
+            </>
+          ) : (
+            <p className="py-4 text-sm text-slate-500">No evaluation activity recorded yet.</p>
+          )}
+        </section>
+      )}
 
       {isAdmin && accessPickerOpen && (
         <div className="fixed inset-0 z-[65] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="access-picker-title">

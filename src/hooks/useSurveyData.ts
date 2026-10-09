@@ -14,6 +14,8 @@ import { logAdminActivity } from '../utils/adminActivityLog';
 import { computeCompanyDocumentSummary, computeDocumentStatus, EXPIRING_SOON_DAYS } from '../utils/compliance';
 import { parseDeploymentEnvironment, submissionSourceForEnvironment } from '../features/analytics/domain/responseProvenance';
 import { reconcileEvaluationBatchPartners } from '../features/evaluation-imports/domain/evaluationBatch';
+import { prepareDefaultSurveysForReactivation } from '../features/evaluation-imports/domain/surveyReactivation';
+import { testImportToken } from '../features/evaluation-imports/domain/testImport';
 import { getRequiredDocumentKeys } from '../utils/documentRequirements';
 import { getNotificationSettings, NOTIFICATION_SETTINGS_CHANGED_EVENT } from '../utils/documentNotificationSettings';
 import { loadNormalizedPartnerCompanies, normalizeDatabasePartnerCompany } from '../services/normalizedPartnerCompanies';
@@ -2273,17 +2275,49 @@ export function useSurveyData(accounts: SurveyAccount[] = [], currentUserEmail?:
       throw error;
     }
 
+    const importedSurveyTypes = [...new Set(committed
+      .filter((entry) => !testImportToken(entry.preview.importBatchId))
+      .map((entry) => entry.preview.surveyType))];
+    const surveysToReactivate = prepareDefaultSurveysForReactivation(surveys, importedSurveyTypes);
+    const reactivatedSurveyTypes = new Set<SurveyType>();
+    const surveyReactivationErrors = new Map<SurveyType, string>();
+
+    if (surveysToReactivate.length > 0) {
+      try {
+        await persistRemoteAsync(upsertApplicationRecords('survey', surveysToReactivate, (survey) => survey.id));
+        const reopenedById = new Map(surveysToReactivate.map((survey) => [survey.id, survey]));
+        setSurveys((current) => {
+          const updated = current.map((survey) => reopenedById.get(survey.id) ?? survey);
+          safeSetItem('survey_analytics_surveys_v6', JSON.stringify(updated));
+          return updated;
+        });
+        surveysToReactivate.forEach((survey) => reactivatedSurveyTypes.add(survey.surveyType));
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Unknown survey access update error.';
+        surveysToReactivate.forEach((survey) => surveyReactivationErrors.set(
+          survey.surveyType,
+          `Responses were imported, but this form could not be reopened automatically. Set it to Active in Manage Access. ${reason}`,
+        ));
+      }
+    }
+
     const summaries = committed.map((entry) => ({
       ...entry.summary,
       replaced: new Set(entry.responses.map((response) => response.responseId)
         .filter((responseId) => replacedIds.has(responseId))).size,
+      ...(reactivatedSurveyTypes.has(entry.preview.surveyType) ? { accessReactivated: true } : {}),
+      ...(surveyReactivationErrors.has(entry.preview.surveyType)
+        ? { accessReactivationError: surveyReactivationErrors.get(entry.preview.surveyType) }
+        : {}),
     }));
     const totalSubmissions = summaries.reduce((total, summary) => total + summary.imported, 0);
     logAdminActivity(
       entries.length === 3 && new Set(entries.map((entry) => entry.preview.fileName)).size === 1
         ? 'Imported combined evaluation workbook'
         : 'Imported evaluation response files',
-      `${totalSubmissions} submissions across ${summaries.map((summary) => summary.surveyType).join(', ')}`,
+      `${totalSubmissions} submissions across ${summaries.map((summary) => summary.surveyType).join(', ')}` +
+        `${reactivatedSurveyTypes.size ? `; reopened access for ${[...reactivatedSurveyTypes].join(', ')}` : ''}` +
+        `${surveyReactivationErrors.size ? `; access reopening failed for ${[...surveyReactivationErrors.keys()].join(', ')}` : ''}`,
     );
     return summaries;
   };

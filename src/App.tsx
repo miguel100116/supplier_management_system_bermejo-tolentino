@@ -1168,7 +1168,8 @@ export default function App() {
     reports: (
       <ReportsPage
         responses={filteredResponses}
-        companyReportResponses={scopedAccessibleResponses}
+        rankingResponses={analyticsFilteredResponses}
+        companyReportResponses={analyticsFilteredResponses}
         partnerCompanies={userAccessiblePartnerCompanies}
         canExport={canExport}
       />
