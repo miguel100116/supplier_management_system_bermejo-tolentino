@@ -31,14 +31,15 @@ import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
 import {
   formatNumber,
   getKpiSummary,
-  getCompanyPerformance,
   averageBySurveyType,
   questionPerformance
 } from '../utils/analytics';
 import { formatCompositeScore, getBand, getRemarkText } from '../data/questionWeights';
+import { getAnalyticsCompanyRankings } from '../features/analytics/domain/rankings';
 
 interface SummaryReportBuilderPageProps {
   responses: SurveyResponse[];
+  rankingResponses?: SurveyResponse[];
   partnerCompanies?: PartnerCompany[];
   canExport?: boolean;
   onBack: () => void;
@@ -55,7 +56,7 @@ const COLORS = {
   Subcontractor: '#14b8a6',
 };
 
-export function SummaryReportBuilderPage({ responses, partnerCompanies = [], canExport = false, onBack }: SummaryReportBuilderPageProps) {
+export function SummaryReportBuilderPage({ responses, rankingResponses = responses, partnerCompanies = [], canExport = false, onBack }: SummaryReportBuilderPageProps) {
   // Option States
   const [selectedTypes, setSelectedTypes] = useState<Record<SurveyType, boolean>>({
     Courier: true,
@@ -100,6 +101,11 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
     return responses.filter(r => selectedTypes[r.surveyType]);
   }, [responses, selectedTypes]);
 
+  const filteredRankingResponses = useMemo(
+    () => rankingResponses.filter((response) => selectedTypes[response.surveyType]),
+    [rankingResponses, selectedTypes],
+  );
+
   // Compute dynamic KPI summary
   const summary = useMemo(() => {
     return getKpiSummary(filteredResponses);
@@ -112,8 +118,13 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
 
   // Companies data
   const companyPerformance = useMemo(() => {
-    return getCompanyPerformance(filteredResponses);
-  }, [filteredResponses]);
+    return getAnalyticsCompanyRankings(filteredRankingResponses, activeTypes, 'weighted').map((ranking) => ({
+      company: ranking.name,
+      surveyType: ranking.type,
+      average: ranking.rankScore,
+      evaluations: ranking.count,
+    }));
+  }, [filteredRankingResponses, activeTypes]);
 
   const topCompanies = useMemo(() => {
     return companyPerformance.slice(0, 5);
@@ -229,8 +240,8 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
       if (showTopCompanies && topCompanies.length > 0) {
         tables.push({
           title: 'Highest Rated Evaluated Companies',
-          columns: ['Company', 'Average Score', 'Evaluations Count', 'Remarks'],
-          rows: topCompanies.map(r => [r.company, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
+          columns: ['Company', 'Survey Type', 'Volume-Weighted Score', 'Evaluations Count', 'Remarks'],
+          rows: topCompanies.map(r => [r.company, r.surveyType, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
         });
       }
 
@@ -238,8 +249,8 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
       if (showBottomCompanies && leastRatedCompanies.length > 0) {
         tables.push({
           title: 'Lowest Rated Evaluated Companies',
-          columns: ['Company', 'Average Score', 'Evaluations Count', 'Remarks'],
-          rows: leastRatedCompanies.map(r => [r.company, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
+          columns: ['Company', 'Survey Type', 'Volume-Weighted Score', 'Evaluations Count', 'Remarks'],
+          rows: leastRatedCompanies.map(r => [r.company, r.surveyType, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
         });
       }
 
@@ -483,10 +494,11 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
             doc.text('Highest Rated Evaluated Companies', marginLeft, cursorY);
             cursorY += 10;
 
-            const tableHeaders = ['Rank', 'Company Name', 'Average Score', 'Evaluations Count', 'Remarks'];
+            const tableHeaders = ['Rank', 'Company Name', 'Survey Type', 'Volume-Weighted Score', 'Evaluations Count', 'Remarks'];
             const tableRows = topCompanies.map((row, idx) => [
               `#${idx + 1}`,
               row.company,
+              row.surveyType,
               formatCompositeScore(row.surveyType, row.average).text,
               String(row.evaluations),
               getRemarkText(getBand(row.surveyType, row.average))
@@ -518,10 +530,11 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
             doc.text('Lowest Rated Evaluated Companies', marginLeft, cursorY);
             cursorY += 10;
 
-            const tableHeaders = ['Rank', 'Company Name', 'Average Score', 'Evaluations Count', 'Remarks'];
+            const tableHeaders = ['Rank', 'Company Name', 'Survey Type', 'Volume-Weighted Score', 'Evaluations Count', 'Remarks'];
             const tableRows = leastRatedCompanies.map((row, idx) => [
               `#${leastRatedCompanies.length - idx}`,
               row.company,
+              row.surveyType,
               formatCompositeScore(row.surveyType, row.average).text,
               String(row.evaluations),
               getRemarkText(getBand(row.surveyType, row.average))
@@ -982,7 +995,8 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
                           <tr>
                             <th className="px-3 py-1.5">Rank</th>
                             <th className="px-3 py-1.5">Company Name</th>
-                            <th className="px-3 py-1.5 text-center">Average Score</th>
+                            <th className="px-3 py-1.5">Survey Type</th>
+                            <th className="px-3 py-1.5 text-center">Volume-Weighted Score</th>
                             <th className="px-3 py-1.5 text-center">Evaluations Count</th>
                             <th className="px-3 py-1.5 text-center">Remarks</th>
                           </tr>
@@ -991,9 +1005,10 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
                           {topCompanies.map((row, idx) => {
                             const band = getBand(row.surveyType, row.average);
                             return (
-                              <tr key={row.company} className={idx % 2 === 0 ? 'bg-slate-50 dark:bg-slate-900/20' : 'bg-white dark:bg-slate-950'}>
+                              <tr key={`${row.surveyType}:${row.company}`} className={idx % 2 === 0 ? 'bg-slate-50 dark:bg-slate-900/20' : 'bg-white dark:bg-slate-950'}>
                                 <td className="px-3 py-1 font-bold text-emerald-600 dark:text-emerald-400">#{idx + 1}</td>
                                 <td className="px-3 py-1 font-semibold text-slate-800 dark:text-slate-200">{row.company}</td>
+                                <td className="px-3 py-1 text-slate-500">{row.surveyType}</td>
                                 <td className="px-3 py-1 text-center font-bold text-slate-700 dark:text-slate-300">{formatCompositeScore(row.surveyType, row.average).text}</td>
                                 <td className="px-3 py-1 text-center text-slate-500">{row.evaluations}</td>
                                 <td className="px-3 py-1 text-center">
@@ -1020,7 +1035,8 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
                           <tr>
                             <th className="px-3 py-1.5">Rank</th>
                             <th className="px-3 py-1.5">Company Name</th>
-                            <th className="px-3 py-1.5 text-center">Average Score</th>
+                            <th className="px-3 py-1.5">Survey Type</th>
+                            <th className="px-3 py-1.5 text-center">Volume-Weighted Score</th>
                             <th className="px-3 py-1.5 text-center">Evaluations Count</th>
                             <th className="px-3 py-1.5 text-center">Remarks</th>
                           </tr>
@@ -1029,9 +1045,10 @@ export function SummaryReportBuilderPage({ responses, partnerCompanies = [], can
                           {leastRatedCompanies.map((row, idx) => {
                             const band = getBand(row.surveyType, row.average);
                             return (
-                              <tr key={row.company} className={idx % 2 === 0 ? 'bg-slate-50 dark:bg-slate-900/20' : 'bg-white dark:bg-slate-950'}>
+                              <tr key={`${row.surveyType}:${row.company}`} className={idx % 2 === 0 ? 'bg-slate-50 dark:bg-slate-900/20' : 'bg-white dark:bg-slate-950'}>
                                 <td className="px-3 py-1 font-bold text-rose-600 dark:text-rose-400">#{companyPerformance.length - idx}</td>
                                 <td className="px-3 py-1 font-semibold text-slate-800 dark:text-slate-200">{row.company}</td>
+                                <td className="px-3 py-1 text-slate-500">{row.surveyType}</td>
                                 <td className="px-3 py-1 text-center font-bold text-slate-700 dark:text-slate-300">{formatCompositeScore(row.surveyType, row.average).text}</td>
                                 <td className="px-3 py-1 text-center text-slate-500">{row.evaluations}</td>
                                 <td className="px-3 py-1 text-center">

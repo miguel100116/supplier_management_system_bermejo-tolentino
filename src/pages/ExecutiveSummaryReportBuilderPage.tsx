@@ -44,13 +44,14 @@ import {
   formatNumber,
   hasAnsweredItem,
   getKpiSummary,
-  getCompanyPerformance,
   averageBySurveyType,
   numericRating
 } from '../utils/analytics';
+import { getAnalyticsCompanyRankings } from '../features/analytics/domain/rankings';
 
 interface ExecutiveSummaryReportBuilderPageProps {
   responses: SurveyResponse[];
+  rankingResponses?: SurveyResponse[];
   partnerCompanies: PartnerCompany[];
   canExport?: boolean;
   onBack: () => void;
@@ -80,6 +81,7 @@ const COLORS = {
 
 export function ExecutiveSummaryReportBuilderPage({
   responses,
+  rankingResponses = responses,
   partnerCompanies,
   canExport = false,
   onBack,
@@ -135,12 +137,25 @@ export function ExecutiveSummaryReportBuilderPage({
     return responses.filter((r) => selectedTypes[r.surveyType]);
   }, [responses, selectedTypes]);
 
+  const filteredRankingResponses = useMemo(
+    () => rankingResponses.filter((response) => selectedTypes[response.surveyType]),
+    [rankingResponses, selectedTypes],
+  );
+
   // Analytics based on filtered responses
   const summary = useMemo(() => getKpiSummary(filteredResponses), [filteredResponses]);
   const surveyPerformance = useMemo(() => averageBySurveyType(filteredResponses), [filteredResponses]);
   
   // Company ranking lists
-  const companyPerformance = useMemo(() => getCompanyPerformance(filteredResponses), [filteredResponses]);
+  const companyPerformance = useMemo(
+    () => getAnalyticsCompanyRankings(filteredRankingResponses, activeTypes, 'weighted').map((ranking) => ({
+      company: ranking.name,
+      surveyType: ranking.type,
+      average: ranking.rankScore,
+      evaluations: ranking.count,
+    })),
+    [filteredRankingResponses, activeTypes],
+  );
   const splitCount = Math.min(5, Math.floor(companyPerformance.length / 2) || 1);
   const topCompanies = useMemo(() => companyPerformance.slice(0, splitCount), [companyPerformance, splitCount]);
   const leastRatedCompanies = useMemo(() => companyPerformance.slice().reverse().slice(0, splitCount), [companyPerformance, splitCount]);
@@ -502,13 +517,13 @@ export function ExecutiveSummaryReportBuilderPage({
       if (showCompanyRankings) {
         tables.push({
           title: 'Highest Rated Partners',
-          columns: ['Partner Company', 'Composite Rating', 'Submissions Count', 'Remarks'],
-          rows: topCompanies.map((r) => [r.company, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
+          columns: ['Partner Company', 'Survey Type', 'Volume-Weighted Score', 'Submissions Count', 'Remarks'],
+          rows: topCompanies.map((r) => [r.company, r.surveyType, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
         });
         tables.push({
           title: 'Lowest Rated Partners (Operational Alert)',
-          columns: ['Partner Company', 'Composite Rating', 'Submissions Count', 'Remarks'],
-          rows: leastRatedCompanies.map((r) => [r.company, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
+          columns: ['Partner Company', 'Survey Type', 'Volume-Weighted Score', 'Submissions Count', 'Remarks'],
+          rows: leastRatedCompanies.map((r) => [r.company, r.surveyType, formatCompositeScore(r.surveyType, r.average).text, r.evaluations, getRemarkText(getBand(r.surveyType, r.average))]),
         });
       }
 
@@ -861,18 +876,20 @@ export function ExecutiveSummaryReportBuilderPage({
           cursorY += 20;
 
           if (topCompanies.length > 0) {
-            const tableHeaders = ['Rank', 'Partner Company Name', 'Average Score', 'Remarks'];
+            const tableHeaders = ['Rank', 'Partner Company Name', 'Survey Type', 'Volume-Weighted Score', 'Remarks'];
             const tableRows = topCompanies.map((row, idx) => [
               `#${idx + 1}`,
               row.company,
+              row.surveyType,
               formatCompositeScore(row.surveyType, row.average).text,
               getRemarkText(getBand(row.surveyType, row.average)),
             ]);
 
-            const leastHeaders = ['Alert Rank', 'Partner Company Name', 'Average Score', 'Remarks'];
+            const leastHeaders = ['Alert Rank', 'Partner Company Name', 'Survey Type', 'Volume-Weighted Score', 'Remarks'];
             const leastRows = leastRatedCompanies.map((row, idx) => [
               `ALERT #${idx + 1}`,
               row.company,
+              row.surveyType,
               formatCompositeScore(row.surveyType, row.average).text,
               getRemarkText(getBand(row.surveyType, row.average)),
             ]);
@@ -1560,7 +1577,8 @@ export function ExecutiveSummaryReportBuilderPage({
                             <tr className="bg-emerald-50/50 dark:bg-emerald-950/20 border-b border-emerald-100 dark:border-emerald-900/30">
                               <th className="p-2 font-bold text-emerald-700 text-[9px] uppercase">Rank</th>
                               <th className="p-2 font-bold text-emerald-700 text-[9px] uppercase">Partner Company Name</th>
-                              <th className="p-2 font-bold text-emerald-700 text-[9px] uppercase text-right">Average Score</th>
+                              <th className="p-2 font-bold text-emerald-700 text-[9px] uppercase">Survey Type</th>
+                              <th className="p-2 font-bold text-emerald-700 text-[9px] uppercase text-right">Volume-Weighted Score</th>
                               <th className="p-2 font-bold text-emerald-700 text-[9px] uppercase text-right">Remarks</th>
                             </tr>
                           </thead>
@@ -1568,9 +1586,10 @@ export function ExecutiveSummaryReportBuilderPage({
                             {topCompanies.map((c, idx) => {
                               const band = getBand(c.surveyType, c.average);
                               return (
-                                <tr key={c.company} className="hover:bg-emerald-50/10">
+                                <tr key={`${c.surveyType}:${c.company}`} className="hover:bg-emerald-50/10">
                                   <td className="p-2 font-bold text-emerald-600">#{idx + 1}</td>
                                   <td className="p-2 font-medium">{c.company}</td>
+                                  <td className="p-2 text-slate-500">{c.surveyType}</td>
                                   <td className="p-2 text-right font-black text-emerald-600">{formatCompositeScore(c.surveyType, c.average).text}</td>
                                   <td className="p-2 text-right">
                                     <span className="badge" style={{ backgroundColor: `${band.hex}1a`, color: band.hex }}>{getRemarkText(band)}</span>
@@ -1597,7 +1616,8 @@ export function ExecutiveSummaryReportBuilderPage({
                             <tr className="bg-rose-50/50 dark:bg-rose-950/20 border-b border-rose-100 dark:border-rose-900/30">
                               <th className="p-2 font-bold text-rose-700 text-[9px] uppercase">Alert Rank</th>
                               <th className="p-2 font-bold text-rose-700 text-[9px] uppercase">Partner Company Name</th>
-                              <th className="p-2 font-bold text-rose-700 text-[9px] uppercase text-right">Average Score</th>
+                              <th className="p-2 font-bold text-rose-700 text-[9px] uppercase">Survey Type</th>
+                              <th className="p-2 font-bold text-rose-700 text-[9px] uppercase text-right">Volume-Weighted Score</th>
                               <th className="p-2 font-bold text-rose-700 text-[9px] uppercase text-right">Remarks</th>
                             </tr>
                           </thead>
@@ -1605,9 +1625,10 @@ export function ExecutiveSummaryReportBuilderPage({
                             {leastRatedCompanies.map((c, idx) => {
                               const band = getBand(c.surveyType, c.average);
                               return (
-                                <tr key={c.company} className="hover:bg-rose-50/10">
+                                <tr key={`${c.surveyType}:${c.company}`} className="hover:bg-rose-50/10">
                                   <td className="p-2 font-bold text-rose-500">ALERT #{idx + 1}</td>
                                   <td className="p-2 font-medium">{c.company}</td>
+                                  <td className="p-2 text-slate-500">{c.surveyType}</td>
                                   <td className="p-2 text-right font-black text-rose-500">{formatCompositeScore(c.surveyType, c.average).text}</td>
                                   <td className="p-2 text-right">
                                     <span className="badge" style={{ backgroundColor: `${band.hex}1a`, color: band.hex }}>{getRemarkText(band)}</span>

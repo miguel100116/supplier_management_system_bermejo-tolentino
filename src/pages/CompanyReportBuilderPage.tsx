@@ -32,7 +32,7 @@ import {
   YAxis,
 } from 'recharts';
 import { PartnerCompany, SurveyResponse, SurveyType } from '../types/survey';
-import { surveyTypeDisplayLabel, formatCompositeScore } from '../data/questionWeights';
+import { surveyTypeDisplayLabel, formatCompositeScore, getBand, ratingBands } from '../data/questionWeights';
 import { formatNumber, getScoreAxisDomain, questionPerformance } from '../utils/analytics';
 import { computeCompanyComposite, getCompanyTrend, getLeaderboard, getSectionPeerAverages } from '../utils/scoring';
 import { captureChartImage, exportCompanyReportAsDocx, exportCompanyReportAsPDF } from '../utils/companyReportExport';
@@ -160,6 +160,19 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
     () => (selectedCompany ? computeCompanyComposite(selectedCompany, category, responses) : null),
     [selectedCompany, category, responses],
   );
+  const volumeWeightedSummary = useMemo(() => {
+    if (!composite) return null;
+    const rankedCompany = leaderboard.find(
+      (candidate) => selectedCompanyRecord?.id && candidate.companyId === selectedCompanyRecord.id,
+    ) ?? leaderboard.find((candidate) => candidate.company === selectedCompany);
+    const score = composite.hasScore
+      ? rankedCompany?.rankScore ?? composite.compositeScore
+      : null;
+    return {
+      score,
+      band: score === null ? composite.band : getBand(category, score),
+    };
+  }, [category, composite, leaderboard, selectedCompany, selectedCompanyRecord]);
   const peerAverages = useMemo(() => getSectionPeerAverages(responses, category), [responses, category]);
   const trend = useMemo(
     () => (selectedCompany ? getCompanyTrend(responses, selectedCompany, category) : []),
@@ -442,8 +455,8 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
                   <ReportPageHeader company={composite.company} />
                   <h2 className="mt-6 text-xl font-bold text-slate-800 dark:text-slate-100">Executive Summary</h2>
                   <div className="mt-3 grid grid-cols-3 divide-x divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
-                    <SummaryStat label="Composite score" value={formatCompositeScore(composite.surveyType, composite.compositeScore).text} accent />
-                    <SummaryStat label="Rating band" value={composite.band.label} />
+                    <SummaryStat label="Volume-Weighted score" value={volumeWeightedSummary?.score === null || volumeWeightedSummary?.score === undefined ? 'N/A' : formatCompositeScore(composite.surveyType, volumeWeightedSummary.score).text} accent />
+                    <SummaryStat label="Rating band" value={volumeWeightedSummary?.band.label ?? composite.band.label} />
                     <SummaryStat label="Evaluations" value={String(composite.evaluationCount)} />
                   </div>
 
@@ -806,19 +819,15 @@ export function CompanyReportBuilderPage({ responses, partnerCompanies, canExpor
 }
 
 function ReportRatingScale({ category }: { category: SurveyType }) {
-  const scales = category === 'Subcontractor'
-    ? [
-        { color: 'bg-emerald-400', range: '2.0 - 1.5', label: 'Top Performer' },
-        { color: 'bg-blue-500', range: '1.4 - 1.0', label: 'Good Performer' },
-        { color: 'bg-amber-400', range: '0.5 - 0.9', label: 'Good' },
-        { color: 'bg-rose-500', range: '0.4 and below', label: 'Poor Performer' },
-      ]
-    : [
-        { color: 'bg-emerald-400', range: '95-100', label: 'Excellent' },
-        { color: 'bg-blue-500', range: '89-94', label: 'Satisfactory' },
-        { color: 'bg-amber-400', range: '80-88', label: 'Good' },
-        { color: 'bg-rose-500', range: 'Below 80', label: 'Unsatisfactory' },
-      ];
+  const bands = ratingBands[category];
+  const scales = bands.map((band, index) => {
+    const upper = index === 0 ? 100 : (bands[index - 1]?.min ?? 1) - 1;
+    return {
+      color: band.hex,
+      range: band.min === 0 ? `${upper} and below` : `${upper} - ${band.min}`,
+      label: band.label,
+    };
+  });
 
   return (
     <>
@@ -826,7 +835,7 @@ function ReportRatingScale({ category }: { category: SurveyType }) {
       <div className="mb-4 grid grid-cols-1 gap-x-5 gap-y-1 text-slate-700 dark:text-slate-200 sm:grid-cols-2">
         {scales.map((scale) => (
           <div key={scale.range} className="flex items-center gap-1.5 text-[10px] leading-tight">
-            <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${scale.color}`} />
+            <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: scale.color }} />
             <span className="font-semibold">{scale.range}</span>
             <span aria-hidden="true">→</span>
             <span>{scale.label}</span>

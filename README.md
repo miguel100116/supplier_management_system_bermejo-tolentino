@@ -89,7 +89,7 @@ Each survey type's questions are grouped into **5 scored categories** plus a fix
 
 - **Weighted rubric:** Each question carries a point value validated against the company's original paper evaluation forms (`src/data/questionWeights.ts`). Answers are scored, summed per category, and normalized so **every survey type shares one 0–100 composite axis** (`src/utils/scoring.ts`).
 - **Score bands:** Composite scores map to labeled bands (e.g. Critical → Excellent). Companies with no scoreable answers yet get a distinct "No Score Yet" band instead of being mislabeled as failing.
-- **Ranking:** Analytics offers Pure Average (the supplier's raw average) and Bayesian volume-weighted scoring: `(R × v + C × m) / (v + m)`, where `C` is the unweighted mean of peer company averages and `m` is the median peer response count (minimum 3) for the same partner type and reporting scope.
+- **Ranking:** Analytics and company-ranking reports use Bayesian volume-weighted scoring: `(R × v + C × m) / (v + m)`, where `C` is the unweighted mean of peer company averages and `m` is the median peer response count (minimum 3) for the same partner type and reporting scope. Analytics also offers Pure Average for unadjusted ranking. Reports label the adjusted value **Volume-Weighted Score**; the rubric-based Composite Score remains unchanged.
 - **Renaming vs. rubric:** Admins can **rename** a category's display label via the **Categories Manager** without ever touching the underlying point values — display names are translated by slot position, keeping the validated rubric intact.
 
 - **Counted forms:** A unique submission counts when at least one evaluation rating or designated remark has a real answer. Numeric zero counts; blank, N/A, none, dash, and nil markers do not. Metadata such as Period Covered never counts. Blank/N/A-only forms are excluded from totals and completion counts; score averages still use numeric ratings.
@@ -382,7 +382,7 @@ This system is **pre-production**. The most important open items (verified again
 | **Designation** | An employee's organizational rank (Rank & File → Executive), one input to their default access. |
 | **Composite score** | A partner's weighted, normalized 0–100 rating across its 5 scoring categories. |
 | **Score band** | A labeled tier (e.g. Critical → Excellent) a composite score maps to. |
-| **Rank score** | A volume-adjusted composite used only for leaderboard ordering. |
+| **Rank score** | A volume-adjusted composite used for leaderboard ordering and report fields labeled Volume-Weighted Score. |
 | **Data scope** | The Current / All-Time / Custom toggle selecting which time periods feed a view. |
 | **Archive series** | A named snapshot of a completed survey period, preserved for long-term trends. |
 | **Custom overrides** | Per-account permissions set by an Admin that replace the computed role defaults. |

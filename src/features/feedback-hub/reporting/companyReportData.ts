@@ -1,13 +1,14 @@
 import { getLiveCategoryLabel } from '../../../data/questionCategories';
 import {
   formatCompositeScore,
+  getBand,
   questionWeights,
   ratingBands,
   ScoreBand,
 } from '../../../data/questionWeights';
 import { CustomForm, PartnerCompany, SurveyResponse, SurveyType } from '../../../types/survey';
 import { questionPerformance } from '../../../utils/analytics';
-import { CompanyComposite, computeCompanyComposite } from '../../../utils/scoring';
+import { CompanyComposite, computeCompanyComposite, getLeaderboard } from '../../../utils/scoring';
 import { getReportTemplateConfig, ReportTemplateConfig } from './reportTemplateConfig';
 
 export interface CompanyReportGraphSelection {
@@ -62,6 +63,8 @@ export interface CompanyReportData {
   reportingPeriod: string;
   template: ReportTemplateConfig;
   composite: CompanyComposite | null;
+  volumeWeightedScore: number | null;
+  volumeWeightedBand: ScoreBand | null;
   generatedOn: string;
   ratingScale: CompanyReportRatingBand[];
   categoryRows: CompanyReportCategoryRow[];
@@ -367,17 +370,35 @@ export function createCompanyReportData(input: CreateCompanyReportDataInput): Co
     logoDataUrl,
   } = input;
   const company = resolveReportCompany(companyId, survey.surveyType, partnerCompanies);
+  const scopeToSurveyId = input.scopeToSurveyId ?? true;
   const reportResponses = filterResponsesForReport(
     survey,
     company,
     partnerCompanies,
     responses,
-    input.scopeToSurveyId ?? true,
+    scopeToSurveyId,
   );
   // The stable company ID is authoritative. Normalize a stale historical
   // display name only for this pure scoring call so partner renames do not
   // make otherwise valid ID-scoped responses disappear.
   const composite = computeReportComposite(company.name, survey.surveyType, reportResponses);
+  const peerResponses = responses.filter((response) =>
+    !response.archived &&
+    response.surveyType === survey.surveyType &&
+    (!scopeToSurveyId || !response.surveyId || response.surveyId === survey.id),
+  );
+  const peerLeaderboard = getLeaderboard(peerResponses, survey.surveyType);
+  const rankedCompany = peerLeaderboard.find(
+    (candidate) => candidate.companyId === company.id,
+  ) ?? peerLeaderboard.find(
+    (candidate) => candidate.company === company.name,
+  );
+  const volumeWeightedScore = composite?.hasScore
+    ? rankedCompany?.rankScore ?? composite.compositeScore
+    : null;
+  const volumeWeightedBand = composite?.hasScore && volumeWeightedScore !== null
+    ? getBand(survey.surveyType, volumeWeightedScore)
+    : composite?.band ?? null;
   const template = getReportTemplateConfig(survey.surveyType);
   const includeComments = input.includeComments ?? true;
   const comments = includeComments
@@ -406,6 +427,8 @@ export function createCompanyReportData(input: CreateCompanyReportDataInput): Co
     reportingPeriod: input.reportingPeriod?.trim() || survey.title,
     template,
     composite,
+    volumeWeightedScore,
+    volumeWeightedBand,
     generatedOn:
       input.generatedOn ||
       new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
@@ -421,7 +444,7 @@ export function createCompanyReportData(input: CreateCompanyReportDataInput): Co
 }
 
 export function getReportAverageText(data: CompanyReportData): string {
-  return data.composite?.hasScore
-    ? formatCompositeScore(data.surveyType, data.composite.compositeScore).text
+  return data.composite?.hasScore && data.volumeWeightedScore !== null
+    ? formatCompositeScore(data.surveyType, data.volumeWeightedScore).text
     : 'N/A';
 }

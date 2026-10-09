@@ -364,6 +364,10 @@ export interface RawEvalImportSummary {
   needsReclassification: ReclassificationNotice[];
   addedCompanies: string[];
   skippedCompanies: string[];
+  /** The matching standard survey form was reopened after this import. */
+  accessReactivated?: boolean;
+  /** Responses were imported, but the matching form's access update failed. */
+  accessReactivationError?: string;
 }
 
 export interface RawEvalCommitResult {

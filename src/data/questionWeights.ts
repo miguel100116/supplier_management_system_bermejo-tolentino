@@ -13,8 +13,8 @@ import { SurveyType } from '../types/survey';
  *   (average / 2 * 100) internally so every survey type can share one
  *   leaderboard axis and one set of chart components, but Subcontractor is
  *   converted back to its native 0-2.0 scale for display (see
- *   formatCompositeScore below) and banded on its own paper-form thresholds
- *   (see SUBCONTRACTOR_BANDS / COURIER_SUPPLIER_BANDS below).
+ *   formatCompositeScore below). All partner types use the same 0-100 rating
+ *   bands against that normalized composite score.
  */
 export interface QuestionWeight {
   questionId: string;
@@ -86,29 +86,24 @@ export interface ScoreBand {
   correctiveAction?: boolean;
 }
 
-// 4-tier rating legend taken directly from the paper Courier/Supplier
-// Performance Evaluation Report forms (Form 20-002 Form 2/4): 100-95
-// Excellent, 94-89 Good, 88-80 Satisfactory, 79-and-below Unsatisfactory
-// (triggers a Supplier/Courier Corrective Action per the form). Courier and
-// Supplier composite scores are already native 0-100 point totals (see
-// computeCompanyComposite), so these thresholds apply directly with no
-// scaling.
-const COURIER_SUPPLIER_BANDS: ScoreBand[] = [
+// The approved rating scale for all partner types is: 95-100 Excellent,
+// 89-94 Satisfactory, 80-88 Good, and 79-and-below Unsatisfactory. Scores
+// are compared on their shared normalized 0-100 composite scale.
+const APPROVED_RATING_BANDS: ScoreBand[] = [
   { label: 'Excellent', min: 95, hex: '#0d6b3f' },       // Dark Green
-  { label: 'Good', min: 89, hex: '#1baf7a' },             // Green
-  { label: 'Satisfactory', min: 80, hex: '#eab308' },     // Yellow
-  { label: 'Unsatisfactory', min: 0, hex: '#dc2626', correctiveAction: true }, // Red
+  { label: 'Satisfactory', min: 89, hex: '#1baf7a' },     // Green
+  { label: 'Good', min: 80, hex: '#eab308' },             // Yellow
+  { label: 'Unsatisfactory', min: 0, hex: '#dc2626' },    // Red
 ];
 
-// 4-tier standing system taken from the paper Subcontractor Performance
-// Evaluation Report form (5 categories, 20% weight each, native 0-2.0 scale,
-// 0.2 increments).
-const SUBCONTRACTOR_BANDS: ScoreBand[] = [
-  { label: 'Top Performer', min: 1.5, hex: '#0d6b3f' },       // Dark Green
-  { label: 'Good Performer', min: 1.0, hex: '#1baf7a' },      // Green
-  { label: 'Marginal Performer', min: 0.5, hex: '#eab308' },  // Yellow
-  { label: 'Poor Performer', min: 0, hex: '#f97316' },        // Orange
-];
+// Courier and Supplier retain their form-specific corrective-action remark;
+// Subcontractor uses the same rating names and ranges without that remark.
+const COURIER_SUPPLIER_BANDS: ScoreBand[] = APPROVED_RATING_BANDS.map((band) => (
+  band.label === 'Unsatisfactory'
+    ? { ...band, correctiveAction: true }
+    : { ...band }
+));
+const SUBCONTRACTOR_BANDS: ScoreBand[] = APPROVED_RATING_BANDS.map((band) => ({ ...band }));
 
 export const ratingBands: Record<SurveyType, ScoreBand[]> = {
   Courier: COURIER_SUPPLIER_BANDS,
@@ -116,14 +111,11 @@ export const ratingBands: Record<SurveyType, ScoreBand[]> = {
   Subcontractor: SUBCONTRACTOR_BANDS,
 };
 
-// percentScore is always the shared 0-100 composite value (see
-// computeCompanyComposite in scoring.ts) - Subcontractor is converted down
-// to its native 0-2.0 scale here so callers never have to know the
-// difference.
+// percentScore is the shared normalized 0-100 composite value for every
+// survey type (see computeCompanyComposite in scoring.ts).
 export function getBand(surveyType: SurveyType, percentScore: number): ScoreBand {
   const bands = ratingBands[surveyType];
-  const scoreForLookup = surveyType === 'Subcontractor' ? percentScore / 50 : percentScore;
-  return bands.find((b) => scoreForLookup >= b.min) ?? bands[bands.length - 1];
+  return bands.find((band) => percentScore >= band.min) ?? bands[bands.length - 1];
 }
 
 // Full remark text for a band - same as the label, except the Courier/
